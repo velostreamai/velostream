@@ -16,9 +16,12 @@ table:
 # Data source for populating this table
 data_source:
   type: file
-  path: ./demo/trading/data/regulatory_watchlist.csv
   format: csv
   has_headers: true
+
+# File path for the data
+file:
+  path: ../data/regulatory_watchlist.csv
 
 # Table schema definition
 schema:

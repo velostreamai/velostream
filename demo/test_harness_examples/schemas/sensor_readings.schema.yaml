@@ -78,9 +78,10 @@ fields:
     null_probability: 0.05
 
   - name: event_time
-    type: timestamp
+    type: integer
     nullable: false
+    description: Event timestamp (epoch milliseconds)
     constraints:
-      timestamp_range:
+      timestamp_epoch_ms:
         start: "-1h"
         end: "now"

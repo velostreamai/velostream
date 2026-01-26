@@ -137,6 +137,7 @@ impl SpecGenerator {
                     timeout_ms: Some(self.default_timeout_ms),
                     capture_format: Default::default(),
                     capture_schema: None,
+                    metric_assertions: Vec::new(),
                 }))
             }
 
@@ -169,6 +170,7 @@ impl SpecGenerator {
                     timeout_ms: Some(self.default_timeout_ms),
                     capture_format: Default::default(),
                     capture_schema: None,
+                    metric_assertions: Vec::new(),
                 }))
             }
 
@@ -188,6 +190,7 @@ impl SpecGenerator {
                     timeout_ms: Some(self.default_timeout_ms),
                     capture_format: Default::default(),
                     capture_schema: None,
+                    metric_assertions: Vec::new(),
                 }))
             }
 

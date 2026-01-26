@@ -383,10 +383,11 @@ impl WindowStrategy for TumblingWindowStrategy {
             self.buffer.push_back(record);
 
             // Track if this is a late arrival for metrics
-            if self.window_emitted && timestamp < self.window_end_time.unwrap_or(i64::MAX) {
-                if let Ok(mut m) = self.metrics.lock() {
-                    m.late_firing_records += 1;
-                }
+            if self.window_emitted
+                && timestamp < self.window_end_time.unwrap_or(i64::MAX)
+                && let Ok(mut m) = self.metrics.lock()
+            {
+                m.late_firing_records += 1;
             }
 
             return Ok(should_emit);
@@ -400,7 +401,23 @@ impl WindowStrategy for TumblingWindowStrategy {
             return Ok(true); // Must emit current window when next window's record arrives
         }
 
-        // Record is too old - outside allowed_lateness and belongs to a previous window
+        // PARTITION-BATCHED FIX: Check if this record belongs to a historical window
+        // With partition-batched delivery, records can arrive MANY windows late
+        // but they should still be aggregated with their correct window
+        if let Some(hist_window_end) = self.find_historical_window_for_timestamp(timestamp) {
+            // Found a historical window for this timestamp - add record to its buffer
+            if let Some(hist_window) = self.historical_windows.get_mut(&hist_window_end) {
+                hist_window.buffer.push_back(record);
+                if let Ok(mut m) = self.metrics.lock() {
+                    m.late_firing_records += 1;
+                }
+                // Return true to signal that a late-firing re-emission might be needed
+                // The adapter will handle re-aggregating the historical window
+                return Ok(true);
+            }
+        }
+
+        // Record is too old - outside allowed_lateness and no historical window found
         // Discard it
         if let Ok(mut m) = self.metrics.lock() {
             m.late_arrival_discards += 1;
@@ -488,29 +505,46 @@ impl WindowStrategy for TumblingWindowStrategy {
         let grace_period_end = window_end_time + grace_period_ms;
 
         if let Some(start) = self.window_start_time {
-            let mut records_removed = 0;
-            while let Some(record) = self.buffer.front() {
-                if let Ok(ts) = self.extract_timestamp(record) {
-                    // Only remove if record is before start of current window
-                    // AND outside grace period of previous window
-                    if ts < start && ts < grace_period_end - self.window_size_ms {
-                        self.buffer.pop_front();
-                        records_removed += 1;
-                    } else {
-                        break; // Records are time-ordered
-                    }
+            // PARTITION-BATCHED FIX: Don't assume time ordering!
+            // With partition-batched delivery, records are NOT in timestamp order.
+            // We must scan all records and use retain() instead of the while-pop loop.
+            let removal_threshold = grace_period_end - self.window_size_ms;
+            let original_len = self.buffer.len();
+
+            // Extract timestamps using the same method as add_record()
+            // to handle both metadata timestamps and field-based timestamps
+            let timestamps: Vec<Option<i64>> = self
+                .buffer
+                .iter()
+                .map(|record| self.extract_timestamp(record).ok())
+                .collect();
+
+            let mut idx = 0;
+            self.buffer.retain(|_record| {
+                let result = if let Some(ts) = timestamps.get(idx).and_then(|t| *t) {
+                    // Keep if record is within current window's range
+                    // OR within grace period of previous window
+                    // Note: Records within allowed_lateness are kept in historical_windows,
+                    // not in the main buffer. This keeps the buffer bounded.
+                    let within_current = ts >= start;
+                    let within_grace = ts >= removal_threshold;
+                    within_current || within_grace
                 } else {
                     // If we can't extract timestamp, remove it
-                    self.buffer.pop_front();
-                    records_removed += 1;
-                }
-            }
+                    false
+                };
+                idx += 1;
+                result
+            });
+
+            let records_removed = original_len - self.buffer.len();
 
             // Track late arrivals that are still in buffer
-            if records_removed == 0 && buffer_size_before > 0 {
-                if let Ok(mut m) = self.metrics.lock() {
-                    m.grace_period_delays += 1;
-                }
+            if records_removed == 0
+                && buffer_size_before > 0
+                && let Ok(mut m) = self.metrics.lock()
+            {
+                m.grace_period_delays += 1;
             }
         }
 
@@ -538,6 +572,29 @@ impl WindowStrategy for TumblingWindowStrategy {
             window_end_time: self.window_end_time,
             emission_count: self.emission_count,
             buffer_size_bytes: self.buffer.len() * std::mem::size_of::<SharedRecord>(),
+        }
+    }
+
+    /// Get records from historical windows for late-firing re-aggregation.
+    ///
+    /// For partition-batched data, this returns windows that have received late records
+    /// since their initial emission and are within allowed_lateness.
+    fn get_historical_window_records(&self) -> Vec<(i64, Vec<SharedRecord>)> {
+        self.historical_windows
+            .iter()
+            .filter(|(window_end, _)| self.is_within_allowed_lateness(**window_end))
+            .map(|(window_end, hist_window)| {
+                (*window_end, hist_window.buffer.iter().cloned().collect())
+            })
+            .collect()
+    }
+
+    /// Clear a specific historical window after late-firing results have been emitted.
+    fn clear_historical_window(&mut self, window_end: i64) {
+        // Don't remove - just mark that we've re-emitted
+        // The cleanup_expired_windows() will handle removal based on allowed_lateness
+        if let Some(hist_window) = self.historical_windows.get_mut(&window_end) {
+            hist_window.emitted = true;
         }
     }
 }

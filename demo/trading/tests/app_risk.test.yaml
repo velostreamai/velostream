@@ -16,7 +16,8 @@ queries:
   - name: trading_positions_ts
     description: Test position tracking with event-time processing
     inputs:
-      - source: trading_positions_stream
+      - source: in_trading_positions_stream
+        schema: trading_positions
         records: 100
         time_simulation:
           start_time: "-1h"
@@ -38,3 +39,28 @@ queries:
 
           - type: no_nulls
             fields: [position_id, trader_id, symbol]
+
+          # Data accuracy: position_size should exist (can be positive or negative)
+          - type: schema_contains
+            key_field: position_id
+            fields:
+              - position_size
+              - current_pnl
+              - timestamp
+              - _event_time
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) now support @metric emission
+    metric_assertions:
+      - type: metric_exists
+        name: velo_trading_positions_total
+        expected_type: counter
+
+      - type: metric_counter
+        name: velo_trading_positions_total
+        operator: greater_than
+        value: 0
+
+      - type: metric_exists
+        name: velo_position_size
+        expected_type: gauge

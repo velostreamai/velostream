@@ -165,11 +165,22 @@ impl FieldValueComparator {
     }
 
     /// Compare two FieldValues using a binary operator and return boolean result
+    ///
+    /// SQL semantics for NULL comparisons (three-valued logic):
+    /// - NULL = anything → NULL (treated as false in boolean context)
+    /// - NULL != anything → NULL (treated as false in boolean context)
+    /// - NULL <op> anything → NULL (treated as false) for all comparison operators
     pub fn compare_values_for_boolean(
         left: &FieldValue,
         right: &FieldValue,
         op: &BinaryOperator,
     ) -> Result<bool, SqlError> {
+        // SQL three-valued logic: Any comparison involving NULL returns NULL
+        // In boolean context, NULL is treated as false
+        if matches!(left, FieldValue::Null) || matches!(right, FieldValue::Null) {
+            return Ok(false);
+        }
+
         match op {
             BinaryOperator::Equal => Ok(Self::values_equal_with_coercion(left, right)),
             BinaryOperator::NotEqual => Ok(!Self::values_equal_with_coercion(left, right)),
@@ -189,6 +200,9 @@ impl FieldValueComparator {
     }
 
     /// Compare numeric values with a comparison function
+    ///
+    /// SQL semantics: Comparisons involving NULL return false (NULL comparison result
+    /// treated as false in boolean context). This follows standard SQL three-valued logic.
     fn compare_numeric_values<F>(
         left: &FieldValue,
         right: &FieldValue,
@@ -197,6 +211,12 @@ impl FieldValueComparator {
     where
         F: Fn(f64, f64) -> bool,
     {
+        // SQL semantics: NULL compared with anything returns NULL (false in boolean context)
+        // This handles cases like MAX(volume) > 2000 when accumulator is empty
+        if matches!(left, FieldValue::Null) || matches!(right, FieldValue::Null) {
+            return Ok(false);
+        }
+
         let (left_num, right_num) = match (left, right) {
             // Pure numeric types
             (FieldValue::Integer(a), FieldValue::Integer(b)) => (*a as f64, *b as f64),

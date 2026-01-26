@@ -88,10 +88,10 @@ fields:
         max: 500000.0
 
   - name: timestamp
-    type: timestamp
-    description: Position update timestamp
+    type: integer
+    description: Position update timestamp (epoch ms)
     constraints:
-      timestamp_range:
+      timestamp_epoch_ms:
         start: "-5m"
         end: "now"
 

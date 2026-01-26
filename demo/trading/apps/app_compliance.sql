@@ -61,6 +61,13 @@
 -- @name: compliant_market_data
 -- @description: Filters out trades involving restricted traders or blocked instruments
 -- -----------------------------------------------------------------------------
+-- @metric: velo_compliant_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total compliant records processed"
+--
+-- @metric: velo_compliant_market_data_blocked_total
+-- @metric_type: counter
+-- @metric_help: "Total blocked records (compliance failures)"
 
 CREATE STREAM compliant_market_data AS
 SELECT
@@ -70,7 +77,7 @@ SELECT
     m.bid_price,
     m.ask_price,
     m.volume,
-    m.event_time,
+    m._event_time,
     m.timestamp,
     'COMPLIANT' as compliance_status
 FROM market_data_ts m
@@ -78,8 +85,8 @@ WHERE NOT EXISTS (
     SELECT 1 FROM regulatory_watchlist w
     WHERE (w.symbol = m.symbol OR w.trader_id IS NOT NULL)
       AND w.restriction_type IN ('BLOCKED', 'SUSPENDED')
-      AND w.effective_date <= m.event_time
-      AND (w.expiry_date IS NULL OR w.expiry_date > m.event_time)
+      AND w.effective_date <= m._event_time
+      AND (w.expiry_date IS NULL OR w.expiry_date > m._event_time)
 )
 EMIT CHANGES
 WITH (
@@ -106,6 +113,10 @@ WITH (
 -- @name: active_hours_market_data
 -- @description: Filters market data to only include actively trading instruments
 -- -----------------------------------------------------------------------------
+-- @metric: velo_active_hours_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records during active trading hours"
+-- @metric_labels: market_session
 
 CREATE STREAM active_hours_market_data AS
 SELECT
@@ -115,7 +126,7 @@ SELECT
     m.bid_price,
     m.ask_price,
     m.volume,
-    m.event_time,
+    m._event_time,
     m.timestamp,
     'ACTIVE_TRADING' as market_session,
     CASE
@@ -134,8 +145,8 @@ WHERE m.symbol IN (
 AND m.symbol NOT IN (
     SELECT symbol FROM trading_halts h
     WHERE halt_status = 'HALTED'
-      AND halt_start_time <= m.event_time
-      AND (halt_end_time IS NULL OR halt_end_time > m.event_time)
+      AND halt_start_time <= m._event_time
+      AND (halt_end_time IS NULL OR halt_end_time > m._event_time)
 )
 EMIT CHANGES
 WITH (

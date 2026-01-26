@@ -28,10 +28,10 @@ fields:
         weights: [0.40, 0.50, 0.10]
 
   - name: timestamp
-    type: timestamp
-    description: Market data timestamp
+    type: integer
+    description: Market data timestamp (epoch milliseconds)
     constraints:
-      timestamp_range:
+      timestamp_epoch_ms:
         start: "-5m"
         end: "now"
 

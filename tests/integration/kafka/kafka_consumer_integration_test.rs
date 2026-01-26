@@ -14,9 +14,9 @@
 //!
 //! # Running Tests
 //!
-//! These tests require Docker to be running. Run with:
+//! These tests require Docker to be running:
 //! ```bash
-//! cargo test --test mod kafka::kafka_consumer_integration_test -- --ignored
+//! cargo test integration::kafka
 //! ```
 
 use futures::StreamExt;
@@ -144,7 +144,6 @@ fn json_messages(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
 // ===== Integration Tests =====
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_kafka_consumer_basic_consumption() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-basic-consumption";
@@ -203,7 +202,6 @@ async fn test_kafka_consumer_basic_consumption() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_fast_consumer_with_config() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-fast-consumer";
@@ -260,7 +258,6 @@ async fn test_fast_consumer_with_config() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_unified_consumer_trait() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-unified-trait";
@@ -310,7 +307,6 @@ async fn test_unified_consumer_trait() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_performance_tier_configuration() {
     let env = KafkaTestEnv::new().await;
 
@@ -350,7 +346,6 @@ async fn test_performance_tier_configuration() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_consumer_commit() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-commit";
@@ -406,7 +401,6 @@ async fn test_consumer_commit() {
 /// 4. Creates a NEW consumer with the same group ID
 /// 5. Verifies the new consumer does NOT receive the already-committed messages
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_consumer_offset_commit_persists() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-offset-commit-persists";
@@ -566,7 +560,6 @@ async fn test_consumer_offset_commit_persists() {
 /// This specifically tests the scenario where enable.auto.commit=false and
 /// we rely on manual commit after processing.
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_transactional_consumer_manual_commit() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-txn-manual-commit";
@@ -643,7 +636,6 @@ async fn test_transactional_consumer_manual_commit() {
 // ===== Performance Tier Integration Tests =====
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_standard_tier_adapter() {
     use velostream::velostream::kafka::consumer_factory::ConsumerFactory;
 
@@ -702,7 +694,6 @@ async fn test_standard_tier_adapter() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_buffered_tier_adapter() {
     use velostream::velostream::kafka::consumer_factory::ConsumerFactory;
 
@@ -761,7 +752,6 @@ async fn test_buffered_tier_adapter() {
 }
 
 #[tokio::test]
-#[ignore] // Requires Docker - run with: cargo test --ignored
 async fn test_dedicated_tier_adapter() {
     use velostream::velostream::kafka::consumer_factory::ConsumerFactory;
 
@@ -822,4 +812,88 @@ async fn test_dedicated_tier_adapter() {
         received_count, 4,
         "Dedicated tier should have received 4 messages"
     );
+}
+
+// ===== Transactional Edge Case Tests =====
+
+/// Test that a consumer with `isolation.level=read_committed` can read messages
+/// produced by a NON-TRANSACTIONAL producer on testcontainers.
+///
+/// This tests the fix for the bug where:
+/// - Consumer position stayed `Invalid` because LSO wasn't advancing properly
+/// - The workaround seeks to beginning when Invalid positions are detected
+///
+/// Without the fix in `kafka_fast_consumer.rs`, this test would hang or timeout
+/// because the consumer would never receive any messages.
+///
+/// Related fix: `kafka_fast_consumer.rs` - seek to beginning when detecting
+/// Invalid positions with read_committed isolation level.
+#[tokio::test]
+async fn test_read_committed_consumer_with_non_transactional_messages() {
+    let env = KafkaTestEnv::new().await;
+    let topic = "test-read-committed-nontxn";
+
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
+
+    // Produce messages with NON-TRANSACTIONAL producer (like test harness does)
+    // This is key: messages have no transaction markers
+    let messages = json_messages(&[("key1", "value1"), ("key2", "value2"), ("key3", "value3")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
+
+    println!("Produced 3 non-transactional messages to topic '{}'", topic);
+
+    // Create consumer with read_committed isolation level
+    // This is what transactional processors use
+    let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-read-committed")
+        .isolation_level(
+            velostream::velostream::kafka::consumer_config::IsolationLevel::ReadCommitted,
+        );
+
+    let consumer = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
+        config,
+        JsonSerializer,
+        JsonSerializer,
+    )
+    .expect("Failed to create consumer");
+
+    consumer.subscribe(&[topic]).expect("Failed to subscribe");
+
+    // Consume messages - without the fix this would hang because position stays Invalid
+    let mut stream = consumer.stream();
+    let mut received_count = 0;
+
+    tokio::select! {
+        _ = async {
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(message) => {
+                        received_count += 1;
+                        println!("Received message {}: key={:?}", received_count, message.key());
+                        if received_count >= 3 {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error consuming message: {}", e);
+                        break;
+                    }
+                }
+            }
+        } => {}
+        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            panic!("Timeout waiting for messages - read_committed consumer may be stuck with Invalid position");
+        }
+    }
+
+    assert_eq!(
+        received_count, 3,
+        "read_committed consumer should receive all 3 non-transactional messages. \
+         If this fails, the Invalid position seek workaround may not be working."
+    );
+
+    println!("✅ read_committed consumer successfully read non-transactional messages");
 }

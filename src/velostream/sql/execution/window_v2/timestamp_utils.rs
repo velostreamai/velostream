@@ -54,8 +54,10 @@ pub(crate) fn extract_record_timestamp(
     let rec = record.as_ref();
 
     // Priority 1: System columns - Direct metadata access (zero overhead)
+    // Case-insensitive matching for system columns (e.g., _event_time, _EVENT_TIME, _Event_Time)
     if time_field.starts_with('_') {
-        return match time_field {
+        let upper_field = time_field.to_uppercase();
+        return match upper_field.as_str() {
             system_columns::TIMESTAMP => Ok(rec.timestamp),
             system_columns::EVENT_TIME => {
                 if let Some(event_time) = rec.event_time {
@@ -66,7 +68,10 @@ pub(crate) fn extract_record_timestamp(
                 }
             }
             _ => Err(SqlError::ExecutionError {
-                message: format!("Unknown system column '{}'", time_field),
+                message: format!(
+                    "Unknown system column '{}' (normalized: '{}'). Valid system columns: _TIMESTAMP, _EVENT_TIME",
+                    time_field, upper_field
+                ),
                 query: None,
             }),
         };
@@ -184,6 +189,27 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("Unknown system column")
+        );
+    }
+
+    #[test]
+    fn test_system_column_case_insensitive() {
+        // System columns should match case-insensitively
+        let record = create_test_record(1234567890);
+
+        // Lowercase _timestamp
+        let ts = extract_record_timestamp(&record, "_timestamp").unwrap();
+        assert_eq!(ts, 1234567890, "_timestamp (lowercase) should work");
+
+        // Mixed case _TimeStamp
+        let ts = extract_record_timestamp(&record, "_TimeStamp").unwrap();
+        assert_eq!(ts, 1234567890, "_TimeStamp (mixed case) should work");
+
+        // Lowercase _event_time
+        let ts = extract_record_timestamp(&record, "_event_time").unwrap();
+        assert_eq!(
+            ts, 1234567890,
+            "_event_time (lowercase) should work (fallback to timestamp)"
         );
     }
 

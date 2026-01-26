@@ -13,7 +13,7 @@ use crate::velostream::kafka::kafka_fast_producer::{PolledProducer, Transactiona
 use crate::velostream::serialization::helpers::{
     create_avro_codec, create_protobuf_codec, field_value_to_json,
 };
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use crate::velostream::sql::execution::types::StreamRecord;
 use async_trait::async_trait;
 use rdkafka::{
     ClientConfig,
@@ -220,7 +220,7 @@ impl KafkaDataWriter {
         };
 
         // Create appropriate producer based on transactional.id presence
-        let producer_kind = if let Some(txn_id) = transactional_id {
+        let producer_kind = if let Some(txn_id) = transactional_id.clone() {
             // Transactional mode: use TransactionalPolledProducer
             log::info!(
                 "KafkaDataWriter: Creating TRANSACTIONAL producer for topic '{}' with transactional.id='{}'",
@@ -228,91 +228,59 @@ impl KafkaDataWriter {
                 txn_id
             );
 
-            let txn_producer = TransactionalPolledProducer::with_config(
+            // Try to create transactional producer with 10-second timeout
+            match TransactionalPolledProducer::with_config(
                 brokers,
                 &txn_id,
                 Duration::from_secs(30), // init_transactions timeout
                 Some(&filtered_properties),
-            )?;
-
-            log::info!(
-                "KafkaDataWriter: Transactional producer initialized successfully (enable.idempotence=true, acks=all)"
-            );
-
-            ProducerKind::Transactional(txn_producer)
-        } else {
-            // Async mode: use BaseProducer with poll thread for max throughput
-            let producer_config = if let Some(batch_config) = batch_config {
-                let config = ConfigFactory::create_kafka_producer_config(
-                    brokers,
-                    &filtered_properties,
-                    &batch_config,
-                );
-                ConfigLogger::log_kafka_producer_config(&config, &batch_config, &topic, brokers);
-                config
-            } else {
-                let mut config = HashMap::new();
-                config.insert("bootstrap.servers".to_string(), brokers.to_string());
-                for (key, value) in filtered_properties.iter() {
-                    config.insert(key.clone(), value.clone());
+            ) {
+                Ok(txn_producer) => {
+                    log::info!("KafkaDataWriter: Transactional producer initialized successfully");
+                    ProducerKind::Transactional(txn_producer)
                 }
-                config
-            };
+                Err(e) => {
+                    // Check if fallback is allowed (for testing with testcontainers)
+                    let allow_fallback = std::env::var("VELOSTREAM_ALLOW_TRANSACTIONAL_FALLBACK")
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
 
-            // Create Kafka ClientConfig from our optimized configuration
-            let mut client_config = ClientConfig::new();
-            for (key, value) in &producer_config {
-                client_config.set(key, value);
+                    if allow_fallback {
+                        log::warn!(
+                            "KafkaDataWriter: Transactional producer init failed for topic '{}': {}. \
+                             Falling back to non-transactional (VELOSTREAM_ALLOW_TRANSACTIONAL_FALLBACK=true). \
+                             WARNING: Exactly-once semantics are NOT guaranteed!",
+                            topic,
+                            e
+                        );
+                        Self::create_non_transactional_producer(
+                            brokers,
+                            &topic,
+                            batch_config.as_ref(),
+                            &filtered_properties,
+                        )?
+                    } else {
+                        // Default: fail if transactional mode was requested but init fails
+                        // This ensures exactly-once guarantees are not silently broken
+                        return Err(format!(
+                            "Transactional producer initialization failed for topic '{}': {}. \
+                             Transactional mode was explicitly requested (transactional.id='{}') but \
+                             init_transactions() failed. This would break exactly-once semantics. \
+                             To allow fallback to non-transactional mode (for testing), set \
+                             VELOSTREAM_ALLOW_TRANSACTIONAL_FALLBACK=true",
+                            topic, e, txn_id
+                        ).into());
+                    }
+                }
             }
-
-            // Add high-throughput BaseProducer settings (if not already set by batch config)
-            if !producer_config.contains_key("queue.buffering.max.kbytes") {
-                client_config.set("queue.buffering.max.kbytes", "1048576"); // 1GB queue
-            }
-            if !producer_config.contains_key("queue.buffering.max.messages") {
-                client_config.set("queue.buffering.max.messages", "500000");
-            }
-            if !producer_config.contains_key("batch.size") {
-                client_config.set("batch.size", "1048576"); // 1MB batches
-            }
-            if !producer_config.contains_key("linger.ms") {
-                client_config.set("linger.ms", "5"); // Small delay for batching
-            }
-            if !producer_config.contains_key("compression.type") {
-                client_config.set("compression.type", "lz4");
-            }
-            if !producer_config.contains_key("acks") {
-                client_config.set("acks", "1"); // Leader only (faster flush)
-            }
-            if !producer_config.contains_key("enable.idempotence") {
-                client_config.set("enable.idempotence", "false"); // Disable for max throughput
-            }
-
-            // Configure broker address family (env: VELOSTREAM_BROKER_ADDRESS_FAMILY, default: v4)
-            apply_broker_address_family(&mut client_config);
-
-            // Create high-performance BaseProducer (sync, internal batching)
-            let producer: BaseProducer<DefaultProducerContext> = client_config.create()?;
-            let producer = Arc::new(producer);
-
-            // Create poll control and spawn initial poll thread
-            let poll_stop = Arc::new(AtomicBool::new(false));
-            let poll_thread = Self::spawn_poll_thread(
-                Arc::clone(&producer),
-                Arc::clone(&poll_stop),
-                topic.clone(),
-            );
-
-            log::info!(
-                "KafkaDataWriter: Created ASYNC producer for topic '{}' with dedicated poll thread",
-                topic
-            );
-
-            ProducerKind::Async {
-                producer,
-                poll_stop,
-                poll_thread: Some(poll_thread),
-            }
+        } else {
+            // Non-transactional mode: use the helper to create async producer
+            Self::create_non_transactional_producer(
+                brokers,
+                &topic,
+                batch_config.as_ref(),
+                &filtered_properties,
+            )?
         };
 
         let is_transactional = matches!(producer_kind, ProducerKind::Transactional(_));
@@ -337,6 +305,101 @@ impl KafkaDataWriter {
         Ok(writer)
     }
 
+    /// Create a non-transactional async producer
+    ///
+    /// This is used both for normal non-transactional mode and as a fallback
+    /// when transactional producer initialization fails.
+    fn create_non_transactional_producer(
+        brokers: &str,
+        topic: &str,
+        batch_config: Option<&crate::velostream::datasource::BatchConfig>,
+        properties: &HashMap<String, String>,
+    ) -> Result<ProducerKind, Box<dyn Error + Send + Sync>> {
+        // Filter out transactional properties that would conflict with non-transactional mode
+        let mut filtered_props: HashMap<String, String> = properties
+            .iter()
+            .filter(|(k, _)| {
+                !k.starts_with("transactional.")
+                    && k.as_str() != "transactional.id"
+                    && k.as_str() != "enable.idempotence"
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        // Explicitly set non-transactional settings
+        filtered_props.insert("enable.idempotence".to_string(), "false".to_string());
+
+        // Async mode: use BaseProducer with poll thread for max throughput
+        let producer_config = if let Some(batch_config) = batch_config {
+            let config =
+                ConfigFactory::create_kafka_producer_config(brokers, &filtered_props, batch_config);
+            ConfigLogger::log_kafka_producer_config(&config, batch_config, topic, brokers);
+            config
+        } else {
+            let mut config = HashMap::new();
+            config.insert("bootstrap.servers".to_string(), brokers.to_string());
+            for (key, value) in filtered_props.iter() {
+                config.insert(key.clone(), value.clone());
+            }
+            config
+        };
+
+        // Create Kafka ClientConfig from our optimized configuration
+        let mut client_config = ClientConfig::new();
+        for (key, value) in &producer_config {
+            client_config.set(key, value);
+        }
+
+        // Add high-throughput BaseProducer settings (if not already set by batch config)
+        if !producer_config.contains_key("queue.buffering.max.kbytes") {
+            client_config.set("queue.buffering.max.kbytes", "1048576"); // 1GB queue
+        }
+        if !producer_config.contains_key("queue.buffering.max.messages") {
+            client_config.set("queue.buffering.max.messages", "500000");
+        }
+        if !producer_config.contains_key("batch.size") {
+            client_config.set("batch.size", "1048576"); // 1MB batches
+        }
+        if !producer_config.contains_key("linger.ms") {
+            client_config.set("linger.ms", "5"); // Small delay for batching
+        }
+        if !producer_config.contains_key("compression.type") {
+            client_config.set("compression.type", "lz4");
+        }
+        if !producer_config.contains_key("acks") {
+            client_config.set("acks", "1"); // Leader only (faster flush)
+        }
+        if !producer_config.contains_key("enable.idempotence") {
+            client_config.set("enable.idempotence", "false"); // Disable for max throughput
+        }
+
+        // Configure broker address family (env: VELOSTREAM_BROKER_ADDRESS_FAMILY, default: v4)
+        apply_broker_address_family(&mut client_config);
+
+        // Create high-performance BaseProducer (sync, internal batching)
+        let producer: BaseProducer<DefaultProducerContext> = client_config.create()?;
+        let producer = Arc::new(producer);
+
+        // Create poll control and spawn initial poll thread
+        let poll_stop = Arc::new(AtomicBool::new(false));
+        let poll_thread = Self::spawn_poll_thread(
+            Arc::clone(&producer),
+            Arc::clone(&poll_stop),
+            topic.to_string(),
+        );
+
+        log::info!(
+            "KafkaDataWriter: Created ASYNC producer for topic '{}' with dedicated poll thread",
+            topic
+        );
+
+        Ok(ProducerKind::Async {
+            producer,
+            poll_stop,
+            poll_thread: Some(poll_thread),
+        })
+    }
+
     /// FAIL FAST: Validate topic configuration to prevent silent data loss
     ///
     /// This prevents the catastrophic bug where records are processed successfully
@@ -345,8 +408,7 @@ impl KafkaDataWriter {
     fn validate_topic_configuration(topic: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Check for empty topic name - ALWAYS fail
         if topic.is_empty() {
-            return Err(format!(
-                "CONFIGURATION ERROR: Kafka sink topic name is empty.\n\
+            return Err("CONFIGURATION ERROR: Kafka sink topic name is empty.\n\
                  \n\
                  A valid Kafka topic name MUST be configured. Please configure via:\n\
                  1. YAML config file: 'topic.name: <topic_name>'\n\
@@ -354,8 +416,7 @@ impl KafkaDataWriter {
                  3. Direct parameter when creating KafkaDataWriter\n\
                  \n\
                  This validation prevents silent data loss from writing to misconfigured topics."
-            )
-            .into());
+                .into());
         }
 
         // Warn about suspicious topic names that might indicate misconfiguration
@@ -1568,7 +1629,9 @@ impl DataWriter for KafkaDataWriter {
     }
 
     fn supports_transactions(&self) -> bool {
-        true
+        // Only report transaction support if the producer was created in transactional mode
+        // If we fell back to non-transactional mode, we should not claim transaction support
+        self.is_transactional()
     }
 }
 
@@ -1595,13 +1658,11 @@ impl Drop for KafkaDataWriter {
                 poll_stop.store(true, Ordering::Relaxed);
 
                 // Wait for poll thread to finish
-                if let Some(handle) = poll_thread.take() {
-                    if let Err(e) = handle.join() {
-                        log::warn!(
-                            "KafkaDataWriter: Poll thread panicked during shutdown: {:?}",
-                            e
-                        );
-                    }
+                if let Some(Err(e)) = poll_thread.take().map(|h| h.join()) {
+                    log::warn!(
+                        "KafkaDataWriter: Poll thread panicked during shutdown: {:?}",
+                        e
+                    );
                 }
 
                 // Final flush to ensure all queued messages are delivered

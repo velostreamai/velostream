@@ -128,6 +128,8 @@ pub struct PartitionReceiver {
     // When present, run() polls this queue instead of waiting on receiver
     queue: Option<Arc<SegQueue<Vec<StreamRecord>>>>,
     eof_flag: Option<Arc<AtomicBool>>,
+    /// Job name for metric emission (derived from query)
+    job_name: String,
 }
 
 impl PartitionReceiver {
@@ -167,6 +169,9 @@ impl PartitionReceiver {
             .with_dlq(config.enable_dlq)
             .build();
 
+        // Extract job name from query for metric emission
+        let job_name = Self::extract_job_name(&query);
+
         Self {
             partition_id,
             execution_engine,
@@ -179,6 +184,7 @@ impl PartitionReceiver {
             job_metrics: JobMetrics::new(),
             queue: None,
             eof_flag: None,
+            job_name,
         }
     }
 
@@ -224,6 +230,9 @@ impl PartitionReceiver {
         // This keeps the receiver field intact but unused
         let (_, rx) = tokio::sync::mpsc::channel::<Vec<StreamRecord>>(1);
 
+        // Extract job name from query for metric emission
+        let job_name = Self::extract_job_name(&query);
+
         Self {
             partition_id,
             execution_engine,
@@ -236,7 +245,96 @@ impl PartitionReceiver {
             job_metrics: JobMetrics::new(),
             queue: Some(queue),
             eof_flag: Some(eof_flag),
+            job_name,
         }
+    }
+
+    /// Extract job name from query for metric emission
+    fn extract_job_name(query: &StreamingQuery) -> String {
+        match query {
+            StreamingQuery::CreateStream { name, .. } => name.clone(),
+            StreamingQuery::CreateTable { name, .. } => name.clone(),
+            StreamingQuery::Select { .. } => "select_query".to_string(),
+            _ => "unknown_query".to_string(),
+        }
+    }
+
+    /// Register SQL-annotated metrics (@metric annotations) with Prometheus
+    ///
+    /// This method MUST be called before emit_sql_metrics() to register the metrics
+    /// with the Prometheus metrics registry. Follows the same pattern as
+    /// SimpleJobProcessor and TransactionalJobProcessor for consistency.
+    async fn register_sql_metrics(&self) {
+        let obs = self.observability_wrapper.observability_ref();
+
+        // Register counter metrics
+        if let Err(e) = self
+            .observability_wrapper
+            .metrics_helper()
+            .register_counter_metrics(&self.query, obs, &self.job_name)
+            .await
+        {
+            warn!(
+                "PartitionReceiver {}: Failed to register counter metrics: {}",
+                self.partition_id, e
+            );
+        }
+
+        // Register gauge metrics
+        if let Err(e) = self
+            .observability_wrapper
+            .metrics_helper()
+            .register_gauge_metrics(&self.query, obs, &self.job_name)
+            .await
+        {
+            warn!(
+                "PartitionReceiver {}: Failed to register gauge metrics: {}",
+                self.partition_id, e
+            );
+        }
+
+        // Register histogram metrics
+        if let Err(e) = self
+            .observability_wrapper
+            .metrics_helper()
+            .register_histogram_metrics(&self.query, obs, &self.job_name)
+            .await
+        {
+            warn!(
+                "PartitionReceiver {}: Failed to register histogram metrics: {}",
+                self.partition_id, e
+            );
+        }
+    }
+
+    /// Emit SQL-annotated metrics (@metric annotations) for processed records
+    ///
+    /// This method emits counter, gauge, and histogram metrics defined in SQL
+    /// via @metric annotations. It follows the same pattern as SimpleJobProcessor
+    /// and TransactionalJobProcessor for consistency.
+    ///
+    /// NOTE: register_sql_metrics() must be called first to register metrics with Prometheus.
+    async fn emit_sql_metrics(&self, output_records: &[Arc<StreamRecord>]) {
+        // Get observability reference for metric emission
+        let obs = self.observability_wrapper.observability_ref();
+
+        // Emit counter metrics
+        self.observability_wrapper
+            .metrics_helper()
+            .emit_counter_metrics(&self.query, output_records, obs, &self.job_name)
+            .await;
+
+        // Emit gauge metrics
+        self.observability_wrapper
+            .metrics_helper()
+            .emit_gauge_metrics(&self.query, output_records, obs, &self.job_name)
+            .await;
+
+        // Emit histogram metrics
+        self.observability_wrapper
+            .metrics_helper()
+            .emit_histogram_metrics(&self.query, output_records, obs, &self.job_name)
+            .await;
     }
 
     /// Partition ID accessor
@@ -274,6 +372,10 @@ impl PartitionReceiver {
             self.partition_id,
             self.queue.is_some()
         );
+
+        // Register @metric annotations with Prometheus before processing
+        // This must happen before any emit_sql_metrics() calls
+        self.register_sql_metrics().await;
 
         let mut total_records = 0u64;
         let mut batch_count = 0u64;
@@ -368,6 +470,11 @@ impl PartitionReceiver {
                                 output_records.len(),
                                 total_records
                             );
+
+                            // Emit @metric annotations for processed records
+                            if !output_records.is_empty() {
+                                self.emit_sql_metrics(&output_records).await;
+                            }
 
                             // Write output records to sink if available
                             if !output_records.is_empty() {

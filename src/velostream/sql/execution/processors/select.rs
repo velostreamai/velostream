@@ -785,37 +785,11 @@ impl SelectProcessor {
                 &mut header_mutations,
             )?;
 
-            // FR-081: Convert event_time_value to DateTime if _event_time was assigned
-            // Default to NOW() if not assigned or conversion fails
-            let computed_event_time = match event_time_value {
-                Some(val) => {
-                    match val {
-                        FieldValue::Integer(millis) => {
-                            // Convert milliseconds since epoch to DateTime
-                            chrono::DateTime::from_timestamp(
-                                millis / 1000,
-                                ((millis % 1000) * 1_000_000) as u32,
-                            )
-                            .or_else(|| Some(chrono::Utc::now()))
-                        }
-                        FieldValue::Timestamp(naive_dt) => {
-                            // Convert NaiveDateTime to DateTime<Utc>
-                            Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                                naive_dt,
-                                chrono::Utc,
-                            ))
-                        }
-                        _ => {
-                            // Other types: String, Float, Boolean, ScaledInteger default to NOW()
-                            Some(chrono::Utc::now())
-                        }
-                    }
-                }
-                None => {
-                    // No _event_time assigned: default to NOW()
-                    Some(chrono::Utc::now())
-                }
-            };
+            // FR-081: Compute event_time from _EVENT_TIME alias or preserve from input
+            let computed_event_time = Self::compute_output_event_time(
+                event_time_value.as_ref(),
+                joined_record.event_time,
+            );
 
             let final_record = StreamRecord {
                 fields: result_fields,
@@ -1325,7 +1299,7 @@ impl SelectProcessor {
                     }
                     // Handle IN operator with accumulator support
                     crate::velostream::sql::ast::BinaryOperator::In => {
-                        // NULL IN (...) returns false
+                        // SQL semantics: NULL IN (...) returns NULL, treated as false in boolean context
                         if matches!(left_value, FieldValue::Null) {
                             return Ok(FieldValue::Boolean(false));
                         }
@@ -1343,12 +1317,16 @@ impl SelectProcessor {
                                 }
                                 Ok(FieldValue::Boolean(false))
                             }
-                            _ => Ok(FieldValue::Boolean(false)),
+                            _ => Err(SqlError::ExecutionError {
+                                message: "IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
                         }
                     }
                     // Handle NOT IN operator with accumulator support
                     crate::velostream::sql::ast::BinaryOperator::NotIn => {
-                        // NULL NOT IN (...) returns false
+                        // SQL semantics: NULL NOT IN (...) returns NULL, treated as false in boolean context
                         if matches!(left_value, FieldValue::Null) {
                             return Ok(FieldValue::Boolean(false));
                         }
@@ -1366,7 +1344,11 @@ impl SelectProcessor {
                                 }
                                 Ok(FieldValue::Boolean(true))
                             }
-                            _ => Ok(FieldValue::Boolean(true)),
+                            _ => Err(SqlError::ExecutionError {
+                                message: "NOT IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
                         }
                     }
                     _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
@@ -1378,8 +1360,11 @@ impl SelectProcessor {
                 else_clause,
             } => {
                 for (condition, result) in when_clauses {
-                    let cond_value =
-                        Self::evaluate_group_expression_with_accumulator(condition, accumulator, record)?;
+                    let cond_value = Self::evaluate_group_expression_with_accumulator(
+                        condition,
+                        accumulator,
+                        record,
+                    )?;
                     let cond_bool = match cond_value {
                         FieldValue::Boolean(b) => b,
                         FieldValue::Integer(i) => i != 0,
@@ -1515,11 +1500,30 @@ impl SelectProcessor {
             }
         }
 
+        // Extract SELECT aliases - these are computed fields that should not be validated
+        // as input fields (e.g., "spike_classification" defined as a CASE alias)
+        let mut select_aliases = std::collections::HashSet::new();
+        for field in fields {
+            match field {
+                SelectField::Expression {
+                    alias: Some(alias_name),
+                    ..
+                } => {
+                    select_aliases.insert(alias_name.clone());
+                }
+                SelectField::AliasedColumn { alias, .. } => {
+                    select_aliases.insert(alias.clone());
+                }
+                _ => {}
+            }
+        }
+
         // Delegate to AccumulatorManager for proper accumulation
         AccumulatorManager::process_record_into_accumulator(
             accumulator,
             record,
             &aggregate_expressions,
+            &select_aliases,
         )?;
 
         // FR-079 Phase 7: Ensure numeric_values are populated for all columns used in non-function expressions
@@ -1683,6 +1687,22 @@ impl SelectProcessor {
             }
         }
 
+        // FR-081: Compute event_time from _EVENT_TIME in result_fields or preserve from input
+        // Try direct lookup first (uppercase), then scan for case-insensitive match
+        // This handles both `AS _EVENT_TIME` and `AS _event_time` aliases
+        let event_time_field_value = result_fields.get(system_columns::EVENT_TIME).or_else(|| {
+            result_fields.iter().find_map(|(k, v)| {
+                if system_columns::normalize_if_system_column(k) == Some(system_columns::EVENT_TIME)
+                {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+        });
+        let computed_event_time =
+            Self::compute_output_event_time(event_time_field_value, record.event_time);
+
         // Apply dual-mode aggregation behavior based on emit mode
         use crate::velostream::sql::ast::EmitMode;
         let default_mode = EmitMode::Changes;
@@ -1706,7 +1726,7 @@ impl SelectProcessor {
                     offset: record.offset,
                     partition: record.partition,
                     headers: record.headers.clone(),
-                    event_time: None,
+                    event_time: computed_event_time,
                     topic: None,
                     key: None,
                 };
@@ -3015,6 +3035,53 @@ impl SelectProcessor {
             (FieldValue::Float(a), FieldValue::Integer(b)) => (a - *b as f64).abs() < f64::EPSILON,
             _ => false,
         }
+    }
+
+    /// Convert a FieldValue to DateTime<Utc> for event-time assignment
+    ///
+    /// FR-081: Enables derived event-time via SQL expressions like:
+    ///   SELECT trade_timestamp AS _EVENT_TIME, ...
+    ///   SELECT CAST(JSON_EXTRACT(payload, '$.ts') AS BIGINT) AS _EVENT_TIME, ...
+    ///
+    /// Returns:
+    /// - Some(DateTime) if value can be converted (Integer as millis, Timestamp)
+    /// - None if value cannot be converted (String, Boolean, etc.)
+    fn field_value_to_event_time(value: &FieldValue) -> Option<chrono::DateTime<chrono::Utc>> {
+        match value {
+            FieldValue::Integer(millis) => {
+                // Convert milliseconds since epoch to DateTime
+                chrono::DateTime::from_timestamp(
+                    millis / 1000,
+                    ((millis % 1000) * 1_000_000) as u32,
+                )
+            }
+            FieldValue::Timestamp(naive_dt) => {
+                // Convert NaiveDateTime to DateTime<Utc>
+                Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                    *naive_dt,
+                    chrono::Utc,
+                ))
+            }
+            _ => {
+                // Other types (String, Boolean, Float, etc.) cannot be converted
+                None
+            }
+        }
+    }
+
+    /// Compute event_time for output record from _EVENT_TIME alias or input record
+    ///
+    /// FR-081: Supports derived event-time via SQL aliasing.
+    /// Falls back to input record's event_time when:
+    /// - No _EVENT_TIME alias was used
+    /// - The aliased value couldn't be converted to DateTime
+    fn compute_output_event_time(
+        event_time_value: Option<&FieldValue>,
+        fallback: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        event_time_value
+            .and_then(Self::field_value_to_event_time)
+            .or(fallback)
     }
 
     /// Compare two FieldValues using a comparison function for HAVING evaluation

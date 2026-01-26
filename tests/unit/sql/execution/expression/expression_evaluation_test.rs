@@ -327,3 +327,291 @@ async fn test_not_in_operator_with_alias() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), FieldValue::Boolean(true));
 }
+
+/// Test _EVENT_TIME system column fallback behavior
+///
+/// _EVENT_TIME should:
+/// 1. Return event_time if explicitly set
+/// 2. Fall back to _TIMESTAMP (processing time) if not set
+///
+/// This matches Flink/ksqlDB semantics where event time is always available.
+#[test]
+fn test_event_time_fallback_to_timestamp() {
+    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
+
+    // Create a record WITHOUT explicit event_time (simulates default case)
+    let record_without_event_time = {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(1));
+        StreamRecord {
+            fields,
+            timestamp: 1640995200000, // Processing time: 2022-01-01 00:00:00 UTC
+            offset: 0,
+            partition: 0,
+            event_time: None, // NOT SET - should fall back to timestamp
+            headers: HashMap::new(),
+            topic: None,
+            key: None,
+        }
+    };
+
+    // _EVENT_TIME should return the processing timestamp when event_time is None
+    let event_time_expr = Expr::Column("_EVENT_TIME".to_string());
+    let result = ExpressionEvaluator::evaluate_expression_value(
+        &event_time_expr,
+        &record_without_event_time,
+    );
+
+    assert!(result.is_ok(), "Should evaluate without error");
+    assert_eq!(
+        result.unwrap(),
+        FieldValue::Integer(1640995200000),
+        "_EVENT_TIME should fall back to _TIMESTAMP when not explicitly set"
+    );
+
+    // Create a record WITH explicit event_time
+    let record_with_event_time = {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(2));
+        let explicit_event_time = chrono::DateTime::from_timestamp_millis(1640998800000).unwrap(); // 2022-01-01 01:00:00 UTC
+        StreamRecord {
+            fields,
+            timestamp: 1640995200000, // Processing time: 2022-01-01 00:00:00 UTC
+            offset: 1,
+            partition: 0,
+            event_time: Some(explicit_event_time), // EXPLICITLY SET
+            headers: HashMap::new(),
+            topic: None,
+            key: None,
+        }
+    };
+
+    // _EVENT_TIME should return the explicit event_time when set
+    let result =
+        ExpressionEvaluator::evaluate_expression_value(&event_time_expr, &record_with_event_time);
+
+    assert!(result.is_ok(), "Should evaluate without error");
+    assert_eq!(
+        result.unwrap(),
+        FieldValue::Integer(1640998800000),
+        "_EVENT_TIME should return explicit event_time when set"
+    );
+}
+
+/// Test that _TIMESTAMP and _EVENT_TIME are both always available
+#[test]
+fn test_system_timestamp_columns_always_available() {
+    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
+
+    let record = {
+        let mut fields = HashMap::new();
+        fields.insert("data".to_string(), FieldValue::String("test".to_string()));
+        StreamRecord {
+            fields,
+            timestamp: 1640995200000,
+            offset: 42,
+            partition: 3,
+            event_time: None,
+            headers: HashMap::new(),
+            topic: None,
+            key: None,
+        }
+    };
+
+    // _TIMESTAMP should always be available
+    let timestamp_expr = Expr::Column("_TIMESTAMP".to_string());
+    let timestamp_result = ExpressionEvaluator::evaluate_expression_value(&timestamp_expr, &record);
+    assert!(timestamp_result.is_ok());
+    assert_eq!(
+        timestamp_result.unwrap(),
+        FieldValue::Integer(1640995200000)
+    );
+
+    // _EVENT_TIME should always be available (falls back to _TIMESTAMP)
+    let event_time_expr = Expr::Column("_EVENT_TIME".to_string());
+    let event_time_result =
+        ExpressionEvaluator::evaluate_expression_value(&event_time_expr, &record);
+    assert!(event_time_result.is_ok());
+    assert_eq!(
+        event_time_result.unwrap(),
+        FieldValue::Integer(1640995200000)
+    );
+
+    // _OFFSET should always be available
+    let offset_expr = Expr::Column("_OFFSET".to_string());
+    let offset_result = ExpressionEvaluator::evaluate_expression_value(&offset_expr, &record);
+    assert!(offset_result.is_ok());
+    assert_eq!(offset_result.unwrap(), FieldValue::Integer(42));
+
+    // _PARTITION should always be available
+    let partition_expr = Expr::Column("_PARTITION".to_string());
+    let partition_result = ExpressionEvaluator::evaluate_expression_value(&partition_expr, &record);
+    assert!(partition_result.is_ok());
+    assert_eq!(partition_result.unwrap(), FieldValue::Integer(3));
+}
+
+/// Test _EVENT_TIME aliasing in SELECT - derived event time from user field
+///
+/// This tests the feature where users can set event time via SQL:
+/// ```sql
+/// SELECT trade_timestamp AS _EVENT_TIME, symbol, price FROM trades
+/// ```
+///
+/// Use cases:
+/// 1. Time simulation for testing
+/// 2. Derived event time from nested/computed fields
+/// 3. Event time extracted via UDF or expression
+#[tokio::test]
+async fn test_event_time_aliasing_in_select() {
+    use tokio::sync::mpsc;
+    use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
+    use velostream::velostream::sql::execution::StreamExecutionEngine;
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+
+    // Query that aliases trade_timestamp as _EVENT_TIME
+    let query = StreamingQuery::Select {
+        distinct: false,
+        fields: vec![
+            SelectField::AliasedColumn {
+                column: "trade_timestamp".to_string(),
+                alias: "_EVENT_TIME".to_string(),
+            },
+            SelectField::Column("symbol".to_string()),
+            SelectField::Column("price".to_string()),
+        ],
+        key_fields: None,
+        from: StreamSource::Stream("trades".to_string()),
+        from_alias: None,
+        joins: None,
+        where_clause: None,
+        window: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        emit_mode: None,
+        properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
+    };
+
+    // Create a record with a specific trade_timestamp
+    let derived_event_time_ms: i64 = 1640998800000; // 2022-01-01 01:00:00 UTC
+    let processing_time_ms: i64 = 1640995200000; // 2022-01-01 00:00:00 UTC (earlier)
+
+    let mut fields = HashMap::new();
+    fields.insert(
+        "trade_timestamp".to_string(),
+        FieldValue::Integer(derived_event_time_ms),
+    );
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("price".to_string(), FieldValue::Float(150.0));
+
+    let record = StreamRecord {
+        fields,
+        timestamp: processing_time_ms,
+        offset: 1,
+        partition: 0,
+        event_time: None, // Not set at source level
+        headers: HashMap::new(),
+        topic: None,
+        key: None,
+    };
+
+    let result = engine.execute_with_record(&query, &record).await;
+    assert!(result.is_ok(), "Query should execute: {:?}", result.err());
+
+    let output = rx.try_recv().unwrap();
+
+    // Verify the output record has _EVENT_TIME in fields
+    assert_eq!(
+        output.fields.get("_EVENT_TIME"),
+        Some(&FieldValue::Integer(derived_event_time_ms)),
+        "_EVENT_TIME should be in output fields"
+    );
+
+    // Verify the event_time struct field was set from the alias
+    assert!(
+        output.event_time.is_some(),
+        "event_time struct field should be set from _EVENT_TIME alias"
+    );
+    assert_eq!(
+        output.event_time.unwrap().timestamp_millis(),
+        derived_event_time_ms,
+        "event_time should match the aliased trade_timestamp value"
+    );
+}
+
+/// Test _EVENT_TIME aliasing preserves input event_time when not explicitly set
+#[tokio::test]
+async fn test_event_time_preserved_when_not_aliased() {
+    use tokio::sync::mpsc;
+    use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
+    use velostream::velostream::sql::execution::StreamExecutionEngine;
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+
+    // Query that does NOT alias anything as _EVENT_TIME
+    let query = StreamingQuery::Select {
+        distinct: false,
+        fields: vec![
+            SelectField::Column("symbol".to_string()),
+            SelectField::Column("price".to_string()),
+        ],
+        key_fields: None,
+        from: StreamSource::Stream("trades".to_string()),
+        from_alias: None,
+        joins: None,
+        where_clause: None,
+        window: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        emit_mode: None,
+        properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
+    };
+
+    // Create a record WITH explicit event_time set at source level
+    let source_event_time = chrono::DateTime::from_timestamp_millis(1640998800000).unwrap();
+
+    let mut fields = HashMap::new();
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("price".to_string(), FieldValue::Float(150.0));
+
+    let record = StreamRecord {
+        fields,
+        timestamp: 1640995200000,
+        offset: 1,
+        partition: 0,
+        event_time: Some(source_event_time), // Set at source level
+        headers: HashMap::new(),
+        topic: None,
+        key: None,
+    };
+
+    let result = engine.execute_with_record(&query, &record).await;
+    assert!(result.is_ok(), "Query should execute: {:?}", result.err());
+
+    let output = rx.try_recv().unwrap();
+
+    // Verify event_time is preserved from input record
+    assert!(
+        output.event_time.is_some(),
+        "event_time should be preserved from input"
+    );
+    assert_eq!(
+        output.event_time.unwrap().timestamp_millis(),
+        source_event_time.timestamp_millis(),
+        "event_time should match input record's event_time"
+    );
+}

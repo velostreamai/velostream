@@ -1,27 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::ast::*;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-
-fn create_test_record(id: i64, amount: f64) -> StreamRecord {
-    let mut fields = HashMap::new();
-    fields.insert("id".to_string(), FieldValue::Integer(id));
-    fields.insert("amount".to_string(), FieldValue::Float(amount));
-
-    StreamRecord {
-        fields,
-        timestamp: 1609459200000, // Fixed timestamp for test consistency
-        offset: id,
-        partition: 0,
-        event_time: None,
-        headers: HashMap::new(),
-        topic: None,
-        key: None,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -506,38 +487,66 @@ mod tests {
             key: None,
         };
 
-        let before_exec = chrono::Utc::now();
         let result = engine.execute_with_record(&query, &record).await;
-        let after_exec = chrono::Utc::now();
 
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        // Even though _event_time wasn't assigned, event_time should be set to NOW()
+        // When _event_time isn't assigned and input has no event_time,
+        // output preserves None (correct event-time semantics - don't inject processing-time)
         assert!(
-            output.event_time.is_some(),
-            "event_time should default to NOW()"
-        );
-
-        let event_time = output.event_time.unwrap();
-        // Verify it's close to the execution time (within a few seconds)
-        assert!(
-            event_time
-                >= before_exec
-                    .checked_sub_signed(chrono::Duration::seconds(1))
-                    .unwrap()
-        );
-        assert!(
-            event_time
-                <= after_exec
-                    .checked_add_signed(chrono::Duration::seconds(1))
-                    .unwrap()
+            output.event_time.is_none(),
+            "event_time should be None when not assigned and input has no event_time"
         );
     }
 
     #[tokio::test]
-    async fn test_event_time_default_now_for_non_convertible_type() {
-        // FR-081: Test that event_time defaults to NOW() when _event_time value is non-convertible
+    async fn test_event_time_preserved_from_input_when_not_assigned() {
+        // FR-081: Test that event_time is preserved from input when not explicitly assigned
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut engine = StreamExecutionEngine::new(tx);
+
+        let parser = StreamingSqlParser::new();
+        let query = parser.parse("SELECT id, name FROM orders").unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(42));
+        fields.insert("name".to_string(), FieldValue::String("Test".to_string()));
+
+        // Input record HAS event_time set
+        let input_event_time = chrono::DateTime::from_timestamp_millis(1640998800000).unwrap();
+
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            event_time: Some(input_event_time),
+            headers: HashMap::new(),
+            topic: None,
+            key: None,
+        };
+
+        let result = engine.execute_with_record(&query, &record).await;
+
+        assert!(result.is_ok());
+
+        let output = rx.try_recv().unwrap();
+        // Event time should be preserved from input
+        assert!(
+            output.event_time.is_some(),
+            "event_time should be preserved from input"
+        );
+        assert_eq!(
+            output.event_time.unwrap().timestamp_millis(),
+            input_event_time.timestamp_millis(),
+            "event_time should match input record's event_time"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_event_time_fallback_for_non_convertible_type() {
+        // FR-081: Test that event_time falls back to input when _event_time value is non-convertible
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -554,6 +563,7 @@ mod tests {
             FieldValue::String("invalid timestamp".to_string()),
         );
 
+        // Input record has NO event_time
         let record = StreamRecord {
             fields,
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -565,32 +575,15 @@ mod tests {
             key: None,
         };
 
-        let before_exec = chrono::Utc::now();
         let result = engine.execute_with_record(&query, &record).await;
-        let after_exec = chrono::Utc::now();
 
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        // Non-convertible type should fallback to NOW()
+        // Non-convertible type falls back to input's event_time (None)
         assert!(
-            output.event_time.is_some(),
-            "event_time should default to NOW() for non-convertible type"
-        );
-
-        let event_time = output.event_time.unwrap();
-        // Verify it's close to NOW
-        assert!(
-            event_time
-                >= before_exec
-                    .checked_sub_signed(chrono::Duration::seconds(1))
-                    .unwrap()
-        );
-        assert!(
-            event_time
-                <= after_exec
-                    .checked_add_signed(chrono::Duration::seconds(1))
-                    .unwrap()
+            output.event_time.is_none(),
+            "event_time should be None when alias is non-convertible and input has no event_time"
         );
     }
 

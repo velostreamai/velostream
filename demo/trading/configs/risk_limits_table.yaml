@@ -17,6 +17,10 @@ data_source:
   format: csv
   has_headers: true
 
+# File path for the data
+file:
+  path: ../data/risk_limits.csv
+
 # Table schema definition
 schema:
   fields:

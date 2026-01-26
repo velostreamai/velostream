@@ -1,0 +1,75 @@
+# =============================================================================
+# Test: Metric Annotations
+# =============================================================================
+# Demonstrates @metric SQL annotations and metric_assertions validation.
+#
+# This test shows how to:
+# 1. Define metrics in SQL via @metric annotations
+# 2. Validate metrics exist using metric_assertions
+# 3. Check counter values with various operators
+# 4. Verify gauge values with tolerance
+
+application: metric_demo
+description: Test @metric SQL annotations and metric assertions
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: metric_output_stream
+    description: Verify metrics are emitted from SQL annotations
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 100
+
+    # Standard output assertions
+    assertions:
+      - type: record_count
+        equals: 100
+
+      - type: schema_contains
+        fields: [id, value, amount, count, active, event_time]
+
+      - type: no_nulls
+        fields: [id, value, amount]
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) support @metric emission
+    metric_assertions:
+      # Verify counter metric exists
+      - type: metric_exists
+        name: velo_metric_demo_records_total
+        expected_type: counter
+
+      # Verify counter has expected value (equals number of records)
+      - type: metric_counter
+        name: velo_metric_demo_records_total
+        operator: equals
+        value: 100
+
+      # Verify counter is greater than threshold
+      - type: metric_counter
+        name: velo_metric_demo_records_total
+        operator: greater_than
+        value: 0
+
+      # Verify gauge metric exists
+      - type: metric_exists
+        name: velo_metric_demo_amount
+        expected_type: gauge
+
+      # Verify gauge value is within range (between operator)
+      - type: metric_gauge
+        name: velo_metric_demo_amount
+        operator: between
+        between:
+          min: 0
+          max: 10000
+        tolerance: 0.01
+
+      # Verify histogram metric exists
+      - type: metric_exists
+        name: velo_metric_demo_value_distribution
+        expected_type: histogram
+
+    timeout_ms: 30000

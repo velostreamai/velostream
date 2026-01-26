@@ -519,6 +519,7 @@ impl StatementExecutor {
                 timeout_ms: None,
                 capture_format: Default::default(),
                 capture_schema: None,
+                metric_assertions: vec![],
             };
             match self.executor.execute_query(&minimal_query).await {
                 Ok(result) => (

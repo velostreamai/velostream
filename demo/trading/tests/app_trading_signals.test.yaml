@@ -35,3 +35,54 @@ queries:
 
           - type: no_nulls
             fields: [symbol]
+
+          # Data accuracy: avg_volume must be positive
+          - type: field_values
+            field: avg_volume
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: trade_count must be positive
+          - type: field_values
+            field: trade_count
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: min_volume must be positive
+          - type: field_values
+            field: min_volume
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: max_volume must be positive
+          - type: field_values
+            field: max_volume
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: stddev_volume must be non-negative
+          - type: field_values
+            field: stddev_volume
+            operator: greater_than_or_equals
+            value: 0
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) now support @metric emission
+    metric_assertions:
+      - type: metric_exists
+        name: velo_volume_spike_analysis_total
+        expected_type: counter
+
+      - type: metric_counter
+        name: velo_volume_spike_analysis_total
+        operator: greater_than
+        value: 0
+
+      - type: metric_exists
+        name: velo_avg_volume
+        expected_type: gauge
+
+      - type: metric_gauge
+        name: velo_avg_volume
+        operator: greater_than
+        value: 0

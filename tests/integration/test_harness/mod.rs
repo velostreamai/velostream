@@ -6,9 +6,11 @@
 //! - `generator_test`: Schema-driven data generation tests
 //! - `execution_test`: QueryExecutor and E2E SQL execution tests
 //! - `config_test`: Configuration and spec parsing tests
+//! - `metric_assertions_test`: Metric assertion validation tests
 
 pub mod assertion_test;
 pub mod config_test;
 pub mod execution_test;
 pub mod generator_test;
 pub mod infra_test;
+pub mod metric_assertions_test;
