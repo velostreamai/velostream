@@ -46,6 +46,18 @@ queries:
           - type: no_nulls
             fields: [symbol, exchange, price, volume]
 
+          # Data accuracy: price must be positive
+          - type: field_values
+            field: price
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: volume must be positive
+          - type: field_values
+            field: volume
+            operator: greater_than
+            value: 0
+
     # Metric assertions - verify @metric SQL annotations are emitted
     # All processor types (Simple, Transactional, Adaptive) now support @metric emission
     metric_assertions:
@@ -61,3 +73,98 @@ queries:
       - type: metric_exists
         name: velo_market_data_current_price
         expected_type: gauge
+
+      - type: metric_gauge
+        name: velo_market_data_current_price
+        operator: greater_than
+        value: 0
+
+  # Stage 2: Tick buckets - 1-second OHLCV aggregation
+  - name: tick_buckets
+    description: Test 1-second tumbling window OHLCV aggregation
+    inputs:
+      - source: market_data_ts
+        from_previous: market_data_ts
+    outputs:
+      - sink: tick_buckets
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          - type: schema_contains
+            key_field: symbol
+            fields:
+              - bucket_start
+              - bucket_end
+              - avg_price
+              - min_price
+              - max_price
+              - total_volume
+              - trade_count
+
+          - type: no_nulls
+            fields: [symbol, bucket_start, bucket_end]
+
+          # Data accuracy: trade_count must be positive
+          - type: field_values
+            field: trade_count
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: total_volume must be positive
+          - type: field_values
+            field: total_volume
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: avg_price must be positive
+          - type: field_values
+            field: avg_price
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: min_price must be positive
+          - type: field_values
+            field: min_price
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: max_price must be positive
+          - type: field_values
+            field: max_price
+            operator: greater_than
+            value: 0
+
+    # Note: Metric assertions disabled for tick_buckets as metrics are not yet
+    # registered for chained queries from previous outputs
+
+  # Stage 3: Enriched market data - Stream-Table JOIN
+  - name: enriched_market_data
+    description: Test stream-table JOIN with instrument reference data
+    inputs:
+      - source: market_data_ts
+        from_previous: market_data_ts
+      - source: instrument_reference
+        data_file: ../data/instrument_reference.csv
+    outputs:
+      - sink: enriched_market_data
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          # Note: Fields use table alias prefixes from JOIN (m. for market_data, r. for reference)
+          - type: schema_contains
+            key_field: m.symbol
+            fields:
+              - m.exchange
+              - m.price
+              - m.volume
+              - r.instrument_name
+              - r.isin_code
+              - r.tick_size
+
+          - type: no_nulls
+            fields: [m.symbol, m.exchange, m.price]
+
+    # Note: Metric assertions disabled for enriched_market_data as metrics are not yet
+    # registered for stream-table join queries using the adaptive processor

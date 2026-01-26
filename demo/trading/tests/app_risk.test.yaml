@@ -40,6 +40,15 @@ queries:
           - type: no_nulls
             fields: [position_id, trader_id, symbol]
 
+          # Data accuracy: position_size should exist (can be positive or negative)
+          - type: schema_contains
+            key_field: position_id
+            fields:
+              - position_size
+              - current_pnl
+              - timestamp
+              - _event_time
+
     # Metric assertions - verify @metric SQL annotations are emitted
     # All processor types (Simple, Transactional, Adaptive) now support @metric emission
     metric_assertions:

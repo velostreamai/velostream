@@ -96,6 +96,7 @@ show_help() {
     echo ""
     echo -e "${YELLOW}Options:${NC}"
     echo "  --kafka <servers>   Use external Kafka instead of testcontainers"
+    echo "  --reuse             Reuse existing Kafka container (faster for repeated runs)"
     echo "  --timeout <ms>      Timeout per query in milliseconds (default: 60000)"
     echo "  --output <format>   Output format: text, json, junit"
     echo "  -q, --query <name>  Run only a specific test case by name"
@@ -152,6 +153,10 @@ while [[ $# -gt 0 ]]; do
             KAFKA_SERVERS="$2"
             shift 2
             ;;
+        --reuse)
+            REUSE_CONTAINERS="--reuse-containers"
+            shift
+            ;;
         --query|-q)
             QUERY_FILTER="$2"
             shift 2
@@ -192,6 +197,10 @@ else
         fi
         echo -e "${BLUE}Docker detected - will use testcontainers for Kafka${NC}"
         KAFKA_OPTS="--use-testcontainers"
+        if [[ -n "$REUSE_CONTAINERS" ]]; then
+            KAFKA_OPTS="$KAFKA_OPTS $REUSE_CONTAINERS"
+            echo -e "${BLUE}Container reuse enabled for faster iteration${NC}"
+        fi
     fi
 fi
 

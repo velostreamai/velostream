@@ -131,6 +131,30 @@ cargo build --release --bin velo-test
 ./target/release/velo-test run demo/test_harness_examples/tier1_basic/01_passthrough.test.yaml
 ```
 
+#### Container Reuse for Faster Test Iterations
+
+When running tests with testcontainers, use `--reuse-containers` to keep the Kafka container running between test runs. This significantly speeds up subsequent test executions by skipping container startup (~5-10 seconds saved per run).
+
+```bash
+# First run - starts a new container with reuse label
+./target/release/velo-test run app.sql --spec test.yaml --use-testcontainers --reuse-containers
+
+# Subsequent runs - reuses existing container (instant startup)
+./target/release/velo-test run app.sql --spec test.yaml --use-testcontainers --reuse-containers
+
+# Clean up reusable containers manually when done
+docker ps --filter "label=velostream.test.reusable" --format "{{.ID}}" | xargs docker rm -f
+```
+
+**How it works**:
+- Containers are labeled with `velostream.test.reusable` for identification
+- On startup with `--reuse-containers`, the harness looks for existing labeled containers
+- If found, it connects to the existing container and cleans up stale topics
+- If not found, it starts a new labeled container
+- At test completion, the container is preserved for future runs
+
+**Without `--reuse-containers`**: Orphaned containers from previous runs are automatically cleaned up before starting fresh.
+
 #### Test Spec Structure
 
 ```yaml

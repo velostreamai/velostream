@@ -85,6 +85,244 @@ impl ContainerType {
             ContainerType::Redpanda => "Redpanda",
         }
     }
+
+    /// Get the Docker image name for this container type
+    pub fn image_filter(&self) -> &'static str {
+        match self {
+            ContainerType::Kafka => "confluentinc/cp-kafka",
+            ContainerType::Redpanda => "redpandadata/redpanda",
+        }
+    }
+
+    /// Get the internal port for this container type
+    pub fn internal_port(&self) -> u16 {
+        match self {
+            ContainerType::Kafka => 9093, // KAFKA_PORT
+            ContainerType::Redpanda => 9092, // REDPANDA_PORT
+        }
+    }
+}
+
+/// Label used to identify velostream test containers for reuse
+const VELOSTREAM_CONTAINER_LABEL: &str = "velostream.test.reusable";
+
+/// Label for container start timestamp (ISO 8601 format)
+const VELOSTREAM_CONTAINER_STARTED_LABEL: &str = "velostream.test.started";
+
+/// Find an available port for the container
+fn find_available_port() -> Option<u16> {
+    use std::net::TcpListener;
+
+    // Try to bind to port 0 to get an available port
+    TcpListener::bind("127.0.0.1:0")
+        .ok()
+        .and_then(|listener| listener.local_addr().ok())
+        .map(|addr| addr.port())
+}
+
+/// Wait for Kafka to be ready by attempting to connect
+async fn wait_for_kafka_ready(bootstrap_servers: &str, timeout: Duration) -> TestHarnessResult<()> {
+    let start = std::time::Instant::now();
+
+    while start.elapsed() < timeout {
+        // Try to create an admin client and fetch metadata
+        let config_result: Result<AdminClient<DefaultClientContext>, _> =
+            create_kafka_config(bootstrap_servers)
+                .set("socket.timeout.ms", "5000")
+                .set("request.timeout.ms", "5000")
+                .create();
+
+        if let Ok(admin) = config_result {
+            // Try to fetch metadata
+            if admin.inner()
+                .fetch_metadata(None, Duration::from_secs(5))
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    Err(TestHarnessError::InfraError {
+        message: format!(
+            "Kafka at {} not ready after {:?}",
+            bootstrap_servers, timeout
+        ),
+        source: None,
+    })
+}
+
+/// Find an existing reusable container and return its bootstrap servers
+///
+/// Looks for containers with the velostream label that are running and healthy.
+/// Returns the bootstrap servers address if found.
+pub fn find_reusable_container(container_type: ContainerType) -> Option<String> {
+    use std::process::Command;
+
+    // Find containers with our label, including the started timestamp
+    let output = Command::new("docker")
+        .args([
+            "ps",
+            "--filter",
+            &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
+            "--filter",
+            "status=running",
+            "--format",
+            "{{.ID}}\t{{.Image}}\t{{.Label \"velostream.test.started\"}}",
+        ])
+        .output()
+        .ok()?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let image_filter = container_type.image_filter();
+
+    // Find a container matching our image filter
+    let (container_id, started_at) = stdout
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 2 && parts[1].contains(image_filter) {
+                let started = if parts.len() >= 3 && !parts[2].is_empty() {
+                    parts[2].to_string()
+                } else {
+                    "unknown".to_string()
+                };
+                Some((parts[0].trim().to_string(), started))
+            } else {
+                None
+            }
+        })
+        .next()?;
+
+    if container_id.is_empty() {
+        return None;
+    }
+
+    log::info!(
+        "Found reusable {} container: {} (started: {})",
+        container_type.name(),
+        container_id,
+        started_at
+    );
+
+    // Get the mapped port for the container
+    let port_output = Command::new("docker")
+        .args([
+            "port",
+            &container_id,
+            &container_type.internal_port().to_string(),
+        ])
+        .output()
+        .ok()?;
+
+    let port_mapping = String::from_utf8_lossy(&port_output.stdout);
+    // Format is like "0.0.0.0:55001" or "127.0.0.1:55001"
+    let port = port_mapping
+        .lines()
+        .next()?
+        .trim()
+        .split(':')
+        .last()?
+        .trim();
+
+    if port.is_empty() {
+        return None;
+    }
+
+    Some(format!("127.0.0.1:{}", port))
+}
+
+/// Clean up orphaned test containers
+///
+/// Removes any containers with the velostream test label that may have been
+/// left behind from previous test runs (e.g., after crashes or SIGKILL).
+pub fn cleanup_orphaned_containers() {
+    use std::process::Command;
+
+    log::debug!("Checking for orphaned test containers...");
+
+    // Find all containers with our label (running or stopped)
+    let output = match Command::new("docker")
+        .args([
+            "ps", "-aq",
+            "--filter", &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
+        ])
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            log::debug!("Could not check for orphaned containers: {}", e);
+            return;
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let ids: Vec<&str> = stdout
+        .lines()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if ids.is_empty() {
+        log::debug!("No orphaned containers found");
+        return;
+    }
+
+    log::info!("Cleaning up {} orphaned test container(s)...", ids.len());
+
+    for id in ids {
+        let _ = Command::new("docker").args(["rm", "-f", id]).output();
+    }
+}
+
+/// Clean up containers of a different type than requested
+///
+/// When reusing containers, we only want one container type running.
+/// This removes any velostream test containers that don't match the requested type.
+fn cleanup_wrong_type_containers(keep_type: ContainerType) {
+    use std::process::Command;
+
+    let output = match Command::new("docker")
+        .args([
+            "ps",
+            "--filter",
+            &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
+            "--filter",
+            "status=running",
+            "--format",
+            "{{.ID}}\t{{.Image}}",
+        ])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let keep_filter = keep_type.image_filter();
+
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 2 {
+            let container_id = parts[0].trim();
+            let image = parts[1];
+
+            // If this container doesn't match the type we want to keep, remove it
+            if !image.contains(keep_filter) && !container_id.is_empty() {
+                log::info!(
+                    "Removing container {} (wrong type: {}, wanted: {})",
+                    container_id,
+                    image,
+                    keep_type.name()
+                );
+                let _ = Command::new("docker")
+                    .args(["rm", "-f", container_id])
+                    .output();
+            }
+        }
+    }
 }
 
 /// Create a base Kafka ClientConfig with bootstrap servers and address family configured.
@@ -340,6 +578,368 @@ impl TestHarnessInfra {
             topic_naming: TopicNamingConfig::default(),
             container: Some(container),
         })
+    }
+
+    /// Create infrastructure with container reuse support
+    ///
+    /// This method first checks for an existing reusable container. If found,
+    /// it connects to that container instead of starting a new one. This is
+    /// much faster for iterative development (~0s vs ~3-10s startup).
+    ///
+    /// When reusing a container, existing topics are cleaned up to ensure
+    /// test isolation.
+    ///
+    /// # Arguments
+    /// * `reuse` - If true, attempt to reuse an existing container
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Fast mode - reuse existing container if available
+    /// let mut infra = TestHarnessInfra::with_testcontainers_reuse(true).await?;
+    /// infra.start().await?;
+    /// // run tests...
+    /// infra.stop_with_reuse(true).await?; // Keep container for next run
+    /// ```
+    pub async fn with_testcontainers_reuse(reuse: bool) -> TestHarnessResult<Self> {
+        let container_type = ContainerType::from_env();
+
+        // If reuse is enabled, check for existing container first
+        if reuse {
+            if let Some(bootstrap_servers) = find_reusable_container(container_type) {
+                log::info!(
+                    "♻️  Reusing existing {} container at {}",
+                    container_type.name(),
+                    bootstrap_servers
+                );
+
+                let run_id = generate_run_id();
+                let mut infra = Self {
+                    run_id,
+                    bootstrap_servers: Some(bootstrap_servers),
+                    temp_dir: None,
+                    created_topics: Vec::new(),
+                    is_running: false,
+                    admin_client: None,
+                    owns_kafka: false, // Don't clean up container on stop
+                    schema_registry: None,
+                    topic_naming: TopicNamingConfig::default(),
+                    container: None, // No container handle - it's external
+                };
+
+                // Start infra to create admin client, then clean up old topics
+                infra.start().await?;
+                infra.cleanup_all_test_topics().await?;
+
+                return Ok(infra);
+            } else {
+                log::info!("No reusable container found, starting new one...");
+                // Clean up any containers of the wrong type before starting
+                cleanup_wrong_type_containers(container_type);
+            }
+        } else {
+            // Clean up any orphaned containers before starting fresh
+            cleanup_orphaned_containers();
+        }
+
+        // Start a new container with the reusable label
+        Self::start_labeled_container(container_type).await
+    }
+
+    /// Start a new container with the velostream reusable label
+    async fn start_labeled_container(container_type: ContainerType) -> TestHarnessResult<Self> {
+        use std::process::Command;
+
+        log::info!(
+            "Starting {} container with reuse label...",
+            container_type.name()
+        );
+
+        // Use docker run directly so we can add our label
+        // This is more reliable than trying to modify testcontainers behavior
+        let (image, port_mapping, internal_port) = match container_type {
+            ContainerType::Kafka => (
+                "confluentinc/cp-kafka:7.5.0",
+                "9093",
+                9093,
+            ),
+            ContainerType::Redpanda => (
+                "redpandadata/redpanda:v23.2.14",
+                "9092",
+                9092,
+            ),
+        };
+
+        // Find an available port
+        let host_port = find_available_port().unwrap_or(9092);
+
+        // Generate timestamp label for tracking when container was started
+        let started_label = format!(
+            "{}={}",
+            VELOSTREAM_CONTAINER_STARTED_LABEL,
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
+        );
+
+        let container_id = match container_type {
+            ContainerType::Kafka => {
+                // Kafka requires specific environment setup
+                let output = Command::new("docker")
+                    .args([
+                        "run", "-d",
+                        "--label", VELOSTREAM_CONTAINER_LABEL,
+                        "--label", &started_label,
+                        "-p", &format!("{}:{}", host_port, internal_port),
+                        "-e", "KAFKA_NODE_ID=1",
+                        "-e", "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT",
+                        "-e", &format!("KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:29092,PLAINTEXT_HOST://127.0.0.1:{}", host_port),
+                        "-e", "KAFKA_PROCESS_ROLES=broker,controller",
+                        "-e", "KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:29093",
+                        "-e", "KAFKA_LISTENERS=PLAINTEXT://localhost:29092,CONTROLLER://localhost:29093,PLAINTEXT_HOST://0.0.0.0:9093",
+                        "-e", "KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT",
+                        "-e", "KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER",
+                        "-e", "CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk",
+                        "-e", "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
+                        "-e", "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1",
+                        "-e", "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1",
+                        image,
+                    ])
+                    .output()
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to start Kafka container: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+
+                if !output.status.success() {
+                    return Err(TestHarnessError::InfraError {
+                        message: format!(
+                            "Failed to start Kafka container: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        ),
+                        source: None,
+                    });
+                }
+
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            }
+            ContainerType::Redpanda => {
+                // Redpanda is simpler to configure
+                let output = Command::new("docker")
+                    .args([
+                        "run", "-d",
+                        "--label", VELOSTREAM_CONTAINER_LABEL,
+                        "--label", &started_label,
+                        "-p", &format!("{}:{}", host_port, internal_port),
+                        image,
+                        "redpanda", "start",
+                        "--smp", "1",
+                        "--memory", "512M",
+                        "--overprovisioned",
+                        "--node-id", "0",
+                        "--kafka-addr", &format!("PLAINTEXT://0.0.0.0:{}", internal_port),
+                        "--advertise-kafka-addr", &format!("PLAINTEXT://127.0.0.1:{}", host_port),
+                    ])
+                    .output()
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to start Redpanda container: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+
+                if !output.status.success() {
+                    return Err(TestHarnessError::InfraError {
+                        message: format!(
+                            "Failed to start Redpanda container: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        ),
+                        source: None,
+                    });
+                }
+
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            }
+        };
+
+        log::info!(
+            "{} container started (id: {}), waiting for readiness...",
+            container_type.name(),
+            &container_id[..12.min(container_id.len())]
+        );
+
+        let bootstrap_servers = format!("127.0.0.1:{}", host_port);
+
+        // Wait for container to be ready
+        wait_for_kafka_ready(&bootstrap_servers, Duration::from_secs(30)).await?;
+
+        log::info!(
+            "{} container ready at {}",
+            container_type.name(),
+            bootstrap_servers
+        );
+
+        let run_id = generate_run_id();
+        Ok(Self {
+            run_id,
+            bootstrap_servers: Some(bootstrap_servers),
+            temp_dir: None,
+            created_topics: Vec::new(),
+            is_running: false,
+            admin_client: None,
+            owns_kafka: true,
+            schema_registry: None,
+            topic_naming: TopicNamingConfig::default(),
+            container: None, // We're managing via docker CLI, not testcontainers handle
+        })
+    }
+
+    /// Clean up all test topics (used when reusing containers)
+    async fn cleanup_all_test_topics(&mut self) -> TestHarnessResult<()> {
+        let admin_client = match &self.admin_client {
+            Some(client) => client,
+            None => return Ok(()), // No admin client yet
+        };
+
+        // Fetch all topics
+        let metadata = admin_client
+            .inner()
+            .fetch_metadata(None, Duration::from_secs(10))
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to fetch topic metadata: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        // Find test topics (those starting with "test_" or matching our patterns)
+        let test_topics: Vec<&str> = metadata
+            .topics()
+            .iter()
+            .map(|t| t.name())
+            .filter(|name| {
+                name.starts_with("test_")
+                    || name.starts_with("in_")
+                    || name.starts_with("out_")
+                    || name.contains("_ts")
+                    || name.contains("market_data")
+                    || name.contains("trading")
+            })
+            .filter(|name| !name.starts_with("__")) // Skip internal topics
+            .collect();
+
+        if test_topics.is_empty() {
+            log::debug!("No test topics to clean up");
+            return Ok(());
+        }
+
+        log::info!("Cleaning up {} test topic(s) from reused container...", test_topics.len());
+
+        let options = AdminOptions::new().operation_timeout(Some(Duration::from_secs(10)));
+        if let Err(e) = admin_client.delete_topics(&test_topics, &options).await {
+            log::warn!("Failed to delete some topics (may not exist): {}", e);
+        }
+
+        // Give Kafka time to process deletions
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        Ok(())
+    }
+
+    /// Stop infrastructure with optional container preservation
+    ///
+    /// When `keep_for_reuse` is true, the container is kept running for
+    /// subsequent test runs. Only topics are cleaned up.
+    pub async fn stop_with_reuse(&mut self, keep_for_reuse: bool) -> TestHarnessResult<()> {
+        if !self.is_running {
+            return Ok(());
+        }
+
+        log::info!("Stopping test infrastructure (run_id: {})", self.run_id);
+
+        // Delete created topics
+        if let Some(ref admin_client) = self.admin_client {
+            if !self.created_topics.is_empty() {
+                log::debug!("Deleting {} topics...", self.created_topics.len());
+                let topics: Vec<&str> = self.created_topics.iter().map(|s| s.as_str()).collect();
+                let options = AdminOptions::new().operation_timeout(Some(Duration::from_secs(10)));
+
+                if let Err(e) = admin_client.delete_topics(&topics, &options).await {
+                    log::warn!("Failed to delete topics: {}", e);
+                }
+            }
+        }
+
+        // Remove temp directory
+        if let Some(ref temp_dir) = self.temp_dir {
+            if temp_dir.exists() {
+                log::debug!("Removing temp directory: {}", temp_dir.display());
+                if let Err(e) = std::fs::remove_dir_all(temp_dir) {
+                    log::warn!("Failed to remove temp directory: {}", e);
+                }
+            }
+        }
+
+        // Handle container based on reuse preference
+        if keep_for_reuse {
+            log::info!("♻️  Keeping container running for reuse");
+            // Don't stop the container - just clear our state
+        } else {
+            // Stop and remove container if we own it
+            self.stop_container().await;
+        }
+
+        self.admin_client = None;
+        self.schema_registry = None;
+        self.created_topics.clear();
+        self.is_running = false;
+
+        log::info!("Test infrastructure stopped");
+        Ok(())
+    }
+
+    /// Stop the container (internal helper)
+    async fn stop_container(&mut self) {
+        // If we have a testcontainers handle, use it
+        if let Some(container) = self.container.take() {
+            match container {
+                ContainerInstance::Kafka(kafka_container) => {
+                    log::info!("Stopping Kafka container...");
+                    if let Err(e) = kafka_container.stop().await {
+                        log::warn!("Failed to stop Kafka container: {}", e);
+                    }
+                    if let Err(e) = kafka_container.rm().await {
+                        log::warn!("Failed to remove Kafka container: {}", e);
+                    }
+                    log::info!("Kafka container stopped and removed");
+                }
+                ContainerInstance::Redpanda(redpanda_container) => {
+                    log::info!("Stopping Redpanda container...");
+                    if let Err(e) = redpanda_container.stop().await {
+                        log::warn!("Failed to stop Redpanda container: {}", e);
+                    }
+                    if let Err(e) = redpanda_container.rm().await {
+                        log::warn!("Failed to remove Redpanda container: {}", e);
+                    }
+                    log::info!("Redpanda container stopped and removed");
+                }
+            }
+        } else if self.owns_kafka {
+            // We started a container via docker CLI - stop it by finding our labeled container
+            use std::process::Command;
+            let container_type = ContainerType::from_env();
+
+            let output = Command::new("docker")
+                .args([
+                    "ps", "-q",
+                    "--filter", &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
+                    "--filter", &format!("ancestor={}", container_type.image_filter()),
+                ])
+                .output();
+
+            if let Ok(output) = output {
+                let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !id.is_empty() {
+                    log::info!("Stopping container {}...", &id[..12.min(id.len())]);
+                    let _ = Command::new("docker").args(["rm", "-f", &id]).output();
+                    log::info!("Container stopped and removed");
+                }
+            }
+        }
     }
 
     /// Get the unique run ID for this test execution

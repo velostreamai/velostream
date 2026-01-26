@@ -21,6 +21,7 @@
 #   --keep                Keep testcontainers running after test (for debugging)
 #   -v, --verbose         Enable verbose output
 #   --kafka <servers>     Use external Kafka instead of testcontainers
+#   --data-only           Only publish test data, don't run SQL (use with --kafka)
 #   --timeout <ms>        Timeout per query in milliseconds (default: 90000)
 #   --query <name>        Run only a specific query
 #
@@ -73,6 +74,7 @@ QUERY_FILTER=""
 STEP_MODE=""
 KEEP_CONTAINERS=""
 VERBOSE=""
+DATA_ONLY=""
 
 # Show help
 show_help() {
@@ -93,11 +95,13 @@ show_help() {
     echo -e "${YELLOW}Debug Options:${NC}"
     echo "  --step              Step through queries one at a time"
     echo "  --keep              Keep Kafka container running after test"
+    echo "  --reuse             Reuse existing Kafka container (faster for repeated runs)"
     echo "  -v, --verbose       Enable verbose output"
     echo "  --query <name>      Run only a specific query"
     echo ""
     echo -e "${YELLOW}Other Options:${NC}"
     echo "  --kafka <servers>   Use external Kafka instead of testcontainers"
+    echo "  --data-only         Only publish test data (no SQL execution)"
     echo "  --timeout <ms>      Timeout per query (default: 90000)"
     echo "  -h, --help          Show this help"
 }
@@ -130,8 +134,16 @@ while [[ $# -gt 0 ]]; do
             KEEP_CONTAINERS="--keep-containers"
             shift
             ;;
+        --reuse)
+            REUSE_CONTAINERS="--reuse-containers"
+            shift
+            ;;
         -v|--verbose)
             VERBOSE="--verbose"
+            shift
+            ;;
+        --data-only)
+            DATA_ONLY="--data-only"
             shift
             ;;
         *)
@@ -207,8 +219,16 @@ run_app() {
         cmd="$cmd $KEEP_CONTAINERS"
     fi
 
+    if [[ -n "$REUSE_CONTAINERS" ]]; then
+        cmd="$cmd $REUSE_CONTAINERS"
+    fi
+
     if [[ -n "$VERBOSE" ]]; then
         cmd="$cmd $VERBOSE"
+    fi
+
+    if [[ -n "$DATA_ONLY" ]]; then
+        cmd="$cmd $DATA_ONLY"
     fi
 
     echo -e "${BLUE}$cmd${NC}"
@@ -229,6 +249,18 @@ run_all() {
 
     local passed=0
     local failed=0
+    local total_assertions=0
+    local total_assertions_passed=0
+    local total_queries=0
+    local total_queries_passed=0
+    local start_time=$(date +%s)
+
+    # Arrays to track per-app results
+    declare -a app_names
+    declare -a app_results
+    declare -a app_assertions
+    declare -a app_durations
+    declare -a app_queries
 
     # Exclude .annotated.sql files - they use a different test spec format
     for sql in apps/*.sql; do
@@ -237,17 +269,99 @@ run_all() {
             continue
         fi
         name=$(basename "$sql" .sql)
+        app_names+=("$name")
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        if run_app "$name"; then
+
+        # Capture output to parse assertion counts
+        local output
+        if output=$(run_app "$name" 2>&1); then
             ((passed++))
+            app_results+=("✅")
         else
             ((failed++))
+            app_results+=("❌")
         fi
+        echo "$output"
+
+        # Parse assertion counts from output (format: "Assertions: N total, N passed, N failed")
+        local assertions_line=$(echo "$output" | grep -E "^Assertions:" | tail -1)
+        if [[ -n "$assertions_line" ]]; then
+            local assertions_total=$(echo "$assertions_line" | grep -oE "[0-9]+ total" | grep -oE "[0-9]+")
+            local assertions_passed=$(echo "$assertions_line" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+")
+            if [[ -n "$assertions_total" ]]; then
+                total_assertions=$((total_assertions + assertions_total))
+                total_assertions_passed=$((total_assertions_passed + assertions_passed))
+                app_assertions+=("$assertions_passed/$assertions_total")
+            else
+                app_assertions+=("-")
+            fi
+        else
+            app_assertions+=("-")
+        fi
+
+        # Parse query counts from output (format: "Queries: N total, N passed, N failed")
+        local queries_line=$(echo "$output" | grep -E "^Queries:" | tail -1)
+        if [[ -n "$queries_line" ]]; then
+            local queries_total=$(echo "$queries_line" | grep -oE "[0-9]+ total" | grep -oE "[0-9]+")
+            local queries_passed=$(echo "$queries_line" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+")
+            if [[ -n "$queries_total" ]]; then
+                total_queries=$((total_queries + queries_total))
+                total_queries_passed=$((total_queries_passed + queries_passed))
+                app_queries+=("$queries_passed/$queries_total")
+            else
+                app_queries+=("-")
+            fi
+        else
+            app_queries+=("-")
+        fi
+
+        # Parse duration from output (format: "Duration: 14468ms")
+        local duration_line=$(echo "$output" | grep -E "^Duration:" | tail -1)
+        if [[ -n "$duration_line" ]]; then
+            local duration_ms=$(echo "$duration_line" | grep -oE "[0-9]+ms" | grep -oE "[0-9]+")
+            if [[ -n "$duration_ms" ]]; then
+                # Convert to seconds with 1 decimal place
+                local duration_s=$(echo "scale=1; $duration_ms / 1000" | bc)
+                app_durations+=("${duration_s}s")
+            else
+                app_durations+=("-")
+            fi
+        else
+            app_durations+=("-")
+        fi
+
         echo ""
     done
 
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}Summary: $passed passed, $failed failed${NC}"
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}Trading Demo Test Summary${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Show per-app results table
+    printf "  %-25s %-10s %-14s %-10s %s\n" "App" "Queries" "Assertions" "Duration" "Status"
+    printf "  %-25s %-10s %-14s %-10s %s\n" "─────────────────────────" "──────────" "──────────────" "──────────" "──────"
+    for i in "${!app_names[@]}"; do
+        printf "  %-25s %-10s %-14s %-10s %s\n" "${app_names[$i]}" "${app_queries[$i]}" "${app_assertions[$i]}" "${app_durations[$i]}" "${app_results[$i]}"
+    done
+    printf "  %-25s %-10s %-14s %-10s %s\n" "─────────────────────────" "──────────" "──────────────" "──────────" "──────"
+
+    # Show totals row
+    local total_status="✅"
+    if [[ $failed -gt 0 ]]; then
+        total_status="❌"
+    fi
+    printf "  %-25s %-10s %-14s %-10s %s\n" "Total" "$total_queries_passed/$total_queries" "$total_assertions_passed/$total_assertions" "${duration}s" "$total_status"
+    echo ""
+
+    if [[ $failed -eq 0 ]]; then
+        echo -e "${GREEN}🎉 ALL TESTS PASSED!${NC}"
+    else
+        echo -e "${RED}❌ $failed APP(S) FAILED${NC}"
+    fi
 
     if [[ $failed -gt 0 ]]; then
         exit 1

@@ -86,10 +86,21 @@ enum Commands {
         #[arg(long)]
         keep_containers: bool,
 
+        /// Reuse existing test container if available (faster iteration)
+        /// When enabled, looks for an existing velostream test container and reuses it
+        /// instead of starting a new one. Much faster for iterative development.
+        #[arg(long)]
+        reuse_containers: bool,
+
         /// Execute statements one at a time (step mode)
         /// Pauses after each statement and displays results
         #[arg(long)]
         step: bool,
+
+        /// Data-only mode: generate test data to Kafka without running SQL
+        /// Use this when SQL jobs are deployed separately (e.g., via velo-sql deploy-app)
+        #[arg(long)]
+        data_only: bool,
 
         /// Skip interactive prompts and use auto-discovered defaults
         #[arg(short = 'y', long)]
@@ -125,6 +136,10 @@ enum Commands {
         /// Keep testcontainers running after completion
         #[arg(long)]
         keep_containers: bool,
+
+        /// Reuse existing test container if available (faster iteration)
+        #[arg(long)]
+        reuse_containers: bool,
 
         /// Skip interactive prompts and use auto-discovered defaults
         #[arg(short = 'y', long)]
@@ -193,6 +208,10 @@ enum Commands {
         /// Path to the test specification YAML file (auto-discovered if not specified)
         #[arg(short, long)]
         spec: Option<PathBuf>,
+
+        /// Enable verbose output
+        #[arg(short, long)]
+        verbose: bool,
 
         /// Number of records to generate per source
         #[arg(long)]
@@ -863,7 +882,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             use_testcontainers,
             kafka,
             keep_containers,
+            reuse_containers,
             step,
+            data_only,
             yes,
         } => {
             use std::time::Duration;
@@ -1249,12 +1270,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Create test infrastructure
             // If --use-testcontainers or no Kafka configured, start testcontainers
             let mut infra = if use_testcontainers || bootstrap_servers.is_none() {
-                println!("🐳 Starting Kafka via testcontainers (requires Docker)...");
-                match TestHarnessInfra::with_testcontainers().await {
+                if reuse_containers {
+                    println!("♻️  Looking for reusable Kafka container...");
+                } else {
+                    println!("🐳 Starting Kafka via testcontainers (requires Docker)...");
+                }
+                match TestHarnessInfra::with_testcontainers_reuse(reuse_containers).await {
                     Ok(infra) => {
+                        let mode = if reuse_containers { "reused" } else { "testcontainers" };
                         println!(
-                            "   Kafka: {} (testcontainers)",
-                            infra.bootstrap_servers().unwrap_or("unknown")
+                            "   Kafka: {} ({})",
+                            infra.bootstrap_servers().unwrap_or("unknown"),
+                            mode
                         );
                         infra
                     }
@@ -1353,11 +1380,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .base_dir(sql_dir.clone())
                     .build();
 
+                // Determine the spec directory for resolving relative file paths
+                // If a spec file was provided, use its parent directory; otherwise use the SQL file's directory
+                let spec_dir = spec
+                    .as_ref()
+                    .and_then(|p| p.parent())
+                    .unwrap_or(&sql_dir)
+                    .to_path_buf();
+
                 // Step 5: Create executor with StreamJobServer for SQL execution
                 let executor = QueryExecutor::new(infra)
                     .with_timeout(Duration::from_millis(timeout_ms))
                     .with_overrides(overrides)
-                    .with_schema_registry(schema_registry);
+                    .with_schema_registry(schema_registry)
+                    .with_spec_dir(&spec_dir);
 
                 // Check if any queries have metric assertions - if so, enable metrics collection
                 let has_metric_assertions = test_spec
@@ -1365,31 +1401,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .iter()
                     .any(|q| !q.metric_assertions.is_empty());
 
-                // Initialize StreamJobServer for actual SQL execution
+                // Initialize StreamJobServer for actual SQL execution (skip in data_only mode)
                 // Pass SQL file's parent directory so the server can resolve relative config file paths
                 // Enable metrics collection if any queries have metric_assertions
-                let mut executor = match executor
-                    .with_server_and_observability(Some(sql_dir), has_metric_assertions)
-                    .await
-                {
-                    Ok(e) => {
-                        if has_metric_assertions {
-                            println!(
-                                "   SQL execution: enabled with metrics (in-process StreamJobServer)"
-                            );
-                        } else {
-                            println!("   SQL execution: enabled (in-process StreamJobServer)");
+                let mut executor = if data_only {
+                    println!("   SQL execution: disabled (--data-only mode)");
+                    println!("   Data will be published to Kafka for external SQL processing");
+                    executor
+                } else {
+                    match executor
+                        .with_server_and_observability(Some(sql_dir), has_metric_assertions)
+                        .await
+                    {
+                        Ok(e) => {
+                            if has_metric_assertions {
+                                println!(
+                                    "   SQL execution: enabled with metrics (in-process StreamJobServer)"
+                                );
+                            } else {
+                                println!("   SQL execution: enabled (in-process StreamJobServer)");
+                            }
+                            e
                         }
-                        e
-                    }
-                    Err(e) => {
-                        eprintln!("⚠️  Warning: Failed to initialize SQL server: {}", e);
-                        eprintln!("   Running in data-only mode (no SQL execution)");
-                        // Can't recover the executor after with_server() fails, so recreate
-                        QueryExecutor::new(TestHarnessInfra::with_kafka(
-                            bootstrap_servers.as_ref().unwrap(),
-                        ))
-                        .with_timeout(Duration::from_millis(timeout_ms))
+                        Err(e) => {
+                            eprintln!("⚠️  Warning: Failed to initialize SQL server: {}", e);
+                            eprintln!("   Running in data-only mode (no SQL execution)");
+                            // Can't recover the executor after with_server() fails, so recreate
+                            QueryExecutor::new(TestHarnessInfra::with_kafka(
+                                bootstrap_servers.as_ref().unwrap(),
+                            ))
+                            .with_timeout(Duration::from_millis(timeout_ms))
+                            .with_spec_dir(&spec_dir)
+                        }
                     }
                 };
 
@@ -1399,8 +1442,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Continue anyway - will fall back to default topic naming
                 }
 
-                // Handle step mode with StatementExecutor
-                if step {
+                // Handle step mode with StatementExecutor (not available in data_only mode)
+                if step && !data_only {
                     use std::io::{BufRead, Write};
                     use velostream::velostream::test_harness::statement_executor::{
                         ExecutionMode, SessionState, StatementExecutor,
@@ -1633,15 +1676,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
 
                 println!();
-                println!("🚀 Running {} queries...", queries_to_run.len());
+                if data_only {
+                    println!(
+                        "📤 Publishing data for {} queries (data-only mode)...",
+                        queries_to_run.len()
+                    );
+                } else {
+                    println!("🚀 Running {} queries...", queries_to_run.len());
+                }
                 println!();
 
-                // Step 7: Execute queries and run assertions
+                // Step 7: Execute queries and run assertions (or just publish data in data_only mode)
                 let mut report_gen = ReportGenerator::new(&test_spec.application, &run_id);
                 let assertion_runner = AssertionRunner::new();
 
                 // Track if we were interrupted
                 let mut was_interrupted = false;
+
+                // Data-only mode: just publish inputs without SQL execution
+                if data_only {
+                    let mut total_records = 0usize;
+                    for query_test in &queries_to_run {
+                        println!("▶️  Publishing inputs for: {}", query_test.name);
+
+                        let publish_result = tokio::select! {
+                            result = executor.publish_query_inputs(query_test) => result,
+                            _ = tokio::signal::ctrl_c() => {
+                                eprintln!("\n⚠️  Interrupted - cleaning up...");
+                                was_interrupted = true;
+                                break;
+                            }
+                        };
+
+                        if was_interrupted {
+                            break;
+                        }
+
+                        match publish_result {
+                            Ok(count) => {
+                                total_records += count;
+                                println!("   ✅ Published {} input records", count);
+                            }
+                            Err(e) => {
+                                eprintln!("   ❌ Failed to publish: {}", e);
+                            }
+                        }
+                    }
+
+                    // Summary for data-only mode
+                    println!();
+                    println!("════════════════════════════════════════");
+                    println!("📊 Data-Only Mode Complete");
+                    println!("════════════════════════════════════════");
+                    println!("   Total records published: {}", total_records);
+                    println!("   Topics: Kafka input topics from test spec");
+                    println!();
+                    println!("💡 Data is now available for external SQL processing");
+                    println!("   Use 'velo-sql deploy-app' to run SQL jobs against this data");
+                    println!();
+
+                    // Cleanup
+                    if !keep_containers {
+                        if let Err(e) = executor.stop().await {
+                            log::warn!("Failed to stop executor: {}", e);
+                        }
+                    } else {
+                        println!("🐳 Keeping containers running (--keep-containers)");
+                    }
+
+                    return Ok(());
+                }
 
                 for query_test in &queries_to_run {
                     println!("▶️  Executing: {}", query_test.name);
@@ -1765,12 +1869,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Cleanup executor and infrastructure (stops testcontainers)
-                // Always cleanup on interrupt, regardless of keep_containers flag
-                if keep_containers && !was_interrupted {
-                    println!();
-                    println!("🐳 Keeping containers running for debugging (--keep-containers)");
-                    println!("   Use 'docker ps' to find containers");
-                    println!("   Use 'docker stop <id>' to clean up when done");
+                // Always cleanup on interrupt, regardless of keep_containers/reuse_containers flags
+                if (keep_containers || reuse_containers) && !was_interrupted {
+                    if reuse_containers {
+                        println!();
+                        println!("♻️  Keeping container running for reuse (--reuse-containers)");
+                        println!("   Next run with --reuse-containers will be faster");
+                        // Clean up topics but keep container
+                        if let Err(e) = executor.stop_with_reuse(true).await {
+                            log::warn!("Failed to stop executor with reuse: {}", e);
+                        }
+                    } else {
+                        println!();
+                        println!("🐳 Keeping containers running for debugging (--keep-containers)");
+                        println!("   Use 'docker ps' to find containers");
+                        println!("   Use 'docker stop <id>' to clean up when done");
+                    }
                 } else {
                     if was_interrupted {
                         println!("🧹 Cleaning up containers after interrupt...");
@@ -2235,6 +2349,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Stress {
             sql_file,
             spec,
+            verbose: _,
             records,
             duration,
             output,
@@ -2389,6 +2504,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             timeout_ms,
             kafka,
             keep_containers,
+            reuse_containers,
             yes,
         } => {
             use std::io::{BufRead, Write};
@@ -2566,12 +2682,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("   Kafka: {}", bs);
                 TestHarnessInfra::with_kafka(bs)
             } else {
-                println!("🐳 Starting Kafka via testcontainers...");
-                match TestHarnessInfra::with_testcontainers().await {
+                if reuse_containers {
+                    println!("♻️  Looking for reusable Kafka container...");
+                } else {
+                    println!("🐳 Starting Kafka via testcontainers...");
+                }
+                match TestHarnessInfra::with_testcontainers_reuse(reuse_containers).await {
                     Ok(i) => {
+                        let mode = if reuse_containers { "reused" } else { "testcontainers" };
                         println!(
-                            "   Kafka: {} (testcontainers)",
-                            i.bootstrap_servers().unwrap_or("unknown")
+                            "   Kafka: {} ({})",
+                            i.bootstrap_servers().unwrap_or("unknown"),
+                            mode
                         );
                         i
                     }
@@ -2614,11 +2736,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .base_dir(sql_dir.clone())
                 .build();
 
+            // Determine the spec directory for resolving relative file paths
+            let spec_dir = spec
+                .as_ref()
+                .and_then(|p| p.parent())
+                .unwrap_or(&sql_dir)
+                .to_path_buf();
+
             use velostream::velostream::test_harness::executor::QueryExecutor;
             let executor = QueryExecutor::new(infra)
                 .with_timeout(Duration::from_millis(timeout_ms))
                 .with_overrides(overrides)
-                .with_schema_registry(schema_registry);
+                .with_schema_registry(schema_registry)
+                .with_spec_dir(&spec_dir);
 
             // Initialize with server
             let executor = match executor.with_server(Some(sql_dir)).await {

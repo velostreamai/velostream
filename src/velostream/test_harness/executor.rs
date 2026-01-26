@@ -27,7 +27,7 @@ use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use rdkafka::producer::BaseRecord;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Type alias for source/sink extraction results: (name, optional_topic)
@@ -70,6 +70,9 @@ pub struct QueryExecutor {
 
     /// Track deployed dependencies to avoid re-deployment
     deployed_dependencies: HashSet<String>,
+
+    /// Directory containing the test spec file (for resolving relative paths)
+    spec_dir: Option<PathBuf>,
 }
 
 /// Captured output from a query execution
@@ -147,7 +150,17 @@ impl QueryExecutor {
             parsed_queries_ordered: Vec::new(),
             source_topics: HashMap::new(),
             deployed_dependencies: HashSet::new(),
+            spec_dir: None,
         }
+    }
+
+    /// Set the spec directory for resolving relative file paths
+    ///
+    /// When a test spec contains relative paths (e.g., `data_file: data/reference.csv`),
+    /// they will be resolved relative to this directory.
+    pub fn with_spec_dir(mut self, dir: impl AsRef<Path>) -> Self {
+        self.spec_dir = Some(dir.as_ref().to_path_buf());
+        self
     }
 
     /// Initialize StreamJobServer for actual SQL execution
@@ -563,6 +576,23 @@ impl QueryExecutor {
         self.infra.stop().await?;
 
         log::info!("QueryExecutor stopped and infrastructure cleaned up");
+        Ok(())
+    }
+
+    /// Stop the executor with optional container preservation for reuse
+    ///
+    /// When `keep_for_reuse` is true, the container is kept running for
+    /// subsequent test runs. Only topics are cleaned up.
+    pub async fn stop_with_reuse(&mut self, keep_for_reuse: bool) -> TestHarnessResult<()> {
+        log::info!("Stopping QueryExecutor (reuse: {})...", keep_for_reuse);
+
+        // Drop the server (jobs will stop naturally)
+        self.server = None;
+
+        // Stop infrastructure with reuse option
+        self.infra.stop_with_reuse(keep_for_reuse).await?;
+
+        log::info!("QueryExecutor stopped (container preserved: {})", keep_for_reuse);
         Ok(())
     }
 
@@ -1010,6 +1040,32 @@ impl QueryExecutor {
         Ok(())
     }
 
+    /// Publish input data for a query without executing SQL (data-only mode)
+    ///
+    /// Use this when SQL jobs are deployed separately (e.g., via velo-sql deploy-app)
+    /// and you only need to generate test data to Kafka input topics.
+    pub async fn publish_query_inputs(&mut self, query: &QueryTest) -> TestHarnessResult<usize> {
+        log::info!(
+            "Publishing inputs for query '{}' (data-only mode)",
+            query.name
+        );
+
+        let mut total_records = 0;
+        for input in &query.inputs {
+            let records_before = self.estimate_input_records(input);
+            self.publish_input_data(input).await?;
+            total_records += records_before;
+        }
+
+        Ok(total_records)
+    }
+
+    /// Estimate number of records that will be published for an input
+    fn estimate_input_records(&self, input: &InputConfig) -> usize {
+        // Use records field if specified, otherwise default
+        input.records.unwrap_or(100)
+    }
+
     /// Publish input data for a query
     async fn publish_input_data(&mut self, input: &InputConfig) -> TestHarnessResult<()> {
         log::info!(
@@ -1184,10 +1240,14 @@ impl QueryExecutor {
             format
         );
 
-        // Resolve the file path (relative to current directory)
+        // Resolve the file path
+        // If spec_dir is set, resolve relative paths from there
+        // Otherwise, fall back to current working directory
         let file_path = Path::new(path);
         let full_path = if file_path.is_absolute() {
             file_path.to_path_buf()
+        } else if let Some(ref spec_dir) = self.spec_dir {
+            spec_dir.join(file_path)
         } else {
             std::env::current_dir().unwrap_or_default().join(file_path)
         };

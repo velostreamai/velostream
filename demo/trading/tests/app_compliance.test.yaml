@@ -40,6 +40,18 @@ queries:
             operator: equals
             value: "COMPLIANT"
 
+          # Data accuracy: price must be positive
+          - type: field_values
+            field: price
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: volume must be positive
+          - type: field_values
+            field: volume
+            operator: greater_than
+            value: 0
+
     # Metric assertions - verify @metric SQL annotations are emitted
     # All processor types (Simple, Transactional, Adaptive) now support @metric emission
     metric_assertions:
