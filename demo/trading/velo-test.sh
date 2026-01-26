@@ -9,6 +9,7 @@
 #   ./velo-test.sh app_market_data    # Run market data pipeline tests
 #   ./velo-test.sh validate           # Validate all SQL syntax only
 #   ./velo-test.sh all                # Run all app tests
+#   ./velo-test.sh health             # Check infrastructure health
 #
 # Debug/Step-Through:
 #   ./velo-test.sh app_market_data --step           # Step through each query
@@ -85,6 +86,7 @@ show_help() {
     echo "  ./velo-test.sh <app_name>         Run specific app tests"
     echo "  ./velo-test.sh validate           Validate all SQL syntax"
     echo "  ./velo-test.sh all                Run all app tests"
+    echo "  ./velo-test.sh health             Check infrastructure health"
     echo ""
     echo -e "${YELLOW}Available Apps:${NC}"
     for sql in apps/*.sql; do
@@ -242,130 +244,59 @@ run_app() {
     fi
 }
 
-# Run all app tests
+# Run all app tests using velo-test run-all (handles aggregation in Rust)
 run_all() {
     echo -e "${CYAN}Running all trading demo apps...${NC}"
     echo ""
 
-    local passed=0
-    local failed=0
-    local total_assertions=0
-    local total_assertions_passed=0
-    local total_queries=0
-    local total_queries_passed=0
-    local start_time=$(date +%s)
+    # Build command - velo-test run-all handles aggregation, summary tables, etc.
+    local cmd="$VELO_TEST run-all ."
+    cmd="$cmd --pattern 'apps/*.sql'"
+    cmd="$cmd --skip '*.annotated.sql'"
+    cmd="$cmd --timeout-ms $TIMEOUT_MS"
 
-    # Arrays to track per-app results
-    declare -a app_names
-    declare -a app_results
-    declare -a app_assertions
-    declare -a app_durations
-    declare -a app_queries
-
-    # Exclude .annotated.sql files - they use a different test spec format
-    for sql in apps/*.sql; do
-        # Skip annotated files
-        if [[ "$sql" == *".annotated.sql" ]]; then
-            continue
-        fi
-        name=$(basename "$sql" .sql)
-        app_names+=("$name")
-        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-        # Capture output to parse assertion counts
-        local output
-        if output=$(run_app "$name" 2>&1); then
-            ((passed++))
-            app_results+=("✅")
-        else
-            ((failed++))
-            app_results+=("❌")
-        fi
-        echo "$output"
-
-        # Parse assertion counts from output (format: "Assertions: N total, N passed, N failed")
-        local assertions_line=$(echo "$output" | grep -E "^Assertions:" | tail -1)
-        if [[ -n "$assertions_line" ]]; then
-            local assertions_total=$(echo "$assertions_line" | grep -oE "[0-9]+ total" | grep -oE "[0-9]+")
-            local assertions_passed=$(echo "$assertions_line" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+")
-            if [[ -n "$assertions_total" ]]; then
-                total_assertions=$((total_assertions + assertions_total))
-                total_assertions_passed=$((total_assertions_passed + assertions_passed))
-                app_assertions+=("$assertions_passed/$assertions_total")
-            else
-                app_assertions+=("-")
-            fi
-        else
-            app_assertions+=("-")
-        fi
-
-        # Parse query counts from output (format: "Queries: N total, N passed, N failed")
-        local queries_line=$(echo "$output" | grep -E "^Queries:" | tail -1)
-        if [[ -n "$queries_line" ]]; then
-            local queries_total=$(echo "$queries_line" | grep -oE "[0-9]+ total" | grep -oE "[0-9]+")
-            local queries_passed=$(echo "$queries_line" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+")
-            if [[ -n "$queries_total" ]]; then
-                total_queries=$((total_queries + queries_total))
-                total_queries_passed=$((total_queries_passed + queries_passed))
-                app_queries+=("$queries_passed/$queries_total")
-            else
-                app_queries+=("-")
-            fi
-        else
-            app_queries+=("-")
-        fi
-
-        # Parse duration from output (format: "Duration: 14468ms")
-        local duration_line=$(echo "$output" | grep -E "^Duration:" | tail -1)
-        if [[ -n "$duration_line" ]]; then
-            local duration_ms=$(echo "$duration_line" | grep -oE "[0-9]+ms" | grep -oE "[0-9]+")
-            if [[ -n "$duration_ms" ]]; then
-                # Convert to seconds with 1 decimal place
-                local duration_s=$(echo "scale=1; $duration_ms / 1000" | bc)
-                app_durations+=("${duration_s}s")
-            else
-                app_durations+=("-")
-            fi
-        else
-            app_durations+=("-")
-        fi
-
-        echo ""
-    done
-
-    local end_time=$(date +%s)
-    local duration=$((end_time - start_time))
-
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}Trading Demo Test Summary${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-
-    # Show per-app results table
-    printf "  %-25s %-10s %-14s %-10s %s\n" "App" "Queries" "Assertions" "Duration" "Status"
-    printf "  %-25s %-10s %-14s %-10s %s\n" "─────────────────────────" "──────────" "──────────────" "──────────" "──────"
-    for i in "${!app_names[@]}"; do
-        printf "  %-25s %-10s %-14s %-10s %s\n" "${app_names[$i]}" "${app_queries[$i]}" "${app_assertions[$i]}" "${app_durations[$i]}" "${app_results[$i]}"
-    done
-    printf "  %-25s %-10s %-14s %-10s %s\n" "─────────────────────────" "──────────" "──────────────" "──────────" "──────"
-
-    # Show totals row
-    local total_status="✅"
-    if [[ $failed -gt 0 ]]; then
-        total_status="❌"
-    fi
-    printf "  %-25s %-10s %-14s %-10s %s\n" "Total" "$total_queries_passed/$total_queries" "$total_assertions_passed/$total_assertions" "${duration}s" "$total_status"
-    echo ""
-
-    if [[ $failed -eq 0 ]]; then
-        echo -e "${GREEN}🎉 ALL TESTS PASSED!${NC}"
+    if [[ -n "$KAFKA_SERVERS" ]]; then
+        cmd="$cmd --kafka $KAFKA_SERVERS"
     else
-        echo -e "${RED}❌ $failed APP(S) FAILED${NC}"
+        cmd="$cmd --use-testcontainers"
     fi
 
-    if [[ $failed -gt 0 ]]; then
-        exit 1
+    if [[ -n "$KEEP_CONTAINERS" ]]; then
+        cmd="$cmd $KEEP_CONTAINERS"
     fi
+
+    if [[ -n "$REUSE_CONTAINERS" ]]; then
+        cmd="$cmd $REUSE_CONTAINERS"
+    fi
+
+    if [[ -n "$VERBOSE" ]]; then
+        cmd="$cmd $VERBOSE"
+    fi
+
+    echo -e "${BLUE}$cmd${NC}"
+    echo ""
+
+    # Run with RUST_LOG=info for readable output
+    if [[ -n "$VERBOSE" ]]; then
+        RUST_LOG=debug $cmd
+    else
+        RUST_LOG=info $cmd
+    fi
+}
+
+# Run health check
+run_health() {
+    local broker="${KAFKA_SERVERS:-localhost:9092}"
+    local output="text"
+
+    if [[ -n "$VERBOSE" ]]; then
+        output="text"
+    fi
+
+    echo -e "${CYAN}Running infrastructure health check...${NC}"
+    echo ""
+
+    $VELO_TEST health --broker "$broker" --output "$output"
 }
 
 # Main
@@ -378,6 +309,9 @@ case "$COMMAND" in
         ;;
     all)
         run_all
+        ;;
+    health)
+        run_health
         ;;
     app_*)
         run_app "$COMMAND"

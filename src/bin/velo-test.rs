@@ -199,8 +199,48 @@ enum Commands {
         yes: bool,
     },
 
-    /// Run stress tests with high volume
+    /// Run all tests in a directory
     #[command(display_order = 7)]
+    RunAll {
+        /// Directory containing SQL apps and test specs
+        #[arg(default_value = ".")]
+        directory: PathBuf,
+
+        /// Output format: text, json
+        #[arg(short, long, default_value = "text")]
+        output: String,
+
+        /// Timeout per query in milliseconds
+        #[arg(long, default_value = "90000")]
+        timeout_ms: u64,
+
+        /// Auto-start Kafka using testcontainers (requires Docker)
+        #[arg(long)]
+        use_testcontainers: bool,
+
+        /// External Kafka bootstrap servers (overrides config file)
+        #[arg(long)]
+        kafka: Option<String>,
+
+        /// Keep testcontainers running after test completion
+        #[arg(long)]
+        keep_containers: bool,
+
+        /// Reuse existing test container if available (faster iteration)
+        #[arg(long)]
+        reuse_containers: bool,
+
+        /// Pattern to match SQL files (default: apps/*.sql)
+        #[arg(long)]
+        pattern: Option<String>,
+
+        /// Skip apps matching this pattern
+        #[arg(long)]
+        skip: Option<String>,
+    },
+
+    /// Run stress tests with high volume
+    #[command(display_order = 8)]
     Stress {
         /// Path to the SQL file to test
         sql_file: PathBuf,
@@ -292,6 +332,35 @@ enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
+
+    /// Check health of Velostream infrastructure (Docker, Kafka, topics, processes)
+    #[command(display_order = 10)]
+    Health {
+        /// Kafka bootstrap servers (e.g., localhost:9092)
+        #[arg(short, long)]
+        broker: Option<String>,
+
+        /// Output format: text, json
+        #[arg(short, long, default_value = "text")]
+        output: String,
+
+        /// Specific checks to run (comma-separated): docker,kafka,topics,processes,consumers
+        /// If not specified, runs all checks
+        #[arg(short, long)]
+        check: Option<String>,
+
+        /// Timeout for operations in seconds
+        #[arg(long, default_value = "10")]
+        timeout: u64,
+
+        /// Container names to check (comma-separated, default: simple-kafka,simple-zookeeper)
+        #[arg(long)]
+        containers: Option<String>,
+
+        /// Topic names to check (comma-separated, default: all topics)
+        #[arg(long)]
+        topics: Option<String>,
+    },
 }
 
 /// Build information constants
@@ -345,22 +414,26 @@ mod discovery {
     /// Auto-discover test spec file relative to SQL file
     pub fn discover_spec(sql_file: &Path) -> Option<PathBuf> {
         let sql_dir = sql_file.parent()?;
+        let file_stem = sql_file.file_stem()?.to_string_lossy();
 
         // Check common spec file names in order of preference
-        let candidates = [
+        // App-specific specs take priority over generic test_spec.yaml
+        let mut candidates = vec![
+            // App-specific specs in same directory
+            sql_dir.join(format!("{}.test.yaml", file_stem)),
+            sql_dir.join(format!("{}.spec.yaml", file_stem)),
+            // Generic spec in same directory
             sql_dir.join("test_spec.yaml"),
             sql_dir.join("test_spec.yml"),
-            sql_dir.join(format!(
-                "{}.test.yaml",
-                sql_file.file_stem()?.to_string_lossy()
-            )),
-            sql_dir.join(format!(
-                "{}.spec.yaml",
-                sql_file.file_stem()?.to_string_lossy()
-            )),
-            // Also check parent directory
-            sql_dir.parent()?.join("test_spec.yaml"),
         ];
+
+        // Also check parent directory and its tests/ subdirectory
+        // App-specific specs in tests/ take priority over generic test_spec.yaml
+        if let Some(parent) = sql_dir.parent() {
+            candidates.insert(2, parent.join(format!("tests/{}.test.yaml", file_stem)));
+            candidates.insert(3, parent.join(format!("tests/{}.spec.yaml", file_stem)));
+            candidates.push(parent.join("test_spec.yaml"));
+        }
 
         candidates.into_iter().find(|p| p.exists())
     }
@@ -1277,7 +1350,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 match TestHarnessInfra::with_testcontainers_reuse(reuse_containers).await {
                     Ok(infra) => {
-                        let mode = if reuse_containers { "reused" } else { "testcontainers" };
+                        let mode = if reuse_containers {
+                            "reused"
+                        } else {
+                            "testcontainers"
+                        };
                         println!(
                             "   Kafka: {} ({})",
                             infra.bootstrap_servers().unwrap_or("unknown"),
@@ -2346,6 +2423,265 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        Commands::RunAll {
+            directory,
+            output,
+            timeout_ms,
+            use_testcontainers,
+            kafka,
+            keep_containers,
+            reuse_containers,
+            pattern,
+            skip,
+        } => {
+            use velostream::velostream::test_harness::infra::TestHarnessInfra;
+            use velostream::velostream::test_harness::report::{
+                AppResult, MultiAppReport, OutputFormat, write_multi_app_report,
+            };
+
+            let mut multi_report = MultiAppReport::new("Test Summary");
+
+            // Determine SQL file pattern
+            let sql_pattern = pattern.unwrap_or_else(|| "apps/*.sql".to_string());
+            let full_pattern = directory.join(&sql_pattern);
+
+            println!("🧪 Velostream Test Harness - Run All");
+            println!("════════════════════════════════════════");
+            println!("Directory: {}", directory.display());
+            println!("Pattern: {}", sql_pattern);
+            println!();
+
+            // Find all matching SQL files using glob pattern matching
+            let sql_files: Vec<PathBuf> = {
+                let mut files = Vec::new();
+
+                // Simple glob implementation for apps/*.sql pattern
+                if let Some(parent) = full_pattern.parent() {
+                    if parent.exists() {
+                        if let Ok(entries) = std::fs::read_dir(parent) {
+                            for entry in entries.flatten() {
+                                let path = entry.path();
+                                if path.extension().map(|e| e == "sql").unwrap_or(false) {
+                                    let path_str = path.to_string_lossy();
+                                    // Skip .annotated.sql files
+                                    if path_str.contains(".annotated.sql") {
+                                        continue;
+                                    }
+                                    // Apply skip pattern if provided
+                                    if let Some(ref skip_pattern) = skip {
+                                        if path_str.contains(skip_pattern) {
+                                            continue;
+                                        }
+                                    }
+                                    files.push(path);
+                                }
+                            }
+                        }
+                    }
+                }
+                files.sort();
+                files
+            };
+
+            if sql_files.is_empty() {
+                eprintln!(
+                    "❌ No SQL files found matching pattern: {}",
+                    full_pattern.display()
+                );
+                std::process::exit(1);
+            }
+
+            println!("Found {} SQL files to test", sql_files.len());
+            println!();
+
+            // Initialize infrastructure once for all apps
+            let mut infra = if use_testcontainers || kafka.is_none() {
+                println!("🔧 Initializing test infrastructure...");
+                match TestHarnessInfra::with_testcontainers_reuse(reuse_containers).await {
+                    Ok(infra) => {
+                        let mode = if reuse_containers {
+                            "reused"
+                        } else {
+                            "testcontainers"
+                        };
+                        println!(
+                            "   Kafka: {} ({})",
+                            infra.bootstrap_servers().unwrap_or("unknown"),
+                            mode
+                        );
+                        Some(infra)
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to start test infrastructure: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                kafka.as_ref().map(|bs| TestHarnessInfra::with_kafka(bs))
+            };
+
+            // Start infrastructure if we have it
+            if let Some(ref mut inf) = infra {
+                if let Err(e) = inf.start().await {
+                    eprintln!("❌ Failed to start test infrastructure: {}", e);
+                    std::process::exit(1);
+                }
+            }
+
+            let bootstrap_servers = kafka
+                .clone()
+                .or_else(|| {
+                    infra
+                        .as_ref()
+                        .and_then(|i| i.bootstrap_servers().map(|s| s.to_string()))
+                })
+                .unwrap_or_else(|| "localhost:9092".to_string());
+
+            // Set VELOSTREAM_KAFKA_BROKERS env var
+            unsafe {
+                std::env::set_var("VELOSTREAM_KAFKA_BROKERS", &bootstrap_servers);
+            }
+
+            println!();
+
+            // Run each SQL file by spawning velo-test run for each
+            // This is simpler and reuses the existing well-tested Run logic
+            for sql_file in &sql_files {
+                let app_name = sql_file
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("Running: {}", app_name);
+
+                let app_start = std::time::Instant::now();
+
+                // Auto-discover test spec
+                let spec_path = discovery::discover_spec(sql_file);
+
+                // Run velo-test for this app using subprocess
+                let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
+                cmd.arg("run")
+                    .arg(sql_file)
+                    .arg("--timeout-ms")
+                    .arg(timeout_ms.to_string())
+                    .arg("--output")
+                    .arg("json")
+                    .arg("--kafka")
+                    .arg(&bootstrap_servers)
+                    .arg("-y"); // Skip prompts
+
+                if let Some(ref spec) = spec_path {
+                    cmd.arg("--spec").arg(spec);
+                }
+
+                // Add schemas directory if it exists
+                let schemas_dir = directory.join("schemas");
+                if schemas_dir.exists() {
+                    cmd.arg("--schemas").arg(&schemas_dir);
+                }
+
+                let output_result = cmd.output();
+
+                let mut app_result = AppResult {
+                    name: app_name.clone(),
+                    passed: false,
+                    queries_total: 0,
+                    queries_passed: 0,
+                    assertions_total: 0,
+                    assertions_passed: 0,
+                    duration_secs: 0.0,
+                    error: None,
+                    report: None,
+                };
+
+                match output_result {
+                    Ok(output) => {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+
+                        // Try to parse JSON report from stdout
+                        // The JSON output may be mixed with log lines, so find the JSON part
+                        if let Some(json_start) = stdout.find('{') {
+                            if let Some(json_str) = stdout.get(json_start..) {
+                                // Find the complete JSON object
+                                if let Ok(report) = serde_json::from_str::<
+                                    velostream::velostream::test_harness::report::TestReport,
+                                >(json_str)
+                                {
+                                    app_result.passed =
+                                        report.summary.failed == 0 && report.summary.errors == 0;
+                                    app_result.queries_total = report.summary.total;
+                                    app_result.queries_passed = report.summary.passed;
+                                    app_result.assertions_total = report.summary.total_assertions;
+                                    app_result.assertions_passed = report.summary.passed_assertions;
+                                    app_result.report = Some(report);
+                                }
+                            }
+                        }
+
+                        // Check exit code
+                        if !output.status.success() && !app_result.passed {
+                            app_result.passed = false;
+                            if app_result.error.is_none() {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                if !stderr.is_empty() {
+                                    app_result.error =
+                                        Some(stderr.lines().take(3).collect::<Vec<_>>().join("\n"));
+                                }
+                            }
+                        }
+
+                        // Print inline summary
+                        let status = if app_result.passed { "✅" } else { "❌" };
+                        println!(
+                            "  {} {}/{} queries, {}/{} assertions",
+                            status,
+                            app_result.queries_passed,
+                            app_result.queries_total,
+                            app_result.assertions_passed,
+                            app_result.assertions_total
+                        );
+                    }
+                    Err(e) => {
+                        app_result.error = Some(format!("Failed to run: {}", e));
+                        println!("  ❌ Error: {}", e);
+                    }
+                }
+
+                app_result.duration_secs = app_start.elapsed().as_secs_f64();
+                multi_report.add_app(app_result);
+                println!();
+            }
+
+            // Stop shared infrastructure
+            if let Some(ref mut inf) = infra {
+                if keep_containers {
+                    // Just stop without cleanup
+                    let _ = inf.stop().await;
+                } else if reuse_containers {
+                    let _ = inf.stop_with_reuse(true).await;
+                } else {
+                    let _ = inf.stop().await;
+                }
+            }
+
+            // Finalize and output report
+            multi_report.finalize();
+
+            let format = output.parse::<OutputFormat>().unwrap_or(OutputFormat::Text);
+            let mut stdout = std::io::stdout();
+            if let Err(e) = write_multi_app_report(&multi_report, format, &mut stdout) {
+                eprintln!("❌ Failed to write report: {}", e);
+                std::process::exit(1);
+            }
+
+            // Exit with appropriate code
+            if multi_report.summary.apps_failed > 0 {
+                std::process::exit(1);
+            }
+        }
+
         Commands::Stress {
             sql_file,
             spec,
@@ -2689,7 +3025,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 match TestHarnessInfra::with_testcontainers_reuse(reuse_containers).await {
                     Ok(i) => {
-                        let mode = if reuse_containers { "reused" } else { "testcontainers" };
+                        let mode = if reuse_containers {
+                            "reused"
+                        } else {
+                            "testcontainers"
+                        };
                         println!(
                             "   Kafka: {} ({})",
                             i.bootstrap_servers().unwrap_or("unknown"),
@@ -4721,6 +5061,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "   2. Start monitoring with: docker-compose -f monitoring/docker-compose.yml up"
                 );
                 println!("   3. View dashboards at: http://localhost:3000");
+            }
+        }
+
+        Commands::Health {
+            broker,
+            output,
+            check,
+            timeout,
+            containers,
+            topics,
+        } => {
+            use velostream::velostream::test_harness::health::{
+                HealthCheckType, HealthChecker, HealthConfig,
+            };
+
+            // Determine which checks to run
+            let check_types = if let Some(ref checks) = check {
+                HealthCheckType::parse_list(checks)
+            } else {
+                HealthCheckType::all()
+            };
+
+            if check_types.is_empty() {
+                eprintln!("❌ No valid checks specified");
+                eprintln!("   Valid checks: docker, kafka, topics, processes, consumers");
+                std::process::exit(1);
+            }
+
+            // Build configuration
+            let mut config = HealthConfig::default();
+            config.bootstrap_servers = broker.clone();
+            config.timeout = Duration::from_secs(timeout);
+
+            if let Some(ref c) = containers {
+                config.container_names = c.split(',').map(|s| s.trim().to_string()).collect();
+            }
+
+            if let Some(ref t) = topics {
+                config.topic_names = t.split(',').map(|s| s.trim().to_string()).collect();
+            }
+
+            // Create health checker and run checks
+            let checker = HealthChecker::with_config(config);
+            let report = checker.run_checks(&check_types).await;
+
+            // Output in requested format
+            match output.as_str() {
+                "json" => {
+                    println!("{}", report.format_json());
+                }
+                _ => {
+                    println!("{}", report.format_text());
+                }
+            }
+
+            // Exit with appropriate status code
+            if !report.is_healthy() {
+                std::process::exit(1);
             }
         }
     }

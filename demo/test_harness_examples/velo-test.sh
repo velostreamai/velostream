@@ -87,6 +87,7 @@ show_help() {
     echo "  (default)       Interactive: select SQL file → test case"
     echo "  run             Run all tiers (auto-starts Kafka via Docker)"
     echo "  validate        Validate all SQL syntax only (no Docker needed)"
+    echo "  health          Check infrastructure health (Docker, Kafka, topics)"
     echo "  tier1-6         Run specific tier tests (e.g., tier1, tier2)"
     echo "  getting_started Run getting_started example"
     echo "  menu            Interactive menu to select SQL files only"
@@ -716,6 +717,14 @@ case "$MODE" in
         fi
         cd "$ORIGINAL_DIR"
         show_cases_menu "$search_dir"
+        ;;
+
+    health)
+        # Run infrastructure health check
+        echo -e "${CYAN}Running infrastructure health check...${NC}"
+        echo ""
+        broker="${KAFKA_SERVERS:-localhost:9092}"
+        "$VELO_TEST" health --broker "$broker" --output text
         ;;
 
     run|*)
