@@ -62,9 +62,7 @@ queries:
       - type: metric_gauge
         name: velo_metric_demo_amount
         operator: between
-        between:
-          min: 0
-          max: 10000
+        between: [0, 10000]
         tolerance: 0.01
 
       # Verify histogram metric exists

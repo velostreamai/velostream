@@ -3,43 +3,14 @@ description: Test multi-table JOIN enrichment
 default_timeout_ms: 60000
 
 queries:
-  # Reference table 1: Customers (from CSV)
-  - name: customers
-    description: Load customers reference table
-    # No inputs needed - loads from file_source in SQL
-    assertions:
-      - type: record_count
-        greater_than: 0
-    timeout_ms: 30000
-
-  # Reference table 2: Products (from CSV)
-  - name: products
-    description: Load products reference table
-    assertions:
-      - type: record_count
-        greater_than: 0
-    timeout_ms: 30000
-
-  # Source stream: Orders
-  - name: orders
-    description: Orders source stream
-    depends_on:
-      - customers
-      - products
+  # Join query: Enrich orders with customer and product data
+  # File sources (customers, products) are loaded from config files in SQL
+  - name: fully_enriched
+    description: Verify multi-table join enriches from both customer and product sources
     inputs:
-      - source: orders_raw
+      - source: orders
         schema: order_event
         records: 100
-    assertions:
-      - type: record_count
-        equals: 100
-    timeout_ms: 30000
-
-  # Join query: Enrich orders with customer and product data
-  - name: fully_enriched
-    description: Verify multi-table join enriches from both sources
-    depends_on:
-      - orders
     assertions:
       - type: record_count
         equals: 100

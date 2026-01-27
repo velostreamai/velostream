@@ -19,9 +19,10 @@ fields:
     type: string
     nullable: false
     constraints:
-      length:
-        min: 8
-        max: 12
+      enum_values:
+        # Match products.csv IDs for join tests
+        values: ["PROD001", "PROD002", "PROD003", "PROD004", "PROD005", "PROD006", "PROD007", "PROD008", "PROD009"]
+        weights: [0.15, 0.15, 0.15, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05]
 
   - name: quantity
     type: integer
