@@ -432,12 +432,13 @@ impl IntervalJoinProcessor {
     ) -> Option<FieldValue> {
         let suffix = format!(".{}", column_name);
 
-        // Collect matches - we need the keys for logging if ambiguous
-        let matches: Vec<(&String, &FieldValue)> = record
+        // Collect matches sorted by key for deterministic resolution
+        let mut matches: Vec<(&String, &FieldValue)> = record
             .fields
             .iter()
             .filter(|(key, _)| key.ends_with(&suffix))
             .collect();
+        matches.sort_by_key(|(k, _)| k.as_str());
 
         match matches.len() {
             0 => None,

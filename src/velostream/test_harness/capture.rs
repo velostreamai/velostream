@@ -326,7 +326,8 @@ impl SinkCapture {
                                     max_topic_retries,
                                     topic_retry_delay.as_secs()
                                 );
-                                // Unsubscribe and resubscribe after a delay
+                                // Unsubscribe and resubscribe after a delay,
+                                // then recreate the stream to avoid stale state.
                                 consumer.unsubscribe();
                                 tokio::time::sleep(topic_retry_delay).await;
                                 consumer.subscribe(&[topic]).map_err(|e| {
@@ -339,6 +340,7 @@ impl SinkCapture {
                                         source: Some(e.to_string()),
                                     }
                                 })?;
+                                stream = consumer.stream();
                                 continue;
                             }
                             // Exhausted retries - fail

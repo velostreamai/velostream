@@ -1017,9 +1017,11 @@ impl StreamJobServer {
                             // Note: The parser currently marks ALL joins as stream-stream joins, even
                             // stream-table joins. We need to verify both sources are actually streams
                             // by checking if they exist in the readers map.
-                            let use_join_processor = if parsed_query.has_stream_stream_joins() {
+                            // Extract join info once and reuse it to avoid
+                            // calling extract_stream_stream_join_info() twice.
+                            let join_info = if parsed_query.has_stream_stream_joins() {
                                 // Extract join information from query
-                                if let Some((left_name, right_name, _join_type)) =
+                                if let Some((left_name, right_name, join_type)) =
                                     parsed_query.extract_stream_stream_join_info()
                                 {
                                     // Check if both sources exist as readers (i.e., both are streams)
@@ -1036,7 +1038,7 @@ impl StreamJobServer {
                                             "Job '{}': Both '{}' and '{}' are streams, using JoinJobProcessor",
                                             job_name, left_name, right_name
                                         );
-                                        true
+                                        Some((left_name, right_name, join_type))
                                     } else {
                                         info!(
                                             "Job '{}': Stream-table join detected (left={}, right={}), using standard processor with table lookup",
@@ -1044,19 +1046,16 @@ impl StreamJobServer {
                                             if left_exists { "stream" } else { "table" },
                                             if right_exists { "stream" } else { "table" }
                                         );
-                                        false
+                                        None
                                     }
                                 } else {
-                                    false
+                                    None
                                 }
                             } else {
-                                false
+                                None
                             };
 
-                            if use_join_processor {
-                                // Extract join information from query
-                                let (left_name, right_name, join_type) =
-                                    parsed_query.extract_stream_stream_join_info().unwrap();
+                            if let Some((left_name, right_name, join_type)) = join_info {
                                 info!(
                                     "Job '{}': Join sources - left='{}', right='{}', type={:?}",
                                     job_name, left_name, right_name, join_type

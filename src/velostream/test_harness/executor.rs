@@ -1010,82 +1010,87 @@ impl QueryExecutor {
         );
 
         while start.elapsed() < timeout {
-            if let Some(ref server) = self.server {
-                if let Some(status) = server.get_job_status(job_name).await {
-                    match status.status {
-                        JobStatus::Failed(ref msg) => {
-                            return Err(TestHarnessError::ExecutionError {
-                                message: format!("Job failed: {}", msg),
-                                query_name: job_name.to_string(),
-                                source: None,
-                            });
-                        }
-                        JobStatus::Stopped => {
-                            log::debug!("Job '{}' stopped", job_name);
-                            return Ok(());
-                        }
-                        JobStatus::Running => {
-                            // Check if we've processed enough records (heuristic).
-                            // Wait until records_processed stabilizes (all input consumed),
-                            // then allow extra time for output to be flushed to Kafka.
-                            // This is critical for join queries where input is read quickly
-                            // but output is batched and flushed asynchronously.
-                            if status.stats.records_processed > 0 {
-                                let mut prev_count = status.stats.records_processed;
-                                // Poll until records_processed stops growing
-                                loop {
-                                    tokio::time::sleep(Duration::from_secs(2)).await;
-                                    if start.elapsed() >= timeout {
-                                        break;
-                                    }
-                                    let current = self
-                                        .server
-                                        .as_ref()
-                                        .unwrap()
-                                        .get_job_status(job_name)
-                                        .await
-                                        .map(|st| st.stats.records_processed)
-                                        .unwrap_or(prev_count);
-                                    if current <= prev_count {
-                                        break; // Stabilized
-                                    }
-                                    log::debug!(
-                                        "Job '{}' still processing ({} -> {} records), waiting...",
-                                        job_name,
-                                        prev_count,
-                                        current
-                                    );
-                                    prev_count = current;
+            let server = match self.server.as_ref() {
+                Some(s) => s,
+                None => {
+                    tokio::time::sleep(poll_interval).await;
+                    continue;
+                }
+            };
+            if let Some(status) = server.get_job_status(job_name).await {
+                match status.status {
+                    JobStatus::Failed(ref msg) => {
+                        return Err(TestHarnessError::ExecutionError {
+                            message: format!("Job failed: {}", msg),
+                            query_name: job_name.to_string(),
+                            source: None,
+                        });
+                    }
+                    JobStatus::Stopped => {
+                        log::debug!("Job '{}' stopped", job_name);
+                        return Ok(());
+                    }
+                    JobStatus::Running => {
+                        // Check if we've processed enough records (heuristic).
+                        // Wait until records_processed stabilizes (all input consumed),
+                        // then allow extra time for output to be flushed to Kafka.
+                        // This is critical for join queries where input is read quickly
+                        // but output is batched and flushed asynchronously.
+                        if status.stats.records_processed > 0 {
+                            let mut prev_count = status.stats.records_processed;
+                            // Poll until records_processed stops growing
+                            loop {
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                                if start.elapsed() >= timeout {
+                                    break;
+                                }
+                                let current = server
+                                    .get_job_status(job_name)
+                                    .await
+                                    .map(|st| st.stats.records_processed)
+                                    .unwrap_or(prev_count);
+                                if current <= prev_count {
+                                    break; // Stabilized
                                 }
                                 log::debug!(
-                                    "Job '{}' processed {} records, proceeding to capture",
+                                    "Job '{}' still processing ({} -> {} records), waiting...",
                                     job_name,
-                                    prev_count
+                                    prev_count,
+                                    current
                                 );
-                                return Ok(());
+                                prev_count = current;
                             }
+                            log::debug!(
+                                "Job '{}' processed {} records, proceeding to capture",
+                                job_name,
+                                prev_count
+                            );
+                            return Ok(());
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
             tokio::time::sleep(poll_interval).await;
         }
 
         // Timeout reached - check if any records were processed
-        if let Some(ref server) = self.server {
-            if let Some(status) = server.get_job_status(job_name).await {
-                if status.stats.records_processed > 0 {
-                    // Some records were processed, proceed with capture
-                    log::warn!(
-                        "Job '{}' did not complete within timeout ({:?}), but processed {} records - proceeding with capture",
-                        job_name,
-                        timeout,
-                        status.stats.records_processed
-                    );
-                    return Ok(());
-                }
-            }
+        let final_status = match self.server.as_ref() {
+            Some(s) => s.get_job_status(job_name).await,
+            None => None,
+        };
+        if final_status
+            .as_ref()
+            .is_some_and(|s| s.stats.records_processed > 0)
+        {
+            let processed = final_status.unwrap().stats.records_processed;
+            log::warn!(
+                "Job '{}' did not complete within timeout ({:?}), but processed {} records - proceeding with capture",
+                job_name,
+                timeout,
+                processed
+            );
+            return Ok(());
         }
 
         // No records processed - this is a failure

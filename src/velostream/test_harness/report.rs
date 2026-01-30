@@ -602,7 +602,7 @@ impl MultiAppReport {
             chrono::DateTime::parse_from_rfc3339(&self.start_time),
             chrono::DateTime::parse_from_rfc3339(&self.end_time),
         ) {
-            self.duration_secs = (end - start).num_seconds() as u64;
+            self.duration_secs = (end - start).num_seconds().max(0) as u64;
         }
 
         // Calculate summary
