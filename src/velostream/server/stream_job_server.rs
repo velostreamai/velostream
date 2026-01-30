@@ -27,7 +27,7 @@ use crate::velostream::server::v2::{JoinJobConfig, JoinJobProcessor};
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     annotation_parser::SqlAnnotationParser,
-    ast::{JobProcessorMode, StreamingQuery},
+    ast::{JobProcessorMode, SelectField, StreamingQuery},
     config::with_clause_parser::WithClauseParser,
     execution::config::StreamingConfig,
     execution::performance::PerformanceMonitor,
@@ -1014,114 +1014,161 @@ impl StreamJobServer {
                             );
 
                             // FR-085: Check for stream-stream joins and route to specialized processor
-                            if parsed_query.has_stream_stream_joins() {
-                                info!(
-                                    "Job '{}': Detected stream-stream join, using JoinJobProcessor",
-                                    job_name
-                                );
-
+                            // Note: The parser currently marks ALL joins as stream-stream joins, even
+                            // stream-table joins. We need to verify both sources are actually streams
+                            // by checking if they exist in the readers map.
+                            let use_join_processor = if parsed_query.has_stream_stream_joins() {
                                 // Extract join information from query
-                                if let Some((left_name, right_name, join_type)) =
+                                if let Some((left_name, right_name, _join_type)) =
                                     parsed_query.extract_stream_stream_join_info()
                                 {
-                                    info!(
-                                        "Job '{}': Join sources - left='{}', right='{}', type={:?}",
-                                        job_name, left_name, right_name, join_type
-                                    );
+                                    // Check if both sources exist as readers (i.e., both are streams)
+                                    // Reader names use format "source_{idx}_{name}"
+                                    let left_exists = readers
+                                        .keys()
+                                        .any(|k| k.ends_with(&format!("_{}", left_name)));
+                                    let right_exists = readers
+                                        .keys()
+                                        .any(|k| k.ends_with(&format!("_{}", right_name)));
 
-                                    // Extract join keys from ON clause
-                                    let join_keys = parsed_query.extract_join_keys();
-                                    info!("Job '{}': Join keys: {:?}", job_name, join_keys);
+                                    if left_exists && right_exists {
+                                        info!(
+                                            "Job '{}': Both '{}' and '{}' are streams, using JoinJobProcessor",
+                                            job_name, left_name, right_name
+                                        );
+                                        true
+                                    } else {
+                                        info!(
+                                            "Job '{}': Stream-table join detected (left={}, right={}), using standard processor with table lookup",
+                                            job_name,
+                                            if left_exists { "stream" } else { "table" },
+                                            if right_exists { "stream" } else { "table" }
+                                        );
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
 
-                                    // Get readers for left and right sources
-                                    let left_reader = readers.remove(&left_name);
-                                    let right_reader = readers.remove(&right_name);
+                            if use_join_processor {
+                                // Extract join information from query
+                                let (left_name, right_name, join_type) =
+                                    parsed_query.extract_stream_stream_join_info().unwrap();
+                                info!(
+                                    "Job '{}': Join sources - left='{}', right='{}', type={:?}",
+                                    job_name, left_name, right_name, join_type
+                                );
 
-                                    match (left_reader, right_reader) {
-                                        (Some(left), Some(right)) => {
-                                            // Create join configuration
-                                            let mut join_config = crate::velostream::sql::execution::processors::IntervalJoinConfig::new(
+                                // Extract join keys from ON clause
+                                let join_keys = parsed_query.extract_join_keys();
+                                info!("Job '{}': Join keys: {:?}", job_name, join_keys);
+
+                                // Get readers for left and right sources
+                                // Reader names use format "source_{idx}_{name}", so we need to find by suffix
+                                let left_key = readers
+                                    .keys()
+                                    .find(|k| k.ends_with(&format!("_{}", left_name)))
+                                    .cloned();
+                                let right_key = readers
+                                    .keys()
+                                    .find(|k| k.ends_with(&format!("_{}", right_name)))
+                                    .cloned();
+
+                                let left_reader = left_key.and_then(|k| readers.remove(&k));
+                                let right_reader = right_key.and_then(|k| readers.remove(&k));
+
+                                match (left_reader, right_reader) {
+                                    (Some(left), Some(right)) => {
+                                        // Create join configuration
+                                        let mut join_config = crate::velostream::sql::execution::processors::IntervalJoinConfig::new(
                                                 &left_name,
                                                 &right_name,
                                             );
 
-                                            // Add join keys
-                                            for (left_key, right_key) in join_keys {
-                                                join_config =
-                                                    join_config.with_key(&left_key, &right_key);
-                                            }
-
-                                            // Set time bounds (default 1 hour window for now)
-                                            join_config = join_config.with_bounds(
-                                                Duration::ZERO,
-                                                Duration::from_secs(3600),
-                                            );
-
-                                            // Create and execute join processor
-                                            let join_processor =
-                                                JoinJobProcessor::with_join_config(join_config);
-
-                                            // Get first writer (if any)
-                                            let writer = writers.into_values().next();
-
-                                            match join_processor
-                                                .process_join(
-                                                    left_name.clone(),
-                                                    left,
-                                                    right_name.clone(),
-                                                    right,
-                                                    writer,
-                                                )
-                                                .await
-                                            {
-                                                Ok(stats) => {
-                                                    info!(
-                                                        "Job '{}' (JoinJobProcessor) completed: {} left + {} right records, {} joins, {} output",
-                                                        job_name,
-                                                        stats.left_records_read,
-                                                        stats.right_records_read,
-                                                        stats.join_matches,
-                                                        stats.records_written
-                                                    );
-                                                    // Update shared stats
-                                                    if let Ok(mut shared) =
-                                                        shared_stats_for_spawn.write()
-                                                    {
-                                                        shared.records_processed = stats
-                                                            .left_records_read
-                                                            + stats.right_records_read;
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error!(
-                                                        "Job '{}' (JoinJobProcessor) failed: {:?}",
-                                                        job_name, e
-                                                    );
-                                                }
-                                            }
+                                        // Add join keys
+                                        for (left_key, right_key) in join_keys {
+                                            join_config =
+                                                join_config.with_key(&left_key, &right_key);
                                         }
-                                        (None, _) => {
-                                            error!(
-                                                "Job '{}': Left source '{}' not found in readers. Available: {:?}",
-                                                job_name,
-                                                left_name,
-                                                readers.keys().collect::<Vec<_>>()
-                                            );
-                                        }
-                                        (_, None) => {
-                                            error!(
-                                                "Job '{}': Right source '{}' not found in readers. Available: {:?}",
-                                                job_name,
-                                                right_name,
-                                                readers.keys().collect::<Vec<_>>()
-                                            );
+
+                                        // Set time bounds (default 1 hour window for now)
+                                        join_config = join_config
+                                            .with_bounds(Duration::ZERO, Duration::from_secs(3600));
+
+                                        // Extract SELECT fields for projection
+                                        let select_fields = parsed_query.get_select_fields();
+                                        let projection = if select_fields.is_empty()
+                                            || select_fields
+                                                .iter()
+                                                .any(|f| matches!(f, SelectField::Wildcard))
+                                        {
+                                            // No projection needed for wildcard or empty select
+                                            None
+                                        } else {
+                                            Some(select_fields)
+                                        };
+
+                                        // Create join job config with projection
+                                        let job_config = JoinJobConfig {
+                                            join_config,
+                                            projection,
+                                            ..Default::default()
+                                        };
+
+                                        // Create and execute join processor
+                                        let join_processor = JoinJobProcessor::new(job_config);
+
+                                        // Get first writer (if any)
+                                        let writer = writers.into_values().next();
+
+                                        match join_processor
+                                            .process_join(
+                                                left_name.clone(),
+                                                left,
+                                                right_name.clone(),
+                                                right,
+                                                writer,
+                                                Some(shared_stats_for_spawn.clone()),
+                                            )
+                                            .await
+                                        {
+                                            Ok(stats) => {
+                                                info!(
+                                                    "Job '{}' (JoinJobProcessor) completed: {} left + {} right records, {} joins, {} output",
+                                                    job_name,
+                                                    stats.left_records_read,
+                                                    stats.right_records_read,
+                                                    stats.join_matches,
+                                                    stats.records_written
+                                                );
+                                                // Update shared stats
+                                                if let Ok(mut shared) =
+                                                    shared_stats_for_spawn.write()
+                                                {
+                                                    shared.records_processed = stats
+                                                        .left_records_read
+                                                        + stats.right_records_read;
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                    "Job '{}' (JoinJobProcessor) failed: {:?}",
+                                                    job_name, e
+                                                );
+                                            }
                                         }
                                     }
-                                } else {
-                                    error!(
-                                        "Job '{}': Failed to extract join info despite has_stream_stream_joins() returning true",
-                                        job_name
-                                    );
+                                    _ => {
+                                        // This should not happen since we verified both sources exist
+                                        // before setting use_join_processor = true
+                                        error!(
+                                            "Job '{}': Unexpected reader state in JoinJobProcessor path",
+                                            job_name
+                                        );
+                                    }
                                 }
                             } else {
                                 // Normal (non-join) processing path
@@ -1666,8 +1713,13 @@ impl StreamJobServer {
         }
 
         // Pre-deployment SQL validation to prevent runtime failures
+        // Use base_dir for resolving relative config file paths in SQL
         info!("Validating SQL application before deployment...");
-        let validator = SqlValidator::new();
+        let validator = if let Some(ref base_dir) = self.base_dir {
+            SqlValidator::with_base_dir(base_dir)
+        } else {
+            SqlValidator::new()
+        };
 
         // Reconstruct the SQL content from the application statements for validation
         let sql_content = app

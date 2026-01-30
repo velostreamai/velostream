@@ -26,6 +26,6 @@ message TradeRecord {
     // Calculated notional value
     double notional_value = 6;
 
-    // Event timestamp as string (ISO 8601)
-    string event_time = 7;
+    // Event timestamp as epoch milliseconds
+    int64 event_time = 7;
 }

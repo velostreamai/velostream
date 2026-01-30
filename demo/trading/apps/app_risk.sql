@@ -1,5 +1,5 @@
 -- =============================================================================
--- APPLICATION: risk_monitoring
+-- SQL Application: risk_monitoring
 -- =============================================================================
 -- @app: risk_monitoring
 -- @version: 1.0.0
@@ -96,7 +96,7 @@ WITH (
 
     -- Source configuration
     'in_trading_positions_stream.type' = 'kafka_source',
-    'in_trading_positions_stream.topic.name' = 'trading_positions',
+    'in_trading_positions_stream.topic.name' = 'in_trading_positions_stream',
     'in_trading_positions_stream.config_file' = '../configs/kafka_source.yaml',
 
     -- Sink configuration

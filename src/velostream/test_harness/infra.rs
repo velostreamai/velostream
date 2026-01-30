@@ -97,7 +97,7 @@ impl ContainerType {
     /// Get the internal port for this container type
     pub fn internal_port(&self) -> u16 {
         match self {
-            ContainerType::Kafka => 9093, // KAFKA_PORT
+            ContainerType::Kafka => 9093,    // KAFKA_PORT
             ContainerType::Redpanda => 9092, // REDPANDA_PORT
         }
     }
@@ -134,7 +134,8 @@ async fn wait_for_kafka_ready(bootstrap_servers: &str, timeout: Duration) -> Tes
 
         if let Ok(admin) = config_result {
             // Try to fetch metadata
-            if admin.inner()
+            if admin
+                .inner()
                 .fetch_metadata(None, Duration::from_secs(5))
                 .is_ok()
             {
@@ -224,7 +225,7 @@ pub fn find_reusable_container(container_type: ContainerType) -> Option<String> 
         .next()?
         .trim()
         .split(':')
-        .last()?
+        .next_back()?
         .trim();
 
     if port.is_empty() {
@@ -246,8 +247,10 @@ pub fn cleanup_orphaned_containers() {
     // Find all containers with our label (running or stopped)
     let output = match Command::new("docker")
         .args([
-            "ps", "-aq",
-            "--filter", &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
+            "ps",
+            "-aq",
+            "--filter",
+            &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
         ])
         .output()
     {
@@ -658,16 +661,8 @@ impl TestHarnessInfra {
         // Use docker run directly so we can add our label
         // This is more reliable than trying to modify testcontainers behavior
         let (image, port_mapping, internal_port) = match container_type {
-            ContainerType::Kafka => (
-                "confluentinc/cp-kafka:7.5.0",
-                "9093",
-                9093,
-            ),
-            ContainerType::Redpanda => (
-                "redpandadata/redpanda:v23.2.14",
-                "9092",
-                9092,
-            ),
+            ContainerType::Kafka => ("confluentinc/cp-kafka:7.5.0", "9093", 9093),
+            ContainerType::Redpanda => ("redpandadata/redpanda:v23.2.14", "9092", 9092),
         };
 
         // Find an available port
@@ -725,18 +720,28 @@ impl TestHarnessInfra {
                 // Redpanda is simpler to configure
                 let output = Command::new("docker")
                     .args([
-                        "run", "-d",
-                        "--label", VELOSTREAM_CONTAINER_LABEL,
-                        "--label", &started_label,
-                        "-p", &format!("{}:{}", host_port, internal_port),
+                        "run",
+                        "-d",
+                        "--label",
+                        VELOSTREAM_CONTAINER_LABEL,
+                        "--label",
+                        &started_label,
+                        "-p",
+                        &format!("{}:{}", host_port, internal_port),
                         image,
-                        "redpanda", "start",
-                        "--smp", "1",
-                        "--memory", "512M",
+                        "redpanda",
+                        "start",
+                        "--smp",
+                        "1",
+                        "--memory",
+                        "512M",
                         "--overprovisioned",
-                        "--node-id", "0",
-                        "--kafka-addr", &format!("PLAINTEXT://0.0.0.0:{}", internal_port),
-                        "--advertise-kafka-addr", &format!("PLAINTEXT://127.0.0.1:{}", host_port),
+                        "--node-id",
+                        "0",
+                        "--kafka-addr",
+                        &format!("PLAINTEXT://0.0.0.0:{}", internal_port),
+                        "--advertise-kafka-addr",
+                        &format!("PLAINTEXT://127.0.0.1:{}", host_port),
                     ])
                     .output()
                     .map_err(|e| TestHarnessError::InfraError {
@@ -827,15 +832,20 @@ impl TestHarnessInfra {
             return Ok(());
         }
 
-        log::info!("Cleaning up {} test topic(s) from reused container...", test_topics.len());
+        log::info!(
+            "Cleaning up {} test topic(s) from reused container...",
+            test_topics.len()
+        );
 
         let options = AdminOptions::new().operation_timeout(Some(Duration::from_secs(10)));
         if let Err(e) = admin_client.delete_topics(&test_topics, &options).await {
             log::warn!("Failed to delete some topics (may not exist): {}", e);
         }
 
-        // Give Kafka time to process deletions
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Give Kafka/Redpanda time to process topic deletions fully.
+        // Redpanda needs sufficient time to complete deletion before topics can be
+        // recreated with the same name; otherwise consumers may see stale metadata.
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         Ok(())
     }
@@ -925,9 +935,12 @@ impl TestHarnessInfra {
 
             let output = Command::new("docker")
                 .args([
-                    "ps", "-q",
-                    "--filter", &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
-                    "--filter", &format!("ancestor={}", container_type.image_filter()),
+                    "ps",
+                    "-q",
+                    "--filter",
+                    &format!("label={}", VELOSTREAM_CONTAINER_LABEL),
+                    "--filter",
+                    &format!("ancestor={}", container_type.image_filter()),
                 ])
                 .output();
 

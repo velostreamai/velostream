@@ -87,9 +87,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_active_connections{job=~\"velo.*\"}",
+          "expr": "velo_active_jobs{job=~\"velo.*\"}",
           "interval": "",
-          "legendFormat": "Active Jobs ({{node_id}})",
+          "legendFormat": "Active Jobs ({{instance}})",
           "refId": "A"
         }
       ],
@@ -468,9 +468,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "kafka_server_replica_manager_leader_count",
+          "expr": "up{job=\"velo-sql-telemetry\"}",
           "interval": "",
-          "legendFormat": "Leader Replicas",
+          "legendFormat": "Velo-SQL Instance {{instance}}",
           "refId": "A"
         },
         {
@@ -478,13 +478,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "kafka_server_replica_manager_partition_count",
+          "expr": "velo_active_jobs",
           "interval": "",
-          "legendFormat": "Total Partitions",
+          "legendFormat": "Active Jobs {{instance}}",
           "refId": "B"
         }
       ],
-      "title": "Kafka Cluster Health",
+      "title": "Velostream Instance Health",
       "type": "timeseries"
     },
     {
@@ -1000,7 +1000,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "count(count by (__name__) ({__name__=~\"velo_trading_.*\"}))",
+          "expr": "count(count by (__name__) ({__name__=~\"velo_.*_records_total|velo_.*_price|velo_.*_count\"}))",
           "interval": "",
           "legendFormat": "SQL-Native Metrics",
           "refId": "A"
@@ -1072,7 +1072,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "count(velo_trading_price_alerts_total)",
+          "expr": "count(count by (__name__) ({__name__=~\"velo_.*_total\"}))",
           "interval": "",
           "legendFormat": "Counters",
           "refId": "A"
@@ -1082,10 +1082,20 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "count(velo_trading_price_change_percent_bucket)",
+          "expr": "count(count by (__name__) ({__name__=~\"velo_.*_bucket\"}))",
           "interval": "",
           "legendFormat": "Histograms",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "count(count by (__name__) ({__name__=~\"velo_.*_percent|velo_.*_bytes|velo_active_jobs\"}))",
+          "interval": "",
+          "legendFormat": "Gauges",
+          "refId": "C"
         }
       ],
       "title": "Metrics by Type",
@@ -1175,9 +1185,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(rate(velo_trading_price_alerts_total[5m]))",
+          "expr": "sum(rate(velo_market_data_ts_records_total[5m]))",
           "interval": "",
-          "legendFormat": "Price Alerts",
+          "legendFormat": "Market Data TS",
           "refId": "A"
         },
         {
@@ -1185,9 +1195,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(rate(velo_trading_volume_spikes_total[5m]))",
+          "expr": "sum(rate(velo_tick_buckets_records_total[5m]))",
           "interval": "",
-          "legendFormat": "Volume Spikes",
+          "legendFormat": "Tick Buckets",
           "refId": "B"
         },
         {
@@ -1195,9 +1205,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(rate(velo_trading_risk_alerts_total[5m]))",
+          "expr": "sum(rate(velo_compliant_market_data_records_total[5m]))",
           "interval": "",
-          "legendFormat": "Risk Alerts",
+          "legendFormat": "Compliant Market Data",
           "refId": "C"
         },
         {
@@ -1205,20 +1215,10 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(rate(velo_trading_order_imbalance_total[5m]))",
+          "expr": "sum(rate(velo_enriched_market_data_records_total[5m]))",
           "interval": "",
-          "legendFormat": "Order Imbalance",
+          "legendFormat": "Enriched Market Data",
           "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "sum(rate(velo_trading_arbitrage_opportunities_total[5m]))",
-          "interval": "",
-          "legendFormat": "Arbitrage Opportunities",
-          "refId": "E"
         }
       ],
       "title": "SQL-Native Metric Emission Rate",

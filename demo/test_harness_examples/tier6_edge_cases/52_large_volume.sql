@@ -38,6 +38,7 @@ WITH (
 );
 
 -- Aggregation at scale (uses CREATE TABLE for GROUP BY)
+-- Note: Uses events_2 to avoid topic conflicts with enriched_events
 CREATE TABLE regional_stats AS
 SELECT
     region PRIMARY KEY,
@@ -47,14 +48,14 @@ SELECT
     AVG(value) AS avg_value,
     _window_start AS window_start,
     _window_end AS window_end
-FROM events
+FROM events_2
 GROUP BY region, event_type
 WINDOW TUMBLING(1m)
 EMIT CHANGES
 WITH (
-    'events.type' = 'kafka_source',
-    'events.topic.name' = 'test_events',
-    'events.config_file' = '../configs/events_source.yaml',
+    'events_2.type' = 'kafka_source',
+    'events_2.topic.name' = 'test_events_2',
+    'events_2.config_file' = '../configs/events_source.yaml',
 
     'regional_stats.type' = 'kafka_sink',
     'regional_stats.topic.name' = 'test_regional_stats',

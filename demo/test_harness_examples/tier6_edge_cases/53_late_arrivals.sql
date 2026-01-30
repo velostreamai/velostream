@@ -44,6 +44,7 @@ WITH (
 );
 
 -- Passthrough with lateness detection based on event ordering
+-- Note: Uses sensor_events_2 to avoid topic conflicts with sensor_aggregates
 CREATE STREAM lateness_tracking AS
 SELECT
     sensor_id,
@@ -53,12 +54,12 @@ SELECT
     signal_strength,
     status,
     event_time
-FROM sensor_events
+FROM sensor_events_2
 EMIT CHANGES
 WITH (
-    'sensor_events.type' = 'kafka_source',
-    'sensor_events.topic.name' = 'test_sensor_events',
-    'sensor_events.config_file' = '../configs/sensor_readings_source.yaml',
+    'sensor_events_2.type' = 'kafka_source',
+    'sensor_events_2.topic.name' = 'test_sensor_events_2',
+    'sensor_events_2.config_file' = '../configs/sensor_readings_source.yaml',
 
     'lateness_tracking.type' = 'kafka_sink',
     'lateness_tracking.topic.name' = 'test_lateness_tracking',

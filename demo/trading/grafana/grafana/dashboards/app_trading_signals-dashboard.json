@@ -551,7 +551,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_trading_signals_volume_spike_analysis_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_volume_spike_analysis_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_trading_signals_volume_spike_analysis_records_total[5m])",
+          "expr": "rate(velo_volume_spike_analysis_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -703,7 +703,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_trading_signals_volume_spike_analysis_count))",
+          "expr": "topk(5, sum by (symbol) (velo_volume_spike_analysis_count))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -772,7 +772,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_trade_count",
+          "expr": "velo_volume_spike_analysis_trade_count",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -879,7 +879,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_avg_volume",
+          "expr": "velo_volume_spike_analysis_avg_volume",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -949,7 +949,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_stddev_volume",
+          "expr": "velo_volume_spike_analysis_stddev_volume",
           "interval": "",
           "legendFormat": "Current stddev_volume from volume_spike_analysis",
           "refId": "A"
@@ -1039,7 +1039,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_max_volume",
+          "expr": "velo_volume_spike_analysis_max_volume",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1108,7 +1108,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_min_volume",
+          "expr": "velo_volume_spike_analysis_min_volume",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1215,7 +1215,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_rolling_avg_20",
+          "expr": "velo_volume_spike_analysis_rolling_avg_20",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1285,7 +1285,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_volume_percentile",
+          "expr": "velo_volume_spike_analysis_volume_percentile",
           "interval": "",
           "legendFormat": "Current volume_percentile from volume_spike_analysis",
           "refId": "A"
@@ -1347,7 +1347,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_trading_signals_order_flow_imbalance_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_order_flow_imbalance_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -1437,7 +1437,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_order_flow_imbalance_buy_volume",
+          "expr": "velo_order_flow_imbalance_buy_volume",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1527,7 +1527,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_order_flow_imbalance_sell_volume",
+          "expr": "velo_order_flow_imbalance_sell_volume",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"

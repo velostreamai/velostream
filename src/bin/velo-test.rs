@@ -24,6 +24,19 @@ use velostream::velostream::sql::query_analyzer::{DataSinkType, DataSourceType};
 #[command(about = "Velostream SQL Application Test Harness")]
 #[command(version = "0.1.0")]
 #[command(author = "Velostream Team")]
+#[command(after_help = r#"Common Flags (for 'run' command):
+  --use-testcontainers    Auto-start Kafka via Docker (recommended for local dev)
+  --reuse-containers      Reuse existing container (faster iteration)
+  --spec <FILE>           Test specification YAML file
+  --schemas <DIR>         Schema definitions directory
+  --timeout-ms <MS>       Query timeout in milliseconds [default: 30000]
+  -q, --query <NAME>      Run only a specific query
+
+Examples:
+  velo-test run app.sql --use-testcontainers
+  velo-test run app.sql --spec test.yaml --reuse-containers
+  velo-test quickstart app.sql
+  velo-test validate app.sql"#)]
 struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true)]

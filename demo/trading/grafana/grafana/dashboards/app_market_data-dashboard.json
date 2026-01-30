@@ -551,7 +551,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_market_data_market_data_ts_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_market_data_ts_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_market_data_market_data_ts_records_total[5m])",
+          "expr": "rate(velo_market_data_ts_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -731,7 +731,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_current_price",
+          "expr": "velo_current_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -800,7 +800,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_current_bid_price",
+          "expr": "velo_current_bid_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -907,7 +907,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_current_ask_price",
+          "expr": "velo_current_ask_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -997,7 +997,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_market_data_tick_buckets_records_total[5m])",
+          "expr": "rate(velo_tick_buckets_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1059,7 +1059,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_market_data_tick_buckets_count))",
+          "expr": "topk(5, sum by (symbol) (velo_tick_buckets_count))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -1128,7 +1128,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_tick_buckets_avg_price",
+          "expr": "velo_tick_buckets_avg_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1235,7 +1235,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_tick_buckets_min_price",
+          "expr": "velo_tick_buckets_min_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1305,7 +1305,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_tick_buckets_max_price",
+          "expr": "velo_tick_buckets_max_price",
           "interval": "",
           "legendFormat": "Current max_price from tick_buckets",
           "refId": "A"
@@ -1395,7 +1395,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_tick_buckets_total_volume",
+          "expr": "velo_tick_buckets_total_volume",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1485,7 +1485,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_tick_buckets_trade_count",
+          "expr": "velo_tick_buckets_trade_count",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1575,7 +1575,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_market_data_tick_buckets_open_price",
+          "expr": "velo_tick_buckets_open_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"

@@ -1059,29 +1059,108 @@ where
         }
 
         log::info!(
-            "KafkaConsumer[{}]: Detected Invalid positions with read_committed, seeking to beginning",
+            "KafkaConsumer[{}]: Detected Invalid positions, seeking to beginning for all partitions",
             self.group_id
         );
 
-        let mut seek_tpl = rdkafka::TopicPartitionList::new();
-        for elem in assignment.elements() {
-            if let Err(e) =
-                seek_tpl.add_partition_offset(elem.topic(), elem.partition(), Offset::Beginning)
-            {
-                log::warn!(
-                    "KafkaConsumer[{}]: Failed to add partition offset: {:?}",
-                    self.group_id,
-                    e
-                );
-            }
-        }
+        // Use seek() for each partition instead of assign() to preserve the subscription
+        // assign() would override the subscribe() call and break consumer group protocol
+        //
+        // Retry mechanism: seek() may fail with "Erroneous state" if the consumer is not
+        // yet ready (e.g., rebalance in progress, metadata not fetched). We retry a few
+        // times with small delays to give the consumer time to stabilize.
+        const MAX_SEEK_RETRIES: u32 = 5;
+        const SEEK_RETRY_DELAY_MS: u64 = 100;
 
-        if let Err(e) = self.consumer.assign(&seek_tpl) {
-            log::warn!(
-                "KafkaConsumer[{}]: Failed to seek to beginning: {:?}",
-                self.group_id,
-                e
-            );
+        for elem in assignment.elements() {
+            let mut seek_succeeded = false;
+
+            for attempt in 0..MAX_SEEK_RETRIES {
+                match self
+                    .consumer
+                    .seek(elem.topic(), elem.partition(), Offset::Beginning, None)
+                {
+                    Ok(()) => {
+                        log::debug!(
+                            "KafkaConsumer[{}]: Seeked partition {}:{} to beginning{}",
+                            self.group_id,
+                            elem.topic(),
+                            elem.partition(),
+                            if attempt > 0 {
+                                format!(" (attempt {})", attempt + 1)
+                            } else {
+                                String::new()
+                            }
+                        );
+                        seek_succeeded = true;
+                        break;
+                    }
+                    Err(e) => {
+                        let is_erroneous_state = e.to_string().contains("Erroneous state");
+                        if is_erroneous_state && attempt < MAX_SEEK_RETRIES - 1 {
+                            log::debug!(
+                                "KafkaConsumer[{}]: Seek to beginning failed for {}:{} with 'Erroneous state', \
+                                 retrying in {}ms (attempt {}/{})",
+                                self.group_id,
+                                elem.topic(),
+                                elem.partition(),
+                                SEEK_RETRY_DELAY_MS,
+                                attempt + 1,
+                                MAX_SEEK_RETRIES
+                            );
+                            // Small delay before retry - blocking is acceptable here since
+                            // this is called from the polling thread
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                SEEK_RETRY_DELAY_MS,
+                            ));
+                        } else {
+                            log::warn!(
+                                "KafkaConsumer[{}]: Failed to seek partition {}:{} to beginning after {} attempts: {:?}",
+                                self.group_id,
+                                elem.topic(),
+                                elem.partition(),
+                                attempt + 1,
+                                e
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // If seek failed, try an alternative: do a poll to trigger metadata fetch,
+            // then retry the seek one more time
+            if !seek_succeeded {
+                log::info!(
+                    "KafkaConsumer[{}]: Attempting poll-then-seek workaround for partition {}:{}",
+                    self.group_id,
+                    elem.topic(),
+                    elem.partition()
+                );
+                // Do a quick poll to let the consumer fetch metadata
+                let _ = self.consumer.poll(std::time::Duration::from_millis(500));
+                // Try seek one more time
+                if let Err(e) =
+                    self.consumer
+                        .seek(elem.topic(), elem.partition(), Offset::Beginning, None)
+                {
+                    log::error!(
+                        "KafkaConsumer[{}]: Final seek attempt failed for partition {}:{}: {:?}. \
+                         Consumer will rely on auto.offset.reset policy.",
+                        self.group_id,
+                        elem.topic(),
+                        elem.partition(),
+                        e
+                    );
+                } else {
+                    log::info!(
+                        "KafkaConsumer[{}]: Poll-then-seek workaround succeeded for partition {}:{}",
+                        self.group_id,
+                        elem.topic(),
+                        elem.partition()
+                    );
+                }
+            }
         }
     }
 }

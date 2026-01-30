@@ -1168,8 +1168,12 @@ impl FieldValue {
 
             _ => Err(SqlError::TypeError {
                 expected: "numeric or interval/timestamp".to_string(),
-                actual: "incompatible types".to_string(),
-                value: None,
+                actual: format!(
+                    "incompatible types: {:?} - {:?}",
+                    std::mem::discriminant(self),
+                    std::mem::discriminant(other)
+                ),
+                value: Some(format!("left={:?}, right={:?}", self, other)),
             }),
         }
     }

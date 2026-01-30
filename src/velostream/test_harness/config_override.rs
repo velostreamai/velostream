@@ -167,6 +167,46 @@ impl ConfigOverrides {
                     })
                     .to_string();
             }
+
+            // Resolve relative schema file paths (avro.schema.file, protobuf.schema.file)
+            // Pattern: 'X.avro.schema.file' = 'schemas/record.avsc'
+            // Pattern: 'X.protobuf.schema.file' = 'schemas/record.proto'
+            if let Ok(re) =
+                regex::Regex::new(r#"'([^']+)\.(avro|protobuf)\.schema\.file'\s*=\s*'([^']+)'"#)
+            {
+                result = re
+                    .replace_all(&result, |caps: &regex::Captures| {
+                        let source_name = &caps[1];
+                        let schema_type = &caps[2];
+                        let schema_path = &caps[3];
+
+                        // Check if path is relative
+                        let path = std::path::Path::new(schema_path);
+                        if path.is_relative() {
+                            // Resolve relative to base_dir
+                            let resolved = base_dir.join(schema_path);
+                            // Canonicalize to get clean absolute path
+                            let absolute =
+                                resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+                            log::debug!(
+                                "Resolved {}.schema.file path: '{}' -> '{}'",
+                                schema_type,
+                                schema_path,
+                                absolute.display()
+                            );
+                            format!(
+                                "'{}.{}.schema.file' = '{}'",
+                                source_name,
+                                schema_type,
+                                absolute.display()
+                            )
+                        } else {
+                            // Already absolute, keep as-is
+                            caps[0].to_string()
+                        }
+                    })
+                    .to_string();
+            }
         }
 
         result

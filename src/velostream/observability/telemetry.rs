@@ -172,8 +172,19 @@ impl TelemetryProvider {
             {
                 Ok(exporter) => {
                     log::info!("✅ OTLP exporter created successfully for {}", endpoint);
+
+                    // Configure batch processor with larger queue for high-throughput streaming
+                    let batch_processor = opentelemetry_sdk::trace::BatchSpanProcessor::builder(
+                        exporter,
+                        runtime::Tokio,
+                    )
+                    .with_max_queue_size(16384) // Increased from default 2048
+                    .with_max_export_batch_size(512) // Default is 512
+                    .with_scheduled_delay(std::time::Duration::from_millis(5000)) // Default is 5s
+                    .build();
+
                     TracerProvider::builder()
-                        .with_batch_exporter(exporter, runtime::Tokio)
+                        .with_span_processor(batch_processor)
                         .with_config(
                             opentelemetry_sdk::trace::config()
                                 .with_sampler(sampler)

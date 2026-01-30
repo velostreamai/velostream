@@ -85,7 +85,7 @@ show_help() {
     echo "  ./velo-test.sh                    List available apps"
     echo "  ./velo-test.sh <app_name>         Run specific app tests"
     echo "  ./velo-test.sh validate           Validate all SQL syntax"
-    echo "  ./velo-test.sh all                Run all app tests"
+    echo "  ./velo-test.sh all, --all         Run all app tests"
     echo "  ./velo-test.sh health             Check infrastructure health"
     echo ""
     echo -e "${YELLOW}Available Apps:${NC}"
@@ -115,6 +115,10 @@ while [[ $# -gt 0 ]]; do
         -h|--help|help)
             show_help
             exit 0
+            ;;
+        --all|-all)
+            COMMAND="all"
+            shift
             ;;
         --kafka)
             KAFKA_SERVERS="$2"
@@ -250,37 +254,35 @@ run_all() {
     echo ""
 
     # Build command - velo-test run-all handles aggregation, summary tables, etc.
-    local cmd="$VELO_TEST run-all ."
-    cmd="$cmd --pattern 'apps/*.sql'"
-    cmd="$cmd --skip '*.annotated.sql'"
-    cmd="$cmd --timeout-ms $TIMEOUT_MS"
+    # Note: Use array to avoid glob expansion issues with patterns
+    local -a cmd_args=("$VELO_TEST" run-all . --pattern "apps/*.sql" --skip "*.annotated.sql" --timeout-ms "$TIMEOUT_MS")
 
     if [[ -n "$KAFKA_SERVERS" ]]; then
-        cmd="$cmd --kafka $KAFKA_SERVERS"
+        cmd_args+=(--kafka "$KAFKA_SERVERS")
     else
-        cmd="$cmd --use-testcontainers"
+        cmd_args+=(--use-testcontainers)
     fi
 
     if [[ -n "$KEEP_CONTAINERS" ]]; then
-        cmd="$cmd $KEEP_CONTAINERS"
+        cmd_args+=($KEEP_CONTAINERS)
     fi
 
     if [[ -n "$REUSE_CONTAINERS" ]]; then
-        cmd="$cmd $REUSE_CONTAINERS"
+        cmd_args+=($REUSE_CONTAINERS)
     fi
 
     if [[ -n "$VERBOSE" ]]; then
-        cmd="$cmd $VERBOSE"
+        cmd_args+=($VERBOSE)
     fi
 
-    echo -e "${BLUE}$cmd${NC}"
+    echo -e "${BLUE}${cmd_args[*]}${NC}"
     echo ""
 
     # Run with RUST_LOG=info for readable output
     if [[ -n "$VERBOSE" ]]; then
-        RUST_LOG=debug $cmd
+        RUST_LOG=debug "${cmd_args[@]}"
     else
-        RUST_LOG=info $cmd
+        RUST_LOG=info "${cmd_args[@]}"
     fi
 }
 

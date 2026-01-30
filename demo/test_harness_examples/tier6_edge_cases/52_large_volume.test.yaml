@@ -30,7 +30,7 @@ queries:
   - name: regional_stats
     description: Verify aggregation handles high volume correctly
     inputs:
-      - source: events
+      - source: events_2
         schema: events
         records: 10000
         time_simulation:

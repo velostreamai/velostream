@@ -551,7 +551,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_price_analytics_price_movement_alerts_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_price_movement_alerts_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_price_analytics_price_movement_alerts_records_total[5m])",
+          "expr": "rate(velo_price_movement_alerts_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -731,7 +731,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price",
+          "expr": "velo_current_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -800,7 +800,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_prev_price",
+          "expr": "velo_current_prev_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -907,7 +907,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_next_price",
+          "expr": "velo_current_next_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -977,7 +977,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_change_pct",
+          "expr": "velo_current_price_change_pct",
           "interval": "",
           "legendFormat": "Current price_change_pct value",
           "refId": "A"
@@ -1067,7 +1067,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_rank",
+          "expr": "velo_current_price_rank",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1136,7 +1136,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_percentile",
+          "expr": "velo_current_price_percentile",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1243,7 +1243,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_volatility_10_periods",
+          "expr": "velo_current_price_volatility_10_periods",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1333,7 +1333,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_price_analytics_price_movement_debug_records_total[5m])",
+          "expr": "rate(velo_price_movement_debug_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1395,7 +1395,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_price_analytics_price_movement_debug_count))",
+          "expr": "topk(5, sum by (symbol) (velo_price_movement_debug_count))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -1485,7 +1485,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_price_movement_debug_record_count",
+          "expr": "velo_price_movement_debug_record_count",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1575,7 +1575,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_price_movement_debug_avg_price",
+          "expr": "velo_price_movement_debug_avg_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"

@@ -85,7 +85,7 @@ show_help() {
     echo ""
     echo -e "${YELLOW}Commands:${NC}"
     echo "  (default)       Interactive: select SQL file → test case"
-    echo "  run             Run all tiers (auto-starts Kafka via Docker)"
+    echo "  run, --all      Run all tiers (auto-starts Kafka via Docker)"
     echo "  validate        Validate all SQL syntax only (no Docker needed)"
     echo "  health          Check infrastructure health (Docker, Kafka, topics)"
     echo "  tier1-6         Run specific tier tests (e.g., tier1, tier2)"
@@ -98,6 +98,7 @@ show_help() {
     echo -e "${YELLOW}Options:${NC}"
     echo "  --kafka <servers>   Use external Kafka instead of testcontainers"
     echo "  --reuse             Reuse existing Kafka container (faster for repeated runs)"
+    echo "  --rerun-failed      Re-run only the tests that failed in the last run"
     echo "  --timeout <ms>      Timeout per query in milliseconds (default: 60000)"
     echo "  --output <format>   Output format: text, json, junit"
     echo "  -q, --query <name>  Run only a specific test case by name"
@@ -128,11 +129,22 @@ case "${1:-}" in
         show_help
         exit 0
         ;;
+    --all|-all)
+        # --all flag runs all tiers (equivalent to 'run' command)
+        shift
+        MODE="run"
+        ;;
+    --rerun-failed)
+        shift
+        RERUN_FAILED=true
+        MODE="rerun-failed"
+        ;;
+    *)
+        # Parse command line arguments
+        MODE="${1:-cases}"
+        shift || true
+        ;;
 esac
-
-# Parse command line arguments
-MODE="${1:-cases}"
-shift || true
 
 # Check if the next argument is a directory path (not an option)
 if [[ $# -gt 0 && "${1:0:1}" != "-" ]]; then
@@ -156,6 +168,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --reuse)
             REUSE_CONTAINERS="--reuse-containers"
+            shift
+            ;;
+        --rerun-failed)
+            RERUN_FAILED=true
             shift
             ;;
         --query|-q)
@@ -221,6 +237,8 @@ get_tier_dir() {
         tier4) echo "tier4_window_functions" ;;
         tier5) echo "tier5_complex" ;;
         tier6) echo "tier6_edge_cases" ;;
+        tier7) echo "tier7_serialization" ;;
+        tier8) echo "tier8_fault_tolerance" ;;
         *) echo "" ;;
     esac
 }
@@ -570,7 +588,228 @@ run_sql_with_spec() {
         ${KAFKA_OPTS}
 }
 
+# Tracking arrays for summary
+PASSED_TESTS=()
+FAILED_TESTS=()
+SKIPPED_TESTS=()
+
+# Track failed test details for --rerun-failed
+FAILED_SQL_FILES=()
+FAILED_SPEC_FILES=()
+FAILED_SCHEMAS_DIRS=()
+
+# File to persist failed tests for rerun
+FAILED_TESTS_FILE="${SCRIPT_DIR}/.failed-tests"
+
+# Start time for total duration
+SCRIPT_START_TIME=$(date +%s)
+
+# Parallel arrays for test details (indexed same as PASSED/FAILED order in ALL_TESTS)
+ALL_TESTS=()          # test label
+ALL_STATUSES=()       # passed/failed/skipped
+ALL_DURATIONS=()      # duration string (e.g., "22.8s")
+ALL_ASSERTIONS=()     # assertion string (e.g., "3/3")
+ALL_QUERIES=()        # query string (e.g., "1/1")
+
+# Temp file for capturing velo-test output
+VELO_OUTPUT_TMP=$(mktemp /tmp/velo_test_output.XXXXXX)
+trap "rm -f $VELO_OUTPUT_TMP" EXIT
+
+# Parse JSON output from velo-test to extract duration, assertions, queries, and failure details
+# Sets: _duration_str, _assertions_str, _queries_str, _failure_details
+parse_test_output() {
+    local output_file="$1"
+    _duration_str=""
+    _assertions_str=""
+    _queries_str=""
+    _failure_details=""
+
+    # Parse duration_ms (format: "duration_ms": 22734)
+    local duration_ms=$(grep -o '"duration_ms":[[:space:]]*[0-9]*' "$output_file" 2>/dev/null | head -1 | grep -o '[0-9]*$')
+    if [[ -n "$duration_ms" && "$duration_ms" -gt 0 ]]; then
+        # Convert to seconds with 1 decimal
+        local secs=$(( duration_ms / 1000 ))
+        local tenths=$(( (duration_ms % 1000) / 100 ))
+        _duration_str="${secs}.${tenths}s"
+    fi
+
+    # Parse assertions (format: "total_assertions": 3, "passed_assertions": 3)
+    local total_assertions=$(grep -o '"total_assertions":[[:space:]]*[0-9]*' "$output_file" 2>/dev/null | head -1 | grep -o '[0-9]*$')
+    local passed_assertions=$(grep -o '"passed_assertions":[[:space:]]*[0-9]*' "$output_file" 2>/dev/null | head -1 | grep -o '[0-9]*$')
+    if [[ -n "$total_assertions" && -n "$passed_assertions" ]]; then
+        _assertions_str="${passed_assertions}/${total_assertions}"
+    fi
+
+    # Parse queries (from "summary": {"total": 1, "passed": 1, ...})
+    # These appear early in the summary block
+    local total_queries=$(grep -o '"total":[[:space:]]*[0-9]*' "$output_file" 2>/dev/null | head -1 | grep -o '[0-9]*$')
+    local passed_queries=$(grep -o '"passed":[[:space:]]*[0-9]*' "$output_file" 2>/dev/null | head -1 | grep -o '[0-9]*$')
+    if [[ -n "$total_queries" && -n "$passed_queries" ]]; then
+        _queries_str="${passed_queries}/${total_queries}"
+    fi
+
+    # Extract failure details from JSON output
+    _failure_details=""
+
+    # Extract failed assertion messages from JSON
+    # JSON format: "passed": false, "message": "...", "expected": "...", "actual": "..."
+    local in_failed=false
+    local got_message=false
+    while IFS= read -r line; do
+        if echo "$line" | grep -q '"passed":[[:space:]]*false'; then
+            in_failed=true
+            got_message=false
+        elif $in_failed; then
+            # Check for message
+            local msg
+            msg=$(echo "$line" | grep -o '"message":[[:space:]]*"[^"]*"' | sed 's/"message":[[:space:]]*"//;s/"$//')
+            if [[ -n "$msg" ]]; then
+                _failure_details="${_failure_details}      ✗ ${msg}\n"
+                got_message=true
+            fi
+            # Check for expected/actual (come after message)
+            local expected
+            expected=$(echo "$line" | grep -o '"expected":[[:space:]]*"[^"]*"' | sed 's/"expected":[[:space:]]*"//;s/"$//')
+            if [[ -n "$expected" ]]; then
+                _failure_details="${_failure_details}        Expected: ${expected}\n"
+            fi
+            local actual
+            actual=$(echo "$line" | grep -o '"actual":[[:space:]]*"[^"]*"' | sed 's/"actual":[[:space:]]*"//;s/"$//')
+            if [[ -n "$actual" ]]; then
+                _failure_details="${_failure_details}        Actual:   ${actual}\n"
+                in_failed=false  # End of this assertion block
+            fi
+            # End block if we see next assertion type or closing brace
+            if $got_message && echo "$line" | grep -q '"type":[[:space:]]*"'; then
+                in_failed=false
+            fi
+        fi
+    done < "$output_file"
+
+    # Also extract error-level log lines for context (timeout, topic errors, etc.)
+    local errors
+    errors=$(grep -iE ' ERROR |error:|timed out|timeout|failed to' "$output_file" 2>/dev/null | grep -v '"passed"' | head -5 | sed 's/^[[:space:]]*//' | sed 's/^/      ⚠ /')
+    if [[ -n "$errors" ]]; then
+        _failure_details="${_failure_details}${errors}\n"
+    fi
+
+    # If no failure details found at all, check for status:error in JSON
+    if [[ -z "$_failure_details" ]]; then
+        local status_error
+        status_error=$(grep -o '"status":[[:space:]]*"error"' "$output_file" 2>/dev/null)
+        if [[ -n "$status_error" ]]; then
+            _failure_details="      ⚠ Test completed with error status (check logs for details)\n"
+        elif [[ -s "$output_file" ]]; then
+            # File has content but no parseable failure info - show last few lines
+            local tail_lines
+            tail_lines=$(tail -3 "$output_file" 2>/dev/null | sed 's/^/      │ /')
+            if [[ -n "$tail_lines" ]]; then
+                _failure_details="      ⚠ No structured failure details available. Last output:\n${tail_lines}\n"
+            fi
+        fi
+    fi
+}
+
+# Run a single test (SQL + spec) and record results
+# Usage: run_single_test <test_label> <sql_file> <spec_file> <schemas_dir>
+run_single_test() {
+    local test_label="$1"
+    local sql_file="$2"
+    local spec_file="$3"
+    local schemas_dir="$4"
+    local base_name="$(echo "$test_label" | sed 's|.*/||')"
+
+    echo -n "  ▶ Running ${base_name}... "
+
+    if [[ "$MODE" == "validate" ]]; then
+        local start_time=$SECONDS
+        if "$VELO_TEST" validate "$sql_file" > /dev/null 2>&1; then
+            local elapsed=$(( SECONDS - start_time ))
+            echo -e "${GREEN}✅ PASSED${NC} (${elapsed}s)"
+            PASSED_TESTS+=("$test_label")
+            ALL_TESTS+=("$test_label")
+            ALL_STATUSES+=("passed")
+            ALL_DURATIONS+=("${elapsed}s")
+            ALL_ASSERTIONS+=("-")
+            ALL_QUERIES+=("-")
+        else
+            local elapsed=$(( SECONDS - start_time ))
+            echo -e "${RED}❌ FAILED${NC} (${elapsed}s)"
+            FAILED_TESTS+=("$test_label")
+            ALL_TESTS+=("$test_label")
+            ALL_STATUSES+=("failed")
+            ALL_DURATIONS+=("${elapsed}s")
+            ALL_ASSERTIONS+=("-")
+            ALL_QUERIES+=("-")
+            return 1
+        fi
+        return 0
+    fi
+
+    # Run test with JSON output to capture details
+    "$VELO_TEST" run "$sql_file" \
+        --spec "$spec_file" \
+        --schemas "$schemas_dir" \
+        --timeout-ms "$TIMEOUT_MS" \
+        --output json \
+        ${QUERY_OPTS} \
+        ${KAFKA_OPTS} > "$VELO_OUTPUT_TMP" 2>&1
+    local exit_code=$?
+
+    # Parse results from JSON output
+    parse_test_output "$VELO_OUTPUT_TMP"
+
+    # Build inline detail string
+    local detail=""
+    if [[ -n "$_assertions_str" ]]; then
+        detail="${_assertions_str} assertions"
+    fi
+    if [[ -n "$_duration_str" ]]; then
+        if [[ -n "$detail" ]]; then
+            detail="${detail}, ${_duration_str}"
+        else
+            detail="${_duration_str}"
+        fi
+    fi
+
+    if [[ $exit_code -eq 0 ]]; then
+        if [[ -n "$detail" ]]; then
+            echo -e "${GREEN}✅ PASSED${NC} (${detail})"
+        else
+            echo -e "${GREEN}✅ PASSED${NC}"
+        fi
+        PASSED_TESTS+=("$test_label")
+        ALL_TESTS+=("$test_label")
+        ALL_STATUSES+=("passed")
+        ALL_DURATIONS+=("${_duration_str:-?}")
+        ALL_ASSERTIONS+=("${_assertions_str:-?}")
+        ALL_QUERIES+=("${_queries_str:-?}")
+    else
+        if [[ -n "$detail" ]]; then
+            echo -e "${RED}❌ FAILED${NC} (${detail})"
+        else
+            echo -e "${RED}❌ FAILED${NC}"
+        fi
+        # Show failure details inline
+        if [[ -n "$_failure_details" ]]; then
+            echo -e "$_failure_details"
+        fi
+        FAILED_TESTS+=("$test_label")
+        FAILED_SQL_FILES+=("$sql_file")
+        FAILED_SPEC_FILES+=("$spec_file")
+        FAILED_SCHEMAS_DIRS+=("$schemas_dir")
+        ALL_TESTS+=("$test_label")
+        ALL_STATUSES+=("failed")
+        ALL_DURATIONS+=("${_duration_str:-?}")
+        ALL_ASSERTIONS+=("${_assertions_str:-?}")
+        ALL_QUERIES+=("${_queries_str:-?}")
+        return 1
+    fi
+    return 0
+}
+
 # Function to run tests for a single tier
+# Discovers per-SQL-file test specs (e.g., 01_passthrough.test.yaml) or falls back to test_spec.yaml
 run_tier() {
     local tier_name="$1"
     local tier_dir="$2"
@@ -584,61 +823,210 @@ run_tier() {
     echo -e "${CYAN}  Running: $tier_name${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-    # Find SQL files in the tier
-    local sql_files=$(find "$tier_dir" -name "*.sql" -type f 2>/dev/null | head -1)
-    local spec_file="$tier_dir/test_spec.yaml"
     local schemas_dir="$tier_dir/schemas"
-
     # Fall back to shared schemas if tier doesn't have its own
     if [[ ! -d "$schemas_dir" ]]; then
         schemas_dir="schemas"
     fi
 
-    if [[ -z "$sql_files" ]]; then
+    # Strategy 1: Look for per-SQL-file test specs (e.g., 01_passthrough.test.yaml)
+    local per_file_specs=()
+    while IFS= read -r -d '' spec; do
+        per_file_specs+=("$spec")
+    done < <(find "$tier_dir" -maxdepth 1 -name "*.test.yaml" -type f -print0 | sort -z)
+
+    if [[ ${#per_file_specs[@]} -gt 0 ]]; then
+        local tier_failed=0
+        for spec_file in "${per_file_specs[@]}"; do
+            local base_name="$(basename "$spec_file" .test.yaml)"
+            local sql_file="$tier_dir/${base_name}.sql"
+            local test_label="${tier_name}/${base_name}"
+
+            if [[ ! -f "$sql_file" ]]; then
+                echo -e "  ${YELLOW}⚠ Skipped: $base_name (no matching .sql file)${NC}"
+                SKIPPED_TESTS+=("$test_label")
+                ALL_TESTS+=("$test_label")
+                ALL_STATUSES+=("skipped")
+                ALL_DURATIONS+=("-")
+                ALL_ASSERTIONS+=("-")
+                ALL_QUERIES+=("-")
+                continue
+            fi
+
+            run_single_test "$test_label" "$sql_file" "$spec_file" "$schemas_dir" || tier_failed=1
+        done
+        return $tier_failed
+    fi
+
+    # Strategy 2: Fall back to single test_spec.yaml (e.g., getting_started)
+    local spec_file="$tier_dir/test_spec.yaml"
+    if [[ -f "$spec_file" ]]; then
+        local app_name=$(grep -E "^application:" "$spec_file" 2>/dev/null | sed 's/application:[[:space:]]*//' | tr -d '\r')
+        local sql_file=""
+
+        if [[ -n "$app_name" ]]; then
+            sql_file=$(find "$tier_dir" -name "${app_name}.sql" -type f 2>/dev/null | head -1)
+        fi
+        if [[ -z "$sql_file" ]]; then
+            sql_file=$(find "$tier_dir" -name "*.sql" -type f 2>/dev/null | head -1)
+        fi
+
+        if [[ -z "$sql_file" ]]; then
+            echo -e "${YELLOW}  No SQL files found in $tier_dir${NC}"
+            return 0
+        fi
+
+        run_single_test "$tier_name" "$sql_file" "$spec_file" "$schemas_dir"
+        return $?
+    fi
+
+    # Strategy 3: No specs at all — validate only
+    local sql_count=$(find "$tier_dir" -name "*.sql" -type f 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$sql_count" -eq 0 ]]; then
         echo -e "${YELLOW}  No SQL files found in $tier_dir${NC}"
         return 0
     fi
 
-    if [[ ! -f "$spec_file" ]]; then
-        echo -e "${YELLOW}  No test_spec.yaml found in $tier_dir${NC}"
-        # Try to just validate the SQL
-        for sql_file in $(find "$tier_dir" -name "*.sql" -type f); do
-            echo -e "  Validating: $(basename $sql_file)"
-            "$VELO_TEST" validate "$sql_file" || return 1
-        done
-        return 0
-    fi
+    echo -e "${YELLOW}  No test specs found — validating SQL only${NC}"
+    local tier_failed=0
+    for sql_file in $(find "$tier_dir" -name "*.sql" -type f | sort); do
+        local base_name="$(basename "$sql_file" .sql)"
+        echo -n "  ▶ Validating ${base_name}... "
+        if "$VELO_TEST" validate "$sql_file" > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ VALID${NC}"
+        else
+            echo -e "${RED}❌ INVALID${NC}"
+            FAILED_TESTS+=("${tier_name}/${base_name}")
+            tier_failed=1
+        fi
+    done
+    return $tier_failed
+}
 
-    # Try to find SQL file matching the test_spec application name
-    local app_name=$(grep -E "^application:" "$spec_file" 2>/dev/null | sed 's/application:[[:space:]]*//' | tr -d '\r')
-    local sql_file=""
-
-    if [[ -n "$app_name" ]]; then
-        # Look for SQL file matching application name
-        sql_file=$(find "$tier_dir" -name "${app_name}.sql" -type f 2>/dev/null | head -1)
-    fi
-
-    # Fall back to first SQL file if no match
-    if [[ -z "$sql_file" ]]; then
-        sql_file=$(find "$tier_dir" -name "*.sql" -type f | head -1)
-    fi
-    echo "  SQL File:  $sql_file"
-    echo "  Spec:      $spec_file"
-    echo "  Schemas:   $schemas_dir"
-    echo ""
-
-    if [[ "$MODE" == "validate" ]]; then
-        "$VELO_TEST" validate "$sql_file"
+# Format duration in human readable form
+format_duration() {
+    local secs=$1
+    if [[ $secs -ge 60 ]]; then
+        printf "%dm %ds" $((secs / 60)) $((secs % 60))
     else
-        "$VELO_TEST" run "$sql_file" \
-            --spec "$spec_file" \
-            --schemas "$schemas_dir" \
-            --timeout-ms "$TIMEOUT_MS" \
-            --output "$OUTPUT_FORMAT" \
-            ${QUERY_OPTS} \
-            ${KAFKA_OPTS}
+        printf "%ds" $secs
     fi
 }
+
+# Print test summary with details table
+print_summary() {
+    local total_tests=${#ALL_TESTS[@]}
+    local script_end_time
+    script_end_time=$(date +%s)
+    local total_duration=$((script_end_time - SCRIPT_START_TIME))
+
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Test Summary${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Table header
+    printf "  %-30s %-12s %-14s %-10s %s\n" "Test" "Queries" "Assertions" "Duration" "Status"
+    printf "  %-30s %-12s %-14s %-10s %s\n" "──────────────────────────────" "────────────" "──────────────" "──────────" "──────"
+
+    # Table rows
+    local total_assertions_passed=0
+    local total_assertions_all=0
+    local total_queries_passed=0
+    local total_queries_all=0
+
+    for i in $(seq 0 $(( total_tests - 1 ))); do
+        local label="${ALL_TESTS[$i]}"
+        local status="${ALL_STATUSES[$i]}"
+        local duration="${ALL_DURATIONS[$i]}"
+        local assertions="${ALL_ASSERTIONS[$i]}"
+        local queries="${ALL_QUERIES[$i]}"
+
+        local status_icon=""
+        case "$status" in
+            passed)  status_icon="${GREEN}✅${NC}" ;;
+            failed)  status_icon="${RED}❌${NC}" ;;
+            skipped) status_icon="${YELLOW}⚠${NC}" ;;
+        esac
+
+        printf "  %-30s %-12s %-14s %-10s " "$label" "$queries" "$assertions" "$duration"
+        echo -e "$status_icon"
+
+        # Accumulate assertion/query totals
+        if [[ "$assertions" != "-" && "$assertions" != "?" ]]; then
+            local a_passed=$(echo "$assertions" | cut -d/ -f1)
+            local a_total=$(echo "$assertions" | cut -d/ -f2)
+            total_assertions_passed=$(( total_assertions_passed + a_passed ))
+            total_assertions_all=$(( total_assertions_all + a_total ))
+        fi
+        if [[ "$queries" != "-" && "$queries" != "?" ]]; then
+            local q_passed=$(echo "$queries" | cut -d/ -f1)
+            local q_total=$(echo "$queries" | cut -d/ -f2)
+            total_queries_passed=$(( total_queries_passed + q_passed ))
+            total_queries_all=$(( total_queries_all + q_total ))
+        fi
+    done
+
+    # Totals row
+    printf "  %-30s %-12s %-14s %-10s %s\n" "──────────────────────────────" "────────────" "──────────────" "──────────" "──────"
+    printf "  %-30s %-12s %-14s\n" \
+        "Total (${#PASSED_TESTS[@]} passed, ${#FAILED_TESTS[@]} failed)" \
+        "${total_queries_passed}/${total_queries_all}" \
+        "${total_assertions_passed}/${total_assertions_all}"
+
+    if [[ ${#FAILED_TESTS[@]} -gt 0 ]]; then
+        echo ""
+        echo -e "${RED}Failed tests:${NC}"
+        for t in "${FAILED_TESTS[@]}"; do
+            echo -e "  ${RED}✗${NC} $t"
+        done
+
+        # Save failed tests to file for --rerun-failed
+        true > "$FAILED_TESTS_FILE"
+        for i in $(seq 0 $(( ${#FAILED_TESTS[@]} - 1 ))); do
+            echo "${FAILED_SQL_FILES[$i]}|${FAILED_SPEC_FILES[$i]}|${FAILED_SCHEMAS_DIRS[$i]}|${FAILED_TESTS[$i]}" >> "$FAILED_TESTS_FILE"
+        done
+    else
+        # Clear the failed tests file on success
+        rm -f "$FAILED_TESTS_FILE"
+    fi
+
+    echo ""
+    echo -e "⏱️  Total Duration: $(format_duration $total_duration)"
+    echo ""
+    if [[ ${#FAILED_TESTS[@]} -eq 0 ]]; then
+        echo -e "${GREEN}🎉 ALL TESTS PASSED!${NC}"
+    else
+        echo -e "${RED}❌ ${#FAILED_TESTS[@]} test(s) failed${NC}"
+        echo -e "${YELLOW}  Rerun failures: ./velo-test.sh --rerun-failed${NC}"
+    fi
+}
+
+# Handle --rerun-failed: override mode to re-run only previously failed tests
+if [[ "${RERUN_FAILED:-}" == "true" ]]; then
+    if [[ ! -f "$FAILED_TESTS_FILE" ]]; then
+        echo -e "${YELLOW}No failed tests to rerun (.failed-tests file not found)${NC}"
+        echo "Run tests first with: ./velo-test.sh --all"
+        exit 0
+    fi
+
+    failed_count=$(wc -l < "$FAILED_TESTS_FILE" | tr -d ' ')
+    echo -e "${YELLOW}Re-running ${failed_count} previously failed test(s)...${NC}"
+    echo ""
+
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Re-running failed tests${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    while IFS='|' read -r sql_file spec_file schemas_dir test_label; do
+        run_single_test "$test_label" "$sql_file" "$spec_file" "$schemas_dir" || true
+    done < "$FAILED_TESTS_FILE"
+
+    print_summary
+    [[ ${#FAILED_TESTS[@]} -eq 0 ]] || exit 1
+    exit 0
+fi
 
 # Main execution
 case "$MODE" in
@@ -660,13 +1048,13 @@ case "$MODE" in
             # Validate all tiers
             echo -e "${YELLOW}Validating all SQL files...${NC}"
             echo ""
-            for tier_name in getting_started tier1 tier2 tier3 tier4 tier5 tier6; do
+            for tier_name in getting_started tier1 tier2 tier3 tier4 tier5 tier6 tier7 tier8; do
                 tier_dir=$(get_tier_dir "$tier_name")
-                run_tier "$tier_name" "$tier_dir"
+                run_tier "$tier_name" "$tier_dir" || true
             done
         fi
-        echo ""
-        echo -e "${GREEN}✅ All SQL validation complete${NC}"
+        print_summary
+        [[ ${#FAILED_TESTS[@]} -eq 0 ]] || exit 1
         ;;
 
     .)
@@ -679,7 +1067,7 @@ case "$MODE" in
         run_tier "$tier_name" "."
         ;;
 
-    getting_started|tier1|tier2|tier3|tier4|tier5|tier6)
+    getting_started|tier1|tier2|tier3|tier4|tier5|tier6|tier7|tier8)
         # Run specific tier
         tier_dir=$(get_tier_dir "$MODE")
         if [[ -z "$tier_dir" ]]; then
@@ -687,6 +1075,8 @@ case "$MODE" in
             exit 1
         fi
         run_tier "$MODE" "$tier_dir"
+        print_summary
+        [[ ${#FAILED_TESTS[@]} -eq 0 ]] || exit 1
         ;;
 
     menu|select)
@@ -731,27 +1121,13 @@ case "$MODE" in
         echo -e "${YELLOW}Running all test tiers...${NC}"
         echo ""
 
-        FAILED=0
-        for tier_name in getting_started tier1 tier2 tier3 tier4 tier5 tier6; do
+        for tier_name in getting_started tier1 tier2 tier3 tier4 tier5 tier6 tier7 tier8; do
             tier_dir=$(get_tier_dir "$tier_name")
-            if ! run_tier "$tier_name" "$tier_dir"; then
-                FAILED=1
-                echo -e "${RED}  ❌ $tier_name failed${NC}"
-            else
-                echo -e "${GREEN}  ✅ $tier_name passed${NC}"
-            fi
+            run_tier "$tier_name" "$tier_dir" || true
             echo ""
         done
 
-        if [[ $FAILED -eq 0 ]]; then
-            echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
-            echo -e "${GREEN}  ALL TESTS PASSED${NC}"
-            echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
-        else
-            echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
-            echo -e "${RED}  SOME TESTS FAILED${NC}"
-            echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
-            exit 1
-        fi
+        print_summary
+        [[ ${#FAILED_TESTS[@]} -eq 0 ]] || exit 1
         ;;
 esac

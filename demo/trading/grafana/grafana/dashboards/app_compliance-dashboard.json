@@ -551,7 +551,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_compliance_compliant_market_data_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_compliant_market_data_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_compliance_compliant_market_data_records_total[5m])",
+          "expr": "rate(velo_compliant_market_data_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -731,7 +731,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_compliance_current_m.price",
+          "expr": "velo_current_m.price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -800,7 +800,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_compliance_current_m.bid_price",
+          "expr": "velo_current_m.bid_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -907,7 +907,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_compliance_current_m.ask_price",
+          "expr": "velo_current_m.ask_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -997,7 +997,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_compliance_active_hours_market_data_records_total[5m])",
+          "expr": "rate(velo_active_hours_market_data_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1087,7 +1087,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_compliance_current_m.price",
+          "expr": "velo_current_m.price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1156,7 +1156,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_compliance_current_m.bid_price",
+          "expr": "velo_current_m.bid_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1263,7 +1263,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_compliance_current_m.ask_price",
+          "expr": "velo_current_m.ask_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"

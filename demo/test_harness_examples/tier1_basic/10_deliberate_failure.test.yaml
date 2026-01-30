@@ -1,0 +1,26 @@
+application: deliberate_failure_demo
+description: >
+  Deliberately failing test to demonstrate error reporting.
+  This test sends 100 records but asserts impossible conditions.
+  DO NOT "fix" this test - it exists to showcase failure output.
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: deliberate_failure_output
+    description: Assertions intentionally set to fail
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 100
+    assertions:
+      # This will FAIL: we send 100 records but assert 9999
+      - type: record_count
+        equals: 9999
+      # This will FAIL: 'nonexistent_field' is not in the schema
+      - type: schema_contains
+        fields: [id, value, nonexistent_field]
+      # This will PASS: these fields exist
+      - type: no_nulls
+        fields: [id, value]
+    timeout_ms: 30000

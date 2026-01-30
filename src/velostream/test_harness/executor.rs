@@ -592,7 +592,10 @@ impl QueryExecutor {
         // Stop infrastructure with reuse option
         self.infra.stop_with_reuse(keep_for_reuse).await?;
 
-        log::info!("QueryExecutor stopped (container preserved: {})", keep_for_reuse);
+        log::info!(
+            "QueryExecutor stopped (container preserved: {})",
+            keep_for_reuse
+        );
         Ok(())
     }
 
@@ -889,12 +892,22 @@ impl QueryExecutor {
                     || schema_ref.contains('/')
                     || schema_ref.contains('\\')
                 {
-                    // Load schema from file
-                    match std::fs::read_to_string(schema_ref) {
+                    // Load schema from file, resolving relative paths from spec_dir
+                    let schema_path = {
+                        let p = std::path::Path::new(schema_ref);
+                        if p.is_absolute() {
+                            p.to_path_buf()
+                        } else if let Some(ref spec_dir) = self.spec_dir {
+                            spec_dir.join(p)
+                        } else {
+                            p.to_path_buf()
+                        }
+                    };
+                    match std::fs::read_to_string(&schema_path) {
                         Ok(content) => {
                             log::info!(
                                 "QueryExecutor: Loaded capture schema from file '{}' ({} bytes)",
-                                schema_ref,
+                                schema_path.display(),
                                 content.len()
                             );
                             Some(content)
@@ -902,7 +915,7 @@ impl QueryExecutor {
                         Err(e) => {
                             log::error!(
                                 "QueryExecutor: Failed to load capture schema from '{}': {}",
-                                schema_ref,
+                                schema_path.display(),
                                 e
                             );
                             // Fall back to treating it as inline schema
@@ -921,7 +934,7 @@ impl QueryExecutor {
                 timeout: self.timeout,
                 min_records: 0,
                 max_records: 100_000,
-                idle_timeout: Duration::from_secs(3),
+                idle_timeout: Duration::from_secs(5),
                 format: query.capture_format.clone(),
                 schema_json: resolved_schema,
             });
@@ -1012,14 +1025,42 @@ impl QueryExecutor {
                             return Ok(());
                         }
                         JobStatus::Running => {
-                            // Check if we've processed enough records (heuristic)
+                            // Check if we've processed enough records (heuristic).
+                            // Wait until records_processed stabilizes (all input consumed),
+                            // then allow extra time for output to be flushed to Kafka.
+                            // This is critical for join queries where input is read quickly
+                            // but output is batched and flushed asynchronously.
                             if status.stats.records_processed > 0 {
-                                // Give it a bit more time to finish processing
-                                tokio::time::sleep(Duration::from_millis(500)).await;
+                                let mut prev_count = status.stats.records_processed;
+                                // Poll until records_processed stops growing
+                                loop {
+                                    tokio::time::sleep(Duration::from_secs(2)).await;
+                                    if start.elapsed() >= timeout {
+                                        break;
+                                    }
+                                    let current = self
+                                        .server
+                                        .as_ref()
+                                        .unwrap()
+                                        .get_job_status(job_name)
+                                        .await
+                                        .map(|st| st.stats.records_processed)
+                                        .unwrap_or(prev_count);
+                                    if current <= prev_count {
+                                        break; // Stabilized
+                                    }
+                                    log::debug!(
+                                        "Job '{}' still processing ({} -> {} records), waiting...",
+                                        job_name,
+                                        prev_count,
+                                        current
+                                    );
+                                    prev_count = current;
+                                }
                                 log::debug!(
-                                    "Job '{}' processed {} records",
+                                    "Job '{}' processed {} records, proceeding to capture",
                                     job_name,
-                                    status.stats.records_processed
+                                    prev_count
                                 );
                                 return Ok(());
                             }
@@ -1031,13 +1072,37 @@ impl QueryExecutor {
             tokio::time::sleep(poll_interval).await;
         }
 
-        // Timeout reached - return success but log warning
-        log::warn!(
-            "Job '{}' did not complete within timeout ({:?}), proceeding with capture",
+        // Timeout reached - check if any records were processed
+        if let Some(ref server) = self.server {
+            if let Some(status) = server.get_job_status(job_name).await {
+                if status.stats.records_processed > 0 {
+                    // Some records were processed, proceed with capture
+                    log::warn!(
+                        "Job '{}' did not complete within timeout ({:?}), but processed {} records - proceeding with capture",
+                        job_name,
+                        timeout,
+                        status.stats.records_processed
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
+        // No records processed - this is a failure
+        log::error!(
+            "Job '{}' timed out after {:?} with 0 records processed",
             job_name,
             timeout
         );
-        Ok(())
+        Err(TestHarnessError::ExecutionError {
+            message: format!(
+                "Job '{}' timed out after {:?} with no records processed. \
+                This usually indicates the input topic is empty or doesn't exist.",
+                job_name, timeout
+            ),
+            query_name: job_name.to_string(),
+            source: None,
+        })
     }
 
     /// Publish input data for a query without executing SQL (data-only mode)

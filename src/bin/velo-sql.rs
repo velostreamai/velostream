@@ -54,11 +54,16 @@ enum Commands {
         #[arg(long)]
         file: String,
 
-        /// Kafka broker addresses
+        /// Deploy to a running velo-sql server instead of starting embedded server
+        /// Example: --server http://localhost:8080
+        #[arg(long)]
+        server: Option<String>,
+
+        /// Kafka broker addresses (ignored when using --server)
         #[arg(long, default_value = "localhost:9092")]
         brokers: String,
 
-        /// Base consumer group ID
+        /// Base consumer group ID (ignored when using --server)
         #[arg(long, default_value = "velo-sql-app")]
         group_id: String,
 
@@ -70,7 +75,7 @@ enum Commands {
         #[arg(long, default_value = "false")]
         no_monitor: bool,
 
-        /// Enable distributed tracing (OpenTelemetry)
+        /// Enable distributed tracing (OpenTelemetry) - ignored when using --server
         #[arg(long)]
         enable_tracing: bool,
 
@@ -78,19 +83,19 @@ enum Commands {
         #[arg(long)]
         sampling_ratio: Option<f64>,
 
-        /// Enable Prometheus metrics export
+        /// Enable Prometheus metrics export - ignored when using --server
         #[arg(long)]
         enable_metrics: bool,
 
-        /// Prometheus metrics port
+        /// Prometheus metrics port - ignored when using --server
         #[arg(long, default_value = "9091")]
         metrics_port: u16,
 
-        /// Enable performance profiling
+        /// Enable performance profiling - ignored when using --server
         #[arg(long)]
         enable_profiling: bool,
 
-        /// OpenTelemetry OTLP endpoint
+        /// OpenTelemetry OTLP endpoint - ignored when using --server
         #[arg(long)]
         otlp_endpoint: Option<String>,
     },
@@ -376,6 +381,7 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
         }
         Commands::DeployApp {
             file,
+            server: _server, // TODO: Implement remote server deployment
             brokers,
             group_id,
             default_topic,
@@ -487,9 +493,16 @@ async fn deploy_sql_application_from_file(
     }
 
     // Validate SQL before deployment using SqlValidator
+    // Use the SQL file's parent directory for resolving relative config_file paths
     println!("Validating SQL application...");
-    let validator = SqlValidator::new();
-    let validation_result = validator.validate_application(std::path::Path::new(&file_path));
+    let sql_path = std::path::Path::new(&file_path);
+    let validator = if let Some(parent_dir) = sql_path.parent().and_then(|p| p.canonicalize().ok())
+    {
+        SqlValidator::with_base_dir(&parent_dir)
+    } else {
+        SqlValidator::new()
+    };
+    let validation_result = validator.validate_application(sql_path);
 
     if !validation_result.is_valid {
         let mut error_msg = String::from("❌ SQL validation failed!\n");
@@ -655,14 +668,24 @@ async fn deploy_sql_application_from_file(
         streaming_config = streaming_config.with_profiling_config(ProfilingConfig::development());
     }
 
+    // Determine base directory for resolving relative config paths
+    // Use the SQL file's parent directory so paths like '../configs/kafka_source.yaml' resolve correctly
+    let base_dir = std::path::Path::new(&file_path)
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+    // Create server config with base_dir for relative path resolution
+    use velostream::velostream::server::config::StreamJobServerConfig;
+    let mut server_config = StreamJobServerConfig::new(brokers, group_id).with_max_jobs(100);
+    if let Some(dir) = base_dir {
+        println!("   Base directory for config resolution: {}", dir.display());
+        server_config = server_config.with_base_dir(dir);
+    }
+
     // Create server with full observability configuration
-    let server = StreamJobServer::new_with_observability(
-        brokers,
-        group_id,
-        100, // High limit for app deployment
-        streaming_config,
-    )
-    .await;
+    let server =
+        StreamJobServer::with_config_and_observability(server_config, streaming_config).await;
 
     // Deploy the application
     println!(

@@ -551,7 +551,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_risk_trading_positions_ts_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_trading_positions_ts_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_risk_trading_positions_ts_records_total[5m])",
+          "expr": "rate(velo_trading_positions_ts_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -703,7 +703,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_risk_comprehensive_risk_monitor_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_comprehensive_risk_monitor_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
@@ -772,7 +772,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_risk_current_current_price",
+          "expr": "velo_current_current_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -879,7 +879,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_risk_risk_hierarchy_validation_records_total[5m])",
+          "expr": "rate(velo_risk_hierarchy_validation_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -949,7 +949,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_risk_current_p.entry_price",
+          "expr": "velo_current_p.entry_price",
           "interval": "",
           "legendFormat": "Current p.entry_price value",
           "refId": "A"
@@ -1039,7 +1039,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_risk_current_p.current_price",
+          "expr": "velo_current_p.current_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"

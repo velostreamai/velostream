@@ -1205,6 +1205,21 @@ impl StreamingQuery {
             _ => None,
         }
     }
+
+    /// Get the SELECT fields from the query
+    ///
+    /// Returns the list of fields being selected, which can be used for projection.
+    /// Returns an empty vector if the query doesn't have select fields.
+    pub fn get_select_fields(&self) -> Vec<SelectField> {
+        match self {
+            StreamingQuery::Select { fields, .. } => fields.clone(),
+            StreamingQuery::CreateStream { as_select, .. } => as_select.get_select_fields(),
+            StreamingQuery::CreateTable { as_select, .. } => as_select.get_select_fields(),
+            StreamingQuery::StartJob { query, .. } => query.get_select_fields(),
+            StreamingQuery::DeployJob { query, .. } => query.get_select_fields(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 impl SelectField {

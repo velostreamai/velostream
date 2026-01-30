@@ -369,33 +369,73 @@ for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server
         --delete 2>/dev/null || true
 done
 
-# Step 7: Start data generator using velo-test stress
-print_step "Step 7: Starting data generator (velo-test stress)"
-echo "Simulation duration: ${SIMULATION_DURATION} minutes"
+# Step 7: Build velo-test binary for data generation
+print_step "Step 7: Building velo-test binary"
+cd ../..
+VELO_TEST_BINARY_PATH_BUILD="$BUILD_DIR/velo-test"
+print_binary_info "$VELO_TEST_BINARY_PATH_BUILD"
 
-# Convert minutes to seconds for velo-test
-DURATION_SECONDS=$((SIMULATION_DURATION * 60))
-# Calculate records based on duration (approx 100 records/sec for realistic trading data)
-RECORDS=$((DURATION_SECONDS * 100))
+print_timestamp "Starting velo-test build..."
+if ! cargo build $BUILD_FLAG --bin velo-test; then
+    echo -e "${RED}✗ Failed to build velo-test${NC}"
+    exit 1
+fi
+print_timestamp "Completed velo-test build"
+check_status "velo-test ready"
+cd demo/trading
+
+# Step 8: Generate data using test harness (schema-aware data generation)
+print_step "Step 8: Starting data generator (velo-test --data-only)"
+echo "Simulation duration: ${SIMULATION_DURATION} minutes"
 
 # Show binary info before execution
 echo ""
 print_binary_info "$VELO_TEST_BINARY_PATH"
 echo ""
 
-print_timestamp "Launching velo-test stress for data generation..."
-echo -e "${BLUE}Command: $VELO_TEST_BINARY_PATH stress apps/app_market_data.sql --records $RECORDS --duration $DURATION_SECONDS --kafka $KAFKA_BROKER -y${NC}"
-$VELO_TEST_BINARY_PATH stress apps/app_market_data.sql --records $RECORDS --duration $DURATION_SECONDS --kafka $KAFKA_BROKER -y > /tmp/velo_stress.log 2>&1 &
-GENERATOR_PID=$!
-print_timestamp "Data generator started (PID: $GENERATOR_PID)"
-echo -e "${GREEN}✓ Data generator started (PID: $GENERATOR_PID)${NC}"
+# Clear previous log
+> /tmp/velo_stress.log
 
-# Step 8: Verify data is flowing
-print_step "Step 8: Verifying data flow"
+# Generate data using velo-test with schema-aware data generation
+# Uses --data-only to publish data without running SQL (SQL runs via deploy-app)
+# Uses --kafka to target the docker-compose Kafka instance
+# Runs in a loop for continuous data generation during the demo
+echo -e "${BLUE}Generating market data using test harness schemas...${NC}"
+print_timestamp "Starting continuous velo-test data generation..."
+
+# Calculate number of iterations based on duration (1 iteration per minute, each generates ~4600 records)
+DATA_ITERATIONS=$SIMULATION_DURATION
+
+# Run data generation in a loop in the background
+(
+    for i in $(seq 1 $DATA_ITERATIONS); do
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Data generation batch $i of $DATA_ITERATIONS" >> /tmp/velo_stress.log
+        RUST_LOG=info $VELO_TEST_BINARY_PATH run apps/app_market_data.sql \
+            --data-only \
+            --kafka $KAFKA_BROKER \
+            --timeout-ms 120000 \
+            -y \
+            >> /tmp/velo_stress.log 2>&1
+
+        # Small delay between batches to simulate continuous flow
+        sleep 30
+    done
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Data generation complete" >> /tmp/velo_stress.log
+) &
+GENERATOR_PID=$!
+
+# Wait for first batch to start generating
+sleep 5
+
+echo -e "${GREEN}✓ Continuous data generator running (PID: $GENERATOR_PID)${NC}"
+print_timestamp "Data generation initiated (will run for $DATA_ITERATIONS batches)"
+
+# Step 9: Verify data is flowing
+print_step "Step 9: Verifying data flow"
 wait_for 30 2 "docker exec simple-kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic in_market_data_stream --max-messages 1 --timeout-ms 1000" "Data flowing to in_market_data_stream"
 
-# Step 9: Deploy SQL application
-print_step "Step 9: Deploying SQL application"
+# Step 10: Deploy SQL application
+print_step "Step 10: Deploying SQL application"
 
 # Show binary info before execution
 echo ""
@@ -423,52 +463,80 @@ if [ "$ENABLE_METRICS" = true ]; then
     echo ""
 fi
 
+# Set deployment context environment variables for per-node observability
+export NODE_ID="velostream-prod-node-1"
+export NODE_NAME="velostream-trading-engine"
+export REGION="us-east-1"
+export APP_VERSION="1.0.0"
+
+# Count apps to deploy
+APP_COUNT=$(ls -1 apps/*.sql 2>/dev/null | wc -l | tr -d ' ')
+QUERY_COUNT=0
+for app in apps/*.sql; do
+    QUERY_COUNT=$((QUERY_COUNT + $(grep -c 'CREATE STREAM\|START JOB' "$app" 2>/dev/null || echo 0)))
+done
+
+echo "Deploying $QUERY_COUNT streaming queries from $APP_COUNT apps with observability enabled..."
+
 if [ "$INTERACTIVE_MODE" = true ]; then
     # Run in foreground for interactive mode
-    echo "Deploying 8 streaming queries with observability enabled..."
     echo -e "${YELLOW}Running in interactive mode (foreground)...${NC}"
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
     echo ""
-    print_timestamp "Launching velo-sql (interactive mode)..."
-    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
-    echo ""
-    # Set deployment context environment variables for per-node observability
-    export NODE_ID="velostream-prod-node-1"
-    export NODE_NAME="velostream-trading-engine"
-    export REGION="us-east-1"
-    export APP_VERSION="1.0.0"
 
-    $VELO_BUILD_DIR/velo-sql deploy-app \
-        --file sql/financial_trading.sql \
-        --enable-tracing \
-        --enable-metrics \
-        --metrics-port 9091 \
-        --enable-profiling
+    # Deploy each app sequentially in foreground with unique metrics ports
+    METRICS_PORT=9091
+    for app in apps/*.sql; do
+        app_name=$(basename "$app" .sql)
+        print_timestamp "Deploying $app_name on metrics port $METRICS_PORT..."
+        echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file $app --enable-tracing --enable-metrics --metrics-port $METRICS_PORT --enable-profiling${NC}"
+
+        $VELO_BUILD_DIR/velo-sql deploy-app \
+            --file "$app" \
+            --enable-tracing \
+            --enable-metrics \
+            --metrics-port $METRICS_PORT \
+            --enable-profiling &
+
+        METRICS_PORT=$((METRICS_PORT + 1))
+        sleep 2  # Stagger to allow port binding
+    done
+    wait
 else
     # Run in background (deploy-app mode)
-    echo "Deploying 8 streaming queries with observability enabled..."
-    print_timestamp "Launching velo-sql (background mode)..."
-    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
+    print_timestamp "Launching velo-sql apps (background mode)..."
     echo ""
-    # Set deployment context environment variables for per-node observability
-    export NODE_ID="velostream-prod-node-1"
-    export NODE_NAME="velostream-trading-engine"
-    export REGION="us-east-1"
-    export APP_VERSION="1.0.0"
 
-    $VELO_BUILD_DIR/velo-sql deploy-app \
-        --file sql/financial_trading.sql \
-        --enable-tracing \
-        --enable-metrics \
-        --metrics-port 9091 \
-        --enable-profiling \
-        > /tmp/velo_deployment.log 2>&1 &
-    DEPLOY_PID=$!
-    print_timestamp "Deployment started (PID: $DEPLOY_PID)"
-    echo -e "${GREEN}✓ Deployment started with observability (PID: $DEPLOY_PID)${NC}"
+    # Clear previous log
+    > /tmp/velo_deployment.log
 
-    # Step 10: Monitor deployment
-    print_step "Step 10: Monitoring deployment"
+    # Deploy each app in background with unique metrics ports
+    DEPLOY_PIDS=""
+    METRICS_PORT=9091
+    for app in apps/*.sql; do
+        app_name=$(basename "$app" .sql)
+        echo -e "${BLUE}Deploying: $app_name (metrics port: $METRICS_PORT)${NC}"
+
+        $VELO_BUILD_DIR/velo-sql deploy-app \
+            --file "$app" \
+            --enable-tracing \
+            --enable-metrics \
+            --metrics-port $METRICS_PORT \
+            --enable-profiling \
+            >> /tmp/velo_deployment.log 2>&1 &
+
+        DEPLOY_PIDS="$DEPLOY_PIDS $!"
+        METRICS_PORT=$((METRICS_PORT + 1))
+        sleep 2  # Stagger deployments to allow port binding
+    done
+
+    # Use first PID for monitoring
+    DEPLOY_PID=$(echo $DEPLOY_PIDS | awk '{print $1}')
+    print_timestamp "Deployments started (PIDs:$DEPLOY_PIDS)"
+    echo -e "${GREEN}✓ All apps deployed with observability${NC}"
+
+    # Step 11: Monitor deployment
+    print_step "Step 11: Monitoring deployment"
     sleep 10  # Give deployment time to initialize
 
     # Check if deployment is still running
@@ -487,7 +555,7 @@ else
     echo -e "${GREEN}Status Summary${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo -e "Data Generator:     PID $GENERATOR_PID (log: /tmp/velo_stress.log)"
-    echo -e "SQL Deployment:     PID $DEPLOY_PID (log: /tmp/velo_deployment.log)"
+    echo -e "SQL Deployments:    PIDs$DEPLOY_PIDS (log: /tmp/velo_deployment.log)"
     echo -e "Simulation Duration: ${SIMULATION_DURATION} minutes"
     echo ""
     echo -e "${BLUE}Monitoring Commands:${NC}"

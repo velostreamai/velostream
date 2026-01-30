@@ -1,5 +1,5 @@
 -- =============================================================================
--- APPLICATION: trading_signals
+-- SQL Application: trading_signals
 -- =============================================================================
 -- @app: trading_signals
 -- @version: 1.0.0
@@ -187,7 +187,7 @@ EMIT CHANGES
 WITH (
     -- Source configuration
     'in_order_book_stream.type' = 'kafka_source',
-    'in_order_book_stream.topic.name' = 'order_book',
+    'in_order_book_stream.topic.name' = 'in_order_book_stream',
     'in_order_book_stream.config_file' = '../configs/kafka_source.yaml',
 
     -- Sink configuration
@@ -222,12 +222,12 @@ EMIT CHANGES
 WITH (
     -- Source configuration - Exchange A
     'in_market_data_stream_a.type' = 'kafka_source',
-    'in_market_data_stream_a.topic.name' = 'market_data_exchange_a',
+    'in_market_data_stream_a.topic.name' = 'in_market_data_stream_a',
     'in_market_data_stream_a.config_file' = '../configs/kafka_source.yaml',
 
     -- Source configuration - Exchange B
     'in_market_data_stream_b.type' = 'kafka_source',
-    'in_market_data_stream_b.topic.name' = 'market_data_exchange_b',
+    'in_market_data_stream_b.topic.name' = 'in_market_data_stream_b',
     'in_market_data_stream_b.config_file' = '../configs/kafka_source.yaml',
 
     -- Sink configuration

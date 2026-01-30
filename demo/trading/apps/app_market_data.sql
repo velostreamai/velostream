@@ -1,5 +1,5 @@
 -- =============================================================================
--- APPLICATION: market_data_pipeline
+-- SQL Application: market_data_pipeline
 -- =============================================================================
 -- @app: market_data_pipeline
 -- @version: 1.0.0
@@ -64,7 +64,7 @@
 -- @data.time_end: "now"
 --
 -- @data.symbol.type: string
--- @data.symbol: enum ["AAPL", "GOOG", "MSFT", "AMZN", "META"], weights: [0.25, 0.25, 0.2, 0.15, 0.15]
+-- @data.symbol: enum ["AAPL", "GOOGL", "MSFT", "AMZN", "META"], weights: [0.25, 0.25, 0.2, 0.15, 0.15]
 --
 -- @data.exchange.type: string
 -- @data.exchange: enum ["NASDAQ", "NYSE"], weights: [0.6, 0.4]
@@ -139,7 +139,7 @@ WITH (
 
     -- Source configuration
     'in_market_data_stream.type' = 'kafka_source',
-    'in_market_data_stream.topic.name' = 'in_market_data',
+    'in_market_data_stream.topic.name' = 'in_market_data_stream',
     'in_market_data_stream.config_file' = '../configs/kafka_source.yaml',
 
     -- Sink configuration
@@ -237,7 +237,9 @@ SELECT
     m.volume / r.lot_size as lot_count,
 
     NOW() as enrichment_time,
-    EXTRACT(EPOCH FROM (NOW() - m._event_time)) as enrichment_latency_seconds
+    -- Direct integer arithmetic: both NOW() and _event_time are epoch_millis
+    -- Use COALESCE to handle potential NULL or missing values gracefully
+    COALESCE((NOW() - m._event_time) / 1000.0, 0.0) as enrichment_latency_seconds
 
 FROM market_data_ts m
 LEFT JOIN instrument_reference r ON m.symbol = r.symbol

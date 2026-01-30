@@ -12,6 +12,7 @@
 
 -- @app: metric_demo
 -- @description: Demonstrates SQL-annotated metrics for observability
+-- @observability.metrics.enabled: true
 
 -- -----------------------------------------------------------------------------
 -- @name: metric_output_stream
