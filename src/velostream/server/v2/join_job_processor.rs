@@ -366,6 +366,13 @@ impl JoinJobProcessor {
 
         stats.processing_time_ms = start_time.elapsed().as_millis() as u64;
 
+        // Final update of shared_stats with complete totals
+        if let Some(ref shared) = shared_stats {
+            if let Ok(mut s) = shared.write() {
+                s.records_processed = stats.left_records_read + stats.right_records_read;
+            }
+        }
+
         // Copy coordinator stats (state store sizes, evictions, interning)
         // Caller can push these stats to MetricsProvider.update_join_metrics()
         stats.update_from_coordinator(join_processor.stats());
