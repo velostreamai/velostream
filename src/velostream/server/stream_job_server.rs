@@ -38,7 +38,7 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
@@ -46,7 +46,6 @@ pub struct StreamJobServer {
     jobs: Arc<RwLock<HashMap<String, RunningJob>>>,
     base_group_id: String,
     max_jobs: usize,
-    job_counter: Arc<Mutex<u64>>,
     performance_monitor: Option<Arc<PerformanceMonitor>>,
     /// Shared table registry for managing CTAS-created tables
     table_registry: TableRegistry,
@@ -105,7 +104,7 @@ impl StreamJobServer {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             base_group_id: config.base_group_id,
             max_jobs: config.max_jobs,
-            job_counter: Arc::new(Mutex::new(0)),
+
             performance_monitor: None,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: None,
@@ -178,7 +177,7 @@ impl StreamJobServer {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             base_group_id: config.base_group_id,
             max_jobs: config.max_jobs,
-            job_counter: Arc::new(Mutex::new(0)),
+
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability,
@@ -256,7 +255,7 @@ impl StreamJobServer {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             base_group_id: config.base_group_id,
             max_jobs: config.max_jobs,
-            job_counter: Arc::new(Mutex::new(0)),
+
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: observability.clone(),
@@ -544,6 +543,27 @@ impl StreamJobServer {
         let parser = StreamingSqlParser::new();
         let parsed_query = parser.parse(&query)?;
 
+        // Debug: log metric annotations found after re-parsing
+        if let StreamingQuery::CreateStream {
+            name: ref stream_name,
+            ref metric_annotations,
+            ..
+        } = parsed_query
+        {
+            info!(
+                "Job '{}': Re-parsed query for stream '{}' — found {} @metric annotations",
+                name,
+                stream_name,
+                metric_annotations.len()
+            );
+            for ann in metric_annotations {
+                info!(
+                    "Job '{}':   @metric: {} (type={:?}, field={:?})",
+                    name, ann.name, ann.metric_type, ann.field
+                );
+            }
+        }
+
         // Extract table dependencies and ensure they exist AND ARE READY
         // All tables are passed to processors - they handle which ones they need
         let required_tables = TableRegistry::extract_table_dependencies(&parsed_query);
@@ -556,6 +576,7 @@ impl StreamJobServer {
         } else {
             QueryAnalyzer::new(self.base_group_id.clone())
         };
+        analyzer.set_job_name(name.to_string());
 
         if !required_tables.is_empty() {
             info!(
@@ -728,12 +749,6 @@ impl StreamJobServer {
         let annotation_config = ObservabilityConfigExtractor::extract_from_sql_string(&query)?;
         let streaming_config =
             ObservabilityConfigExtractor::merge_configs(streaming_config, annotation_config);
-
-        // Generate unique consumer group ID
-        let mut counter = self.job_counter.lock().await;
-        *counter += 1;
-        let _group_id = format!("{}-job-{}-{}", self.base_group_id, name, *counter);
-        drop(counter);
 
         // Create shutdown channel
         let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);

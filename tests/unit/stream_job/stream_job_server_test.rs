@@ -12,59 +12,103 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use tempfile::NamedTempFile;
 
-/// Test SQL application with multiple jobs
+/// Test SQL application with multiple CREATE STREAM statements
 const TEST_SQL_APP: &str = r#"
--- SQL Application: Multi-Job Test
+-- SQL Application: multi_job_test
 -- Version: 1.0.0
 -- Description: Test application with multiple jobs
--- Author: Test Suite
 
--- Job 1: Simple aggregation
-START JOB job1 AS
-SELECT 
-    COUNT(*) as total_records,
-    MAX(timestamp) as latest_time
+-- @name: job1_output
+CREATE STREAM job1_output AS
+SELECT
+    symbol PRIMARY KEY,
+    COUNT(*) as total_records
 FROM test_topic1
-WITH ('output.topic' = 'job1_output');
+EMIT CHANGES
+WITH (
+    'test_topic1.type' = 'kafka_source',
+    'test_topic1.topic.name' = 'test_topic1',
+    'test_topic1.bootstrap.servers' = 'localhost:9092',
+    'job1_output.type' = 'kafka_sink',
+    'job1_output.topic.name' = 'job1_output',
+    'job1_output.bootstrap.servers' = 'localhost:9092'
+);
 
--- Job 2: Filtering
-START JOB job2 AS  
-SELECT *
+-- @name: job2_output
+CREATE STREAM job2_output AS
+SELECT
+    symbol PRIMARY KEY,
+    value
 FROM test_topic2
 WHERE value > 100
-WITH ('output.topic' = 'job2_output');
+EMIT CHANGES
+WITH (
+    'test_topic2.type' = 'kafka_source',
+    'test_topic2.topic.name' = 'test_topic2',
+    'test_topic2.bootstrap.servers' = 'localhost:9092',
+    'job2_output.type' = 'kafka_sink',
+    'job2_output.topic.name' = 'job2_output',
+    'job2_output.bootstrap.servers' = 'localhost:9092'
+);
 
--- Job 3: Aggregation with grouping
-START JOB job3 AS
+-- @name: job3_output
+CREATE STREAM job3_output AS
 SELECT
-    key,
+    category PRIMARY KEY,
     COUNT(*) as value_count,
     AVG(value) as avg_value
 FROM test_topic3
-GROUP BY key
-WITH ('output.topic' = 'job3_output');
+GROUP BY category
+EMIT CHANGES
+WITH (
+    'test_topic3.type' = 'kafka_source',
+    'test_topic3.topic.name' = 'test_topic3',
+    'test_topic3.bootstrap.servers' = 'localhost:9092',
+    'job3_output.type' = 'kafka_sink',
+    'job3_output.topic.name' = 'job3_output',
+    'job3_output.bootstrap.servers' = 'localhost:9092'
+);
 
--- Job 4: Join operation  
-START JOB job4 AS
-SELECT 
-    a.id,
+-- @name: job4_output
+CREATE STREAM job4_output AS
+SELECT
+    a.id PRIMARY KEY,
     a.name,
     b.amount
 FROM users_topic a
 JOIN orders_topic b ON a.id = b.user_id
-WITH ('output.topic' = 'job4_output');
+EMIT CHANGES
+WITH (
+    'users_topic.type' = 'kafka_source',
+    'users_topic.topic.name' = 'users_topic',
+    'users_topic.bootstrap.servers' = 'localhost:9092',
+    'orders_topic.type' = 'kafka_source',
+    'orders_topic.topic.name' = 'orders_topic',
+    'orders_topic.bootstrap.servers' = 'localhost:9092',
+    'job4_output.type' = 'kafka_sink',
+    'job4_output.topic.name' = 'job4_output',
+    'job4_output.bootstrap.servers' = 'localhost:9092'
+);
 
--- Job 5: Complex aggregation with grouping
-START JOB job5 AS
-SELECT 
-    category,
+-- @name: job5_output
+CREATE STREAM job5_output AS
+SELECT
+    category PRIMARY KEY,
     COUNT(*) as item_count,
     SUM(price) as total_price,
     AVG(price) as avg_price
 FROM products_topic
 GROUP BY category
 HAVING COUNT(*) > 5
-WITH ('output.topic' = 'job5_output');
+EMIT CHANGES
+WITH (
+    'products_topic.type' = 'kafka_source',
+    'products_topic.topic.name' = 'products_topic',
+    'products_topic.bootstrap.servers' = 'localhost:9092',
+    'job5_output.type' = 'kafka_sink',
+    'job5_output.topic.name' = 'job5_output',
+    'job5_output.bootstrap.servers' = 'localhost:9092'
+);
 "#;
 
 #[tokio::test]
@@ -77,34 +121,41 @@ async fn test_sql_parser_extracts_all_jobs() {
             println!("✅ SQL Application parsed successfully");
             println!("   Name: {}", app.metadata.name);
             println!("   Version: {}", app.metadata.version);
-            println!("   Jobs found: {}", app.resources.jobs.len());
+            println!("   Statements found: {}", app.statements.len());
+            println!("   Streams found: {}", app.resources.streams.len());
 
-            // Verify we have exactly 5 jobs
+            // Verify we have exactly 5 statements
             assert_eq!(
-                app.resources.jobs.len(),
+                app.statements.len(),
                 5,
-                "Expected 5 jobs, found {}",
-                app.resources.jobs.len()
+                "Expected 5 statements, found {}",
+                app.statements.len()
             );
 
-            // Verify job names
-            let expected_jobs = vec!["job1", "job2", "job3", "job4", "job5"];
-            let found_jobs = &app.resources.jobs;
+            // Verify stream names
+            let expected_streams = vec![
+                "job1_output",
+                "job2_output",
+                "job3_output",
+                "job4_output",
+                "job5_output",
+            ];
+            let found_streams = &app.resources.streams;
 
-            for job_name in found_jobs {
-                println!("   - Job '{}'", job_name);
+            for stream_name in found_streams {
+                println!("   - Stream '{}'", stream_name);
             }
 
-            for expected in expected_jobs {
+            for expected in expected_streams {
                 assert!(
-                    found_jobs.contains(&expected.to_string()),
-                    "Expected job '{}' not found. Found jobs: {:?}",
+                    found_streams.contains(&expected.to_string()),
+                    "Expected stream '{}' not found. Found streams: {:?}",
                     expected,
-                    found_jobs
+                    found_streams
                 );
             }
 
-            println!("✅ All expected jobs found in SQL application");
+            println!("✅ All expected streams found in SQL application");
         }
         Err(e) => {
             panic!("❌ Failed to parse SQL application: {}", e);
@@ -356,6 +407,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
         "test_topic2",
         "test_topic3",
         "users_topic",
+        "orders_topic",
         "products_topic",
     ];
 

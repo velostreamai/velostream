@@ -584,6 +584,8 @@ pub struct QueryAnalysis {
     pub select_fields: Vec<String>,
     /// Numeric fields in SELECT
     pub numeric_select_fields: Vec<String>,
+    /// Metric annotations from SQL @metric comments
+    pub metric_annotations: Vec<crate::velostream::sql::parser::annotations::MetricAnnotation>,
 }
 
 /// Query type
@@ -710,15 +712,20 @@ impl Annotator {
             group_by: Vec::new(),
             select_fields: Vec::new(),
             numeric_select_fields: Vec::new(),
+            metric_annotations: Vec::new(),
         };
 
         // Extract info based on query type
         match query {
             StreamingQuery::CreateStream {
-                name, as_select, ..
+                name,
+                as_select,
+                metric_annotations,
+                ..
             } => {
                 analysis.name = name.clone();
                 analysis.query_type = QueryType::CreateStream;
+                analysis.metric_annotations = metric_annotations.clone();
                 // Recursively analyze the inner SELECT
                 let inner = self.analyze_query(as_select);
                 analysis.has_count = inner.has_count;
@@ -818,8 +825,46 @@ impl Annotator {
             .collect()
     }
 
-    /// Generate metrics for a query based on analysis
+    /// Convert a parser MetricType to the local MetricType
+    fn convert_metric_type(
+        mt: &crate::velostream::sql::parser::annotations::MetricType,
+    ) -> MetricType {
+        match mt {
+            crate::velostream::sql::parser::annotations::MetricType::Counter => MetricType::Counter,
+            crate::velostream::sql::parser::annotations::MetricType::Gauge => MetricType::Gauge,
+            crate::velostream::sql::parser::annotations::MetricType::Histogram => {
+                MetricType::Histogram
+            }
+        }
+    }
+
+    /// Generate metrics for a query based on analysis.
+    ///
+    /// If the query has explicit `@metric` annotations from SQL comments,
+    /// those are used directly (matching what the server actually emits).
+    /// Otherwise, falls back to auto-detection from SQL structure.
     fn generate_metrics_for_query(&self, query: &QueryAnalysis) -> Vec<DetectedMetric> {
+        // Prefer explicit @metric annotations — these match what the server emits
+        if !query.metric_annotations.is_empty() {
+            return query
+                .metric_annotations
+                .iter()
+                .map(|ann| DetectedMetric {
+                    name: ann.name.clone(),
+                    metric_type: Self::convert_metric_type(&ann.metric_type),
+                    help: ann
+                        .help
+                        .clone()
+                        .unwrap_or_else(|| format!("{} metric", ann.name)),
+                    labels: ann.labels.clone(),
+                    field: ann.field.clone(),
+                    buckets: ann.buckets.clone(),
+                    query_name: query.name.clone(),
+                })
+                .collect();
+        }
+
+        // Fallback: auto-detect metrics from SQL structure
         let mut metrics = Vec::new();
         let prefix = format!("velo_{}", self.config.app_name.replace('-', "_"));
         let query_name = self.sanitize_metric_name_part(&query.name);
@@ -1577,7 +1622,15 @@ overrides:
                 panels.push(self.create_bargauge_panel(
                     panel_id,
                     &format!("Top Symbols: {}", metric.help),
-                    &format!("topk(5, sum by (symbol) ({}))", metric.name),
+                    &if metric.labels.is_empty() {
+                        format!("sum({})", metric.name)
+                    } else {
+                        format!(
+                            "topk(5, sum by ({}) ({}))",
+                            metric.labels.join(", "),
+                            metric.name
+                        )
+                    },
                     0,
                     y_pos,
                     12,
@@ -1664,7 +1717,15 @@ overrides:
                 (1, MetricType::Counter) => self.create_bargauge_panel(
                     panel_id,
                     &metric.help,
-                    &format!("topk(5, sum by (symbol) ({}))", metric.name),
+                    &if metric.labels.is_empty() {
+                        format!("sum({})", metric.name)
+                    } else {
+                        format!(
+                            "topk(5, sum by ({}) ({}))",
+                            metric.labels.join(", "),
+                            metric.name
+                        )
+                    },
                     x_pos as i32,
                     y_pos,
                     12,

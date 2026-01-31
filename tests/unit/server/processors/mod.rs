@@ -7,6 +7,7 @@ pub mod factory_config_wiring_test;
 pub mod job_processor_factory_test;
 pub mod multi_source_sink_write_test;
 pub mod multi_source_test;
+pub mod multi_statement_metrics_emission_test;
 pub mod observability_wrapper_test;
 pub mod profiling_helper_test;
 pub mod scenario_4_tumbling_hang_test;

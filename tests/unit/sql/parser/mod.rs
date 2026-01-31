@@ -14,6 +14,7 @@ pub mod implicit_aggregation_test;
 pub mod key_annotation_test; // FR-089: Inline PRIMARY KEY syntax tests
 pub mod lifecycle_test;
 pub mod metric_annotations_test; // FR-073 Phase 1
+pub mod multi_statement_metric_annotations_test; // Multi-statement @metric annotation preservation
 pub mod partition_annotations_test; // Partition annotation parsing tests
 pub mod session_window_test;
 pub mod tumbling_window_test; // @app, @version, @description annotations
