@@ -16,18 +16,29 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 
 ### Aggregate Functions
 
-| Function | Syntax | Description |
-|----------|--------|-------------|
-| COUNT | `COUNT(*)` or `COUNT(column)` | Count rows or non-NULL values |
-| SUM | `SUM(column)` | Sum of numeric values |
-| AVG | `AVG(column)` | Average of numeric values |
-| MIN | `MIN(column)` | Minimum value |
-| MAX | `MAX(column)` | Maximum value |
-| COUNT_DISTINCT | `COUNT(DISTINCT column)` | Count unique values |
-| STDDEV | `STDDEV(column)` | Sample standard deviation |
-| VARIANCE | `VARIANCE(column)` | Sample variance |
-| MEDIAN | `MEDIAN(column)` | Median value |
-| LISTAGG | `LISTAGG(column, ',')` | Concatenate values with separator |
+| Function | Syntax | Input Types | Description |
+|----------|--------|-------------|-------------|
+| COUNT | `COUNT(*)` or `COUNT(column)` | Any | Count rows or non-NULL values |
+| SUM | `SUM(column)` | Numeric only | Sum of numeric values |
+| SUM(DISTINCT) | `SUM(DISTINCT column)` | Numeric only | Sum of unique numeric values |
+| AVG | `AVG(column)` | Numeric only | Average of numeric values |
+| MIN | `MIN(column)` | Numeric, String, Timestamp | Minimum value (lexicographic for strings) |
+| MAX | `MAX(column)` | Numeric, String, Timestamp | Maximum value (lexicographic for strings) |
+| COUNT(DISTINCT) | `COUNT(DISTINCT column)` | Any | Count unique values |
+| STDDEV_POP | `STDDEV_POP(column)` | Numeric only | Population standard deviation |
+| STDDEV_SAMP | `STDDEV_SAMP(column)` | Numeric only | Sample standard deviation |
+| VAR_POP | `VAR_POP(column)` | Numeric only | Population variance |
+| VAR_SAMP | `VAR_SAMP(column)` | Numeric only | Sample variance |
+| MEDIAN | `MEDIAN(column)` | Numeric only | Median value |
+| LISTAGG | `LISTAGG(column, ',')` | Any | Concatenate values with separator |
+| COLLECT | `COLLECT(column)` | Any | Collect values into comma-separated list |
+| FIRST_VALUE | `FIRST_VALUE(column)` | Any | First non-NULL value |
+| LAST_VALUE | `LAST_VALUE(column)` | Any | Last non-NULL value |
+
+> **Type Safety**: Functions marked "Numeric only" accept INTEGER, FLOAT, and SCALED_INTEGER (decimal).
+> Passing a STRING or other non-numeric type to these functions returns an error.
+> MIN/MAX work on any ordered type: numeric values compare by magnitude, strings compare lexicographically, timestamps compare chronologically.
+> Mixed incompatible types (e.g., `MAX` over a column with both STRING and INTEGER values) returns an error.
 
 ### Window Functions
 
@@ -1450,15 +1461,15 @@ WITH (
 
 ## Statistical Functions (CTAS)
 
-### STDDEV and VARIANCE
+### STDDEV_POP and STDDEV_SAMP
 
 ```sql
 CREATE TABLE trade_volatility AS
 SELECT symbol,
        COUNT(*) as trade_count,
        AVG(price) as avg_price,
-       STDDEV(price) as price_stddev,
-       VARIANCE(price) as price_variance
+       STDDEV_POP(price) as price_stddev_pop,
+       STDDEV_SAMP(price) as price_stddev_samp
 FROM trades
 GROUP BY symbol
 WINDOW TUMBLING(INTERVAL '5' MINUTE)
@@ -1470,6 +1481,29 @@ WITH (
     'trade_volatility.type' = 'kafka_sink',
     'trade_volatility.topic' = 'trade_volatility_output',
     'trade_volatility.format' = 'json'
+);
+```
+
+> **STDDEV_POP vs STDDEV_SAMP**: `STDDEV_POP` divides by N (population), `STDDEV_SAMP` divides by N-1 (sample, returns NULL for single-element input).
+
+### VAR_POP and VAR_SAMP
+
+```sql
+CREATE TABLE price_variance AS
+SELECT symbol,
+       VAR_POP(price) as price_var_pop,
+       VAR_SAMP(price) as price_var_samp
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_variance.type' = 'kafka_sink',
+    'price_variance.topic' = 'price_variance_output',
+    'price_variance.format' = 'json'
 );
 ```
 
@@ -1511,6 +1545,103 @@ WITH (
     'price_volume_corr.topic' = 'price_volume_corr_output',
     'price_volume_corr.format' = 'json'
 );
+```
+
+### LISTAGG and COLLECT
+
+```sql
+CREATE TABLE symbol_traders AS
+SELECT symbol,
+       COUNT(*) as trade_count,
+       LISTAGG(trader_id) as all_traders,
+       COLLECT(exchange) as exchanges
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'symbol_traders.type' = 'kafka_sink',
+    'symbol_traders.topic' = 'symbol_traders_output',
+    'symbol_traders.format' = 'json'
+);
+```
+
+> **LISTAGG vs COLLECT**: Both produce comma-separated strings. `LISTAGG` is the SQL standard name, `COLLECT` is the Flink-compatible alias.
+
+### SUM(DISTINCT) and COUNT(DISTINCT)
+
+```sql
+CREATE TABLE unique_trade_stats AS
+SELECT symbol,
+       COUNT(DISTINCT trader_id) as unique_traders,
+       SUM(DISTINCT quantity) as unique_qty_sum
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'unique_trade_stats.type' = 'kafka_sink',
+    'unique_trade_stats.topic' = 'unique_trade_stats_output',
+    'unique_trade_stats.format' = 'json'
+);
+```
+
+### MAX/MIN on Strings and Timestamps
+
+```sql
+-- MAX/MIN work on strings (lexicographic) and timestamps (chronological)
+CREATE TABLE name_range AS
+SELECT department,
+       MIN(employee_name) as first_alphabetically,
+       MAX(employee_name) as last_alphabetically,
+       MIN(hire_date) as earliest_hire,
+       MAX(hire_date) as latest_hire
+FROM employees
+GROUP BY department
+WINDOW TUMBLING(INTERVAL '1' HOUR)
+EMIT CHANGES
+WITH (
+    'employees.type' = 'kafka_source',
+    'employees.topic' = 'employees_input',
+    'employees.format' = 'json',
+    'name_range.type' = 'kafka_sink',
+    'name_range.topic' = 'name_range_output',
+    'name_range.format' = 'json'
+);
+```
+
+### Type Safety - Common Mistakes
+
+```sql
+-- ❌ WRONG: SUM on a string column — returns error
+SELECT SUM(customer_name) FROM orders  -- Error: SUM requires numeric input, got STRING
+
+-- ❌ WRONG: AVG on a string column — returns error
+SELECT AVG(status) FROM orders  -- Error: AVG requires numeric input, got STRING
+
+-- ❌ WRONG: STDDEV_POP on a string column — returns error
+SELECT STDDEV_POP(name) FROM users  -- Error: STDDEV_POP requires numeric input, got STRING
+
+-- ✅ CORRECT: Numeric aggregates on numeric columns
+SELECT SUM(amount), AVG(price), STDDEV_POP(quantity) FROM trades
+
+-- ✅ CORRECT: MAX/MIN on strings (lexicographic comparison)
+SELECT MAX(symbol), MIN(symbol) FROM trades
+
+-- ✅ CORRECT: MAX/MIN on timestamps (chronological comparison)
+SELECT MAX(event_time), MIN(event_time) FROM trades
+
+-- ✅ CORRECT: COUNT works on any type
+SELECT COUNT(*), COUNT(name), COUNT(DISTINCT status) FROM orders
+
+-- ✅ CORRECT: Mixed numeric types (Integer + Float) are fine
+SELECT SUM(price), AVG(quantity) FROM trades  -- Works even if price is FLOAT and quantity is INTEGER
 ```
 
 ---

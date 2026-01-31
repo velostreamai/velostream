@@ -35,8 +35,10 @@ A single trait that provides:
 
 */
 
+use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::FieldValue;
+use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use crate::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
 };
@@ -310,6 +312,71 @@ pub trait UnifiedTable: Send + Sync {
     /// Returns values from a specific column for all matching records.
     fn sql_column_values(&self, column: &str, where_clause: &str) -> TableResult<Vec<FieldValue>>;
 
+    /// Extract column values matching an AST expression predicate
+    ///
+    /// Evaluates the `Expr` AST directly against table records using
+    /// `ExpressionEvaluator`, avoiding the lossy string round-trip through
+    /// `CachedPredicate` which silently falls back to `AlwaysTrue` for
+    /// unsupported patterns (OR, NOT, LIKE, BETWEEN, IS NULL, etc.).
+    fn sql_column_values_with_expr(
+        &self,
+        column: &str,
+        where_expr: &Expr,
+    ) -> TableResult<Vec<FieldValue>> {
+        // Default: iterate records and evaluate expr against each
+        let mut values = Vec::new();
+        for (_key, record) in self.iter_records() {
+            if evaluate_expr_against_record(where_expr, &record)? {
+                if let Some(value) = record.get(column) {
+                    values.push(value.clone());
+                }
+            }
+        }
+        Ok(values)
+    }
+
+    /// Execute an EXISTS query using an AST expression predicate
+    ///
+    /// Evaluates the `Expr` AST directly, with early termination on first match.
+    fn sql_exists_with_expr(&self, where_expr: &Expr) -> TableResult<bool> {
+        for (_key, record) in self.iter_records() {
+            if evaluate_expr_against_record(where_expr, &record)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Execute a scalar query using an AST expression predicate
+    ///
+    /// Handles aggregates (COUNT, SUM, AVG, MAX, MIN) and single-row selects
+    /// using direct AST evaluation instead of string-based CachedPredicate parsing.
+    fn sql_scalar_with_expr(
+        &self,
+        select_expr: &str,
+        where_expr: &Expr,
+    ) -> TableResult<FieldValue> {
+        let upper = select_expr.to_uppercase();
+        // Check named aggregates first (handles COUNT(DISTINCT), SUM, AVG, etc.)
+        if let Some(column) = extract_aggregate_column(&upper, select_expr) {
+            let values = self.sql_column_values_with_expr(&column, where_expr)?;
+            compute_aggregate(&upper, &values)
+        } else if upper.starts_with("COUNT") {
+            // Plain COUNT(*) — full scan
+            let mut count = 0i64;
+            for (_key, record) in self.iter_records() {
+                if evaluate_expr_against_record(where_expr, &record)? {
+                    count += 1;
+                }
+            }
+            Ok(FieldValue::Integer(count))
+        } else {
+            // Single-row select: get first matching value
+            let values = self.sql_column_values_with_expr(select_expr, where_expr)?;
+            Ok(values.into_iter().next().unwrap_or(FieldValue::Null))
+        }
+    }
+
     /// Execute a scalar query (single value result)
     ///
     /// Handles aggregates (COUNT, MAX, MIN, etc.) and single-row selects.
@@ -536,6 +603,480 @@ pub trait UnifiedTable: Send + Sync {
 // ============================================================================
 // HELPER FUNCTIONS - Outside trait for dyn compatibility
 // ============================================================================
+
+/// Evaluate an AST expression against a table record (HashMap<String, FieldValue>).
+///
+/// Wraps the record in a minimal `StreamRecord` and delegates to
+/// `ExpressionEvaluator::evaluate_expression`, which already handles all SQL
+/// expression types (AND, OR, NOT, IN, NOT IN, LIKE, BETWEEN, IS NULL, etc.).
+pub fn evaluate_expr_against_record(
+    expr: &Expr,
+    record: &HashMap<String, FieldValue>,
+) -> TableResult<bool> {
+    let stream_record = StreamRecord::new(record.clone());
+    ExpressionEvaluator::evaluate_expression(expr, &stream_record).map_err(|e| {
+        SqlError::ExecutionError {
+            message: format!("Failed to evaluate expression against table record: {}", e),
+            query: None,
+        }
+    })
+}
+
+/// Recognized scalar aggregate function names.
+///
+/// **Ordering constraint**: longer prefixes must come before shorter ones that
+/// share the same prefix (e.g., `STDDEV_SAMP` before `STDDEV_POP`, `FIRST_VALUE`
+/// before hypothetical `FIRST`) because matching uses `starts_with`.
+const SCALAR_AGGREGATE_NAMES: &[&str] = &[
+    "STDDEV_SAMP",
+    "STDDEV_POP",
+    "VAR_SAMP",
+    "VAR_POP",
+    "FIRST_VALUE",
+    "LAST_VALUE",
+    "LISTAGG",
+    "COLLECT",
+    "COUNT",
+    "SUM",
+    "AVG",
+    "MAX",
+    "MIN",
+];
+
+/// Extract the column name from an aggregate expression like `SUM(col)`, `AVG(col)`, etc.
+///
+/// Returns `None` if the expression is not a recognized aggregate or has bad syntax.
+/// For `DISTINCT` variants (e.g. `COUNT(DISTINCT col)`), strips the DISTINCT keyword
+/// and returns just the column name; the caller uses the uppercased function string
+/// to detect DISTINCT.
+fn extract_aggregate_column(upper: &str, original: &str) -> Option<String> {
+    // Plain COUNT(*) or COUNT without DISTINCT is handled by the fast COUNT path.
+    // COUNT(DISTINCT col) routes through here so compute_aggregate can deduplicate.
+    if upper.starts_with("COUNT(DISTINCT") || upper.starts_with("COUNT (DISTINCT") {
+        // falls through to the generic extraction below
+    } else if upper.starts_with("COUNT") {
+        return None; // plain COUNT — use the dedicated fast path
+    }
+
+    for name in SCALAR_AGGREGATE_NAMES {
+        if upper.starts_with(name) {
+            if let Some(start) = original.find('(') {
+                // Find matching closing paren (handles nested parens)
+                if let Some(end) = find_matching_close_paren(original, start) {
+                    let mut inner = original[start + 1..end].trim().to_string();
+                    // Strip DISTINCT keyword if present
+                    let inner_upper = inner.to_uppercase();
+                    if inner_upper.starts_with("DISTINCT ") {
+                        inner = inner[9..].trim().to_string();
+                    }
+                    if !inner.is_empty() && inner != "*" {
+                        return Some(inner);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find the index of the closing `)` that matches the `(` at `open_pos`,
+/// handling nested parentheses correctly.
+fn find_matching_close_paren(s: &str, open_pos: usize) -> Option<usize> {
+    let mut depth = 0u32;
+    for (i, ch) in s[open_pos..].char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open_pos + i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Convert a `FieldValue` to `f64` for numeric aggregation.
+fn field_value_to_f64(val: &FieldValue) -> Option<f64> {
+    match val {
+        FieldValue::Integer(i) => Some(*i as f64),
+        FieldValue::ScaledInteger(v, scale) => Some(*v as f64 / 10f64.powi(*scale as i32)),
+        FieldValue::Float(f) => Some(*f),
+        _ => None,
+    }
+}
+
+/// Check whether the uppercased function string contains DISTINCT.
+fn is_distinct(upper: &str) -> bool {
+    upper.contains("DISTINCT")
+}
+
+/// Deduplicate values, preserving insertion order.
+///
+/// Uses O(n^2) contains check rather than hashing since `FieldValue` doesn't
+/// implement `Hash`. Table records in subquery context are typically small,
+/// so this is acceptable.
+fn deduplicate_values(values: &[FieldValue]) -> Vec<FieldValue> {
+    let mut result = Vec::new();
+    for val in values {
+        if !result.contains(val) {
+            result.push(val.clone());
+        }
+    }
+    result
+}
+
+/// Validate that all non-null values are numeric. Returns an error naming the
+/// aggregate function and the first offending value's type if a non-numeric,
+/// non-null value is found.
+fn require_numeric_values(func_name: &str, values: &[FieldValue]) -> TableResult<()> {
+    for v in values {
+        match v {
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::ScaledInteger(_, _)
+            | FieldValue::Null => {}
+            other => {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "{} requires numeric input, got {}",
+                        func_name,
+                        other.type_name()
+                    ),
+                    query: None,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Compute an aggregate over a slice of `FieldValue`s.
+///
+/// Supports SUM, AVG, MAX, MIN, FIRST_VALUE, LAST_VALUE, COUNT(DISTINCT),
+/// SUM(DISTINCT), LISTAGG/COLLECT, STDDEV_POP/SAMP, VAR_POP/SAMP.
+///
+/// Type rules (SQL standard):
+/// - SUM, AVG, STDDEV, VAR: numeric types only — returns error on strings
+/// - MAX, MIN: any ordered type — numeric, string (lexicographic), timestamp
+/// - COUNT, LISTAGG, COLLECT, FIRST_VALUE, LAST_VALUE: any type
+fn compute_aggregate(upper: &str, values: &[FieldValue]) -> TableResult<FieldValue> {
+    if values.is_empty() {
+        return Ok(FieldValue::Null);
+    }
+
+    let distinct = is_distinct(upper);
+    let effective_values;
+    let vals: &[FieldValue] = if distinct {
+        effective_values = deduplicate_values(values);
+        &effective_values
+    } else {
+        values
+    };
+
+    // Filter out nulls for non-null-aware operations
+    let non_null: Vec<&FieldValue> = vals
+        .iter()
+        .filter(|v| !matches!(v, FieldValue::Null))
+        .collect();
+
+    if upper.starts_with("COUNT") {
+        // COUNT(DISTINCT col) — plain COUNT(*) never reaches here
+        Ok(FieldValue::Integer(vals.len() as i64))
+    } else if upper.starts_with("SUM") {
+        require_numeric_values("SUM", vals)?;
+        let numerics: Vec<f64> = vals.iter().filter_map(field_value_to_f64).collect();
+        if numerics.is_empty() {
+            Ok(FieldValue::Null)
+        } else {
+            let sum: f64 = numerics.iter().sum();
+            let all_integer = vals
+                .iter()
+                .all(|v| matches!(v, FieldValue::Integer(_) | FieldValue::Null));
+            if all_integer && sum.fract() == 0.0 {
+                Ok(FieldValue::Integer(sum as i64))
+            } else {
+                Ok(FieldValue::Float(sum))
+            }
+        }
+    } else if upper.starts_with("AVG") {
+        require_numeric_values("AVG", vals)?;
+        let numerics: Vec<f64> = vals.iter().filter_map(field_value_to_f64).collect();
+        if numerics.is_empty() {
+            Ok(FieldValue::Null)
+        } else {
+            let sum: f64 = numerics.iter().sum();
+            Ok(FieldValue::Float(sum / numerics.len() as f64))
+        }
+    } else if upper.starts_with("MAX") {
+        compute_max_min(&non_null, true)
+    } else if upper.starts_with("MIN") {
+        compute_max_min(&non_null, false)
+    } else if upper.starts_with("FIRST_VALUE") {
+        Ok(non_null
+            .first()
+            .map(|v| (*v).clone())
+            .unwrap_or(FieldValue::Null))
+    } else if upper.starts_with("LAST_VALUE") {
+        Ok(non_null
+            .last()
+            .map(|v| (*v).clone())
+            .unwrap_or(FieldValue::Null))
+    } else if upper.starts_with("STDDEV_SAMP") {
+        require_numeric_values("STDDEV_SAMP", vals)?;
+        Ok(compute_stddev(vals, true))
+    } else if upper.starts_with("STDDEV_POP") {
+        require_numeric_values("STDDEV_POP", vals)?;
+        Ok(compute_stddev(vals, false))
+    } else if upper.starts_with("VAR_SAMP") {
+        require_numeric_values("VAR_SAMP", vals)?;
+        Ok(compute_variance(vals, true))
+    } else if upper.starts_with("VAR_POP") {
+        require_numeric_values("VAR_POP", vals)?;
+        Ok(compute_variance(vals, false))
+    } else if upper.starts_with("LISTAGG") || upper.starts_with("COLLECT") {
+        let strings: Vec<String> = non_null
+            .iter()
+            .map(|v| match v {
+                FieldValue::String(s) => s.clone(),
+                other => format!("{}", other),
+            })
+            .collect();
+        Ok(FieldValue::String(strings.join(",")))
+    } else {
+        Ok(FieldValue::Null)
+    }
+}
+
+/// Compute MAX or MIN across any ordered `FieldValue` type.
+///
+/// Supports: numeric (Integer/Float/ScaledInteger), String (lexicographic),
+/// Timestamp, and Boolean. Returns error for mixed incompatible types.
+fn compute_max_min(non_null: &[&FieldValue], is_max: bool) -> TableResult<FieldValue> {
+    if non_null.is_empty() {
+        return Ok(FieldValue::Null);
+    }
+
+    // Determine the dominant type category from the first non-null value
+    enum TypeCategory {
+        Numeric,
+        StringType,
+        TimestampType,
+        BooleanType,
+    }
+
+    let category = match non_null[0] {
+        FieldValue::Integer(_) | FieldValue::Float(_) | FieldValue::ScaledInteger(_, _) => {
+            TypeCategory::Numeric
+        }
+        FieldValue::String(_) => TypeCategory::StringType,
+        FieldValue::Timestamp(_) => TypeCategory::TimestampType,
+        FieldValue::Boolean(_) => TypeCategory::BooleanType,
+        _ => {
+            return Ok(FieldValue::Null);
+        }
+    };
+
+    match category {
+        TypeCategory::Numeric => {
+            // Allow mixed numeric types (Int + Float + ScaledInteger)
+            let all_integer = non_null.iter().all(|v| matches!(v, FieldValue::Integer(_)));
+            let mut result: Option<f64> = None;
+            for v in non_null {
+                if let Some(f) = field_value_to_f64(v) {
+                    result = Some(match result {
+                        Some(cur) => {
+                            if is_max {
+                                f64::max(cur, f)
+                            } else {
+                                f64::min(cur, f)
+                            }
+                        }
+                        None => f,
+                    });
+                } else {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "{} cannot mix numeric and non-numeric types",
+                            if is_max { "MAX" } else { "MIN" }
+                        ),
+                        query: None,
+                    });
+                }
+            }
+            Ok(result
+                .map(|v| {
+                    if all_integer {
+                        FieldValue::Integer(v as i64)
+                    } else {
+                        FieldValue::Float(v)
+                    }
+                })
+                .unwrap_or(FieldValue::Null))
+        }
+        TypeCategory::StringType => {
+            let mut best: Option<&str> = None;
+            for v in non_null {
+                match v {
+                    FieldValue::String(s) => {
+                        best = Some(match best {
+                            Some(cur) => {
+                                if is_max {
+                                    if s.as_str() > cur { s.as_str() } else { cur }
+                                } else if s.as_str() < cur {
+                                    s.as_str()
+                                } else {
+                                    cur
+                                }
+                            }
+                            None => s.as_str(),
+                        });
+                    }
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "{} cannot mix string and non-string types",
+                                if is_max { "MAX" } else { "MIN" }
+                            ),
+                            query: None,
+                        });
+                    }
+                }
+            }
+            Ok(best
+                .map(|s| FieldValue::String(s.to_string()))
+                .unwrap_or(FieldValue::Null))
+        }
+        TypeCategory::TimestampType => {
+            let mut best: Option<&chrono::NaiveDateTime> = None;
+            for v in non_null {
+                match v {
+                    FieldValue::Timestamp(ts) => {
+                        best = Some(match best {
+                            Some(cur) => {
+                                if is_max {
+                                    if ts > cur { ts } else { cur }
+                                } else if ts < cur {
+                                    ts
+                                } else {
+                                    cur
+                                }
+                            }
+                            None => ts,
+                        });
+                    }
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "{} cannot mix timestamp and non-timestamp types",
+                                if is_max { "MAX" } else { "MIN" }
+                            ),
+                            query: None,
+                        });
+                    }
+                }
+            }
+            Ok(best
+                .map(|ts| FieldValue::Timestamp(*ts))
+                .unwrap_or(FieldValue::Null))
+        }
+        TypeCategory::BooleanType => {
+            // SQL: false < true, so MAX = true if any true, MIN = false if any false
+            let has_true = non_null
+                .iter()
+                .any(|v| matches!(v, FieldValue::Boolean(true)));
+            let has_false = non_null
+                .iter()
+                .any(|v| matches!(v, FieldValue::Boolean(false)));
+            if is_max {
+                Ok(FieldValue::Boolean(has_true))
+            } else {
+                Ok(FieldValue::Boolean(!has_false))
+            }
+        }
+    }
+}
+
+/// Compute variance (population or sample) over numeric `FieldValue`s.
+fn compute_variance(values: &[FieldValue], sample: bool) -> FieldValue {
+    let numerics: Vec<f64> = values.iter().filter_map(field_value_to_f64).collect();
+    let n = numerics.len();
+    if n == 0 || (sample && n < 2) {
+        return FieldValue::Null;
+    }
+    let mean: f64 = numerics.iter().sum::<f64>() / n as f64;
+    let sum_sq: f64 = numerics.iter().map(|v| (v - mean).powi(2)).sum();
+    let divisor = if sample { (n - 1) as f64 } else { n as f64 };
+    FieldValue::Float(sum_sq / divisor)
+}
+
+/// Compute standard deviation (population or sample) over numeric `FieldValue`s.
+fn compute_stddev(values: &[FieldValue], sample: bool) -> FieldValue {
+    match compute_variance(values, sample) {
+        FieldValue::Float(var) => FieldValue::Float(var.sqrt()),
+        other => other,
+    }
+}
+
+/// Detect a key-lookup pattern from an AST `Expr`.
+///
+/// Matches `key = 'value'` or `_key = 'value'` patterns, returning the key value
+/// for O(1) hash-map lookup on `OptimizedTableImpl`.
+fn extract_key_lookup_from_expr(expr: &Expr) -> Option<String> {
+    use crate::velostream::sql::execution::types::StreamRecord;
+
+    if let Expr::BinaryOp {
+        left,
+        op: BinaryOperator::Equal,
+        right,
+    } = expr
+    {
+        if let Expr::Column(col) = left.as_ref() {
+            if col == "key" || col == StreamRecord::FIELD_KEY {
+                if let Expr::Literal(LiteralValue::String(val)) = right.as_ref() {
+                    return Some(val.clone());
+                }
+            }
+        }
+        // Also handle reversed: 'value' = key
+        if let Expr::Column(col) = right.as_ref() {
+            if col == "key" || col == StreamRecord::FIELD_KEY {
+                if let Expr::Literal(LiteralValue::String(val)) = left.as_ref() {
+                    return Some(val.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Detect a simple column = 'value' filter from an AST `Expr`.
+///
+/// Returns `(column_name, string_value)` for O(1) column-index lookup on
+/// `OptimizedTableImpl`.
+fn extract_column_filter_from_expr(expr: &Expr) -> Option<(String, String)> {
+    if let Expr::BinaryOp {
+        left,
+        op: BinaryOperator::Equal,
+        right,
+    } = expr
+    {
+        if let Expr::Column(col) = left.as_ref() {
+            if let Expr::Literal(LiteralValue::String(val)) = right.as_ref() {
+                return Some((col.clone(), val.clone()));
+            }
+        }
+        // Also handle reversed: 'value' = column
+        if let Expr::Column(col) = right.as_ref() {
+            if let Expr::Literal(LiteralValue::String(val)) = left.as_ref() {
+                return Some((col.clone(), val.clone()));
+            }
+        }
+    }
+    None
+}
 
 /// Parse simple key lookup patterns
 ///
@@ -1788,6 +2329,102 @@ impl UnifiedTable for OptimizedTableImpl {
         }
 
         Ok(values)
+    }
+
+    /// Optimized AST-based column value extraction
+    ///
+    /// Evaluates the `Expr` directly against table records held in the RwLock,
+    /// avoiding the string round-trip and CachedPredicate limitations.
+    fn sql_column_values_with_expr(
+        &self,
+        column: &str,
+        where_expr: &Expr,
+    ) -> TableResult<Vec<FieldValue>> {
+        let data = self.data.read().unwrap();
+        let mut values = Vec::new();
+        for (_key, record) in data.iter() {
+            if evaluate_expr_against_record(where_expr, record)? {
+                if let Some(value) = record.get(column) {
+                    values.push(value.clone());
+                }
+            }
+        }
+        Ok(values)
+    }
+
+    /// Optimized AST-based EXISTS with early termination
+    fn sql_exists_with_expr(&self, where_expr: &Expr) -> TableResult<bool> {
+        let data = self.data.read().unwrap();
+        for (_key, record) in data.iter() {
+            if evaluate_expr_against_record(where_expr, record)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Optimized AST-based scalar queries with aggregate support
+    ///
+    /// Detects key-lookup and column-filter patterns from the AST `Expr` to use
+    /// O(1) hash lookups / column indexes (matching the string-based `sql_scalar`
+    /// fast paths) before falling back to a full table scan.
+    fn sql_scalar_with_expr(
+        &self,
+        select_expr: &str,
+        where_expr: &Expr,
+    ) -> TableResult<FieldValue> {
+        let start_time = std::time::Instant::now();
+
+        let upper = select_expr.to_uppercase();
+        // Check named aggregates first (handles COUNT(DISTINCT), SUM, AVG, etc.)
+        let result = if let Some(column) = extract_aggregate_column(&upper, select_expr) {
+            let values = self.sql_column_values_with_expr(&column, where_expr)?;
+            compute_aggregate(&upper, &values)?
+        } else if upper.starts_with("COUNT") {
+            // Plain COUNT — try O(1) optimizations first
+            if let Some(key) = extract_key_lookup_from_expr(where_expr) {
+                if self.data.read().unwrap().contains_key(&key) {
+                    FieldValue::Integer(1)
+                } else {
+                    FieldValue::Integer(0)
+                }
+            } else if let Some((column, value)) = extract_column_filter_from_expr(where_expr) {
+                let count = self
+                    .column_indexes
+                    .read()
+                    .unwrap()
+                    .get(&column)
+                    .and_then(|idx| idx.get(&value))
+                    .map(|keys| keys.len())
+                    .unwrap_or(0);
+                FieldValue::Integer(count as i64)
+            } else {
+                // Full scan fallback
+                let data = self.data.read().unwrap();
+                let mut count = 0i64;
+                for (_key, record) in data.iter() {
+                    if evaluate_expr_against_record(where_expr, record)? {
+                        count += 1;
+                    }
+                }
+                FieldValue::Integer(count)
+            }
+        } else {
+            let values = self.sql_column_values_with_expr(select_expr, where_expr)?;
+            values.into_iter().next().unwrap_or(FieldValue::Null)
+        };
+
+        // Update statistics
+        {
+            let mut stats = self.stats.write().unwrap();
+            stats.total_queries += 1;
+            let query_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+            stats.average_query_time_ms =
+                (stats.average_query_time_ms * (stats.total_queries - 1) as f64 + query_time_ms)
+                    / stats.total_queries as f64;
+        }
+
+        Ok(result)
     }
 
     /// Optimized scalar queries with aggregate support

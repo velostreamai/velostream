@@ -3359,6 +3359,27 @@ fn substitute_correlation_variables(
     processor.build_parameterized_query(&template, params)
 }
 
+/// Substitute correlation variables in an AST expression if a correlation context exists.
+///
+/// When there is no correlation context, returns the expression unchanged — no
+/// substitution is needed for non-correlated subqueries.
+fn substitute_correlation_expr(
+    expr: Expr,
+    current_record: &StreamRecord,
+    context: &ProcessorContext,
+) -> Expr {
+    if let Some(cc) = &context.correlation_context {
+        query_parsing::substitute_correlation_variables_in_expr(
+            &expr,
+            &cc.name,
+            cc.alias.as_deref(),
+            &current_record.fields,
+        )
+    } else {
+        expr
+    }
+}
+
 impl SubqueryExecutor for SelectProcessor {
     fn execute_scalar_subquery(
         &self,
@@ -3373,18 +3394,23 @@ impl SubqueryExecutor for SelectProcessor {
             StreamingQuery::Select { .. } => {
                 // Extract query components
                 let table_name = query_parsing::extract_table_name(query)?;
-                let mut where_clause = query_parsing::extract_where_clause(query)?;
                 let select_expr = query_parsing::extract_select_expression(query)?;
-
-                // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause =
-                    substitute_correlation_variables(&where_clause, current_record, context)?;
+                let where_expr = query_parsing::extract_where_expr(query)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
 
-                // Execute scalar query using Table SQL interface
-                table.sql_scalar(&select_expr, &where_clause)
+                match where_expr {
+                    Some(expr) => {
+                        let substituted =
+                            substitute_correlation_expr(expr, current_record, context);
+                        table.sql_scalar_with_expr(&select_expr, &substituted)
+                    }
+                    None => {
+                        // No WHERE clause — use string path with empty where
+                        table.sql_scalar(&select_expr, "")
+                    }
+                }
             }
             _ => Err(SqlError::ExecutionError {
                 message: "[SUBQ-SCALAR-001] Scalar subquery must be a SELECT statement".to_string(),
@@ -3406,34 +3432,22 @@ impl SubqueryExecutor for SelectProcessor {
             StreamingQuery::Select { .. } => {
                 // Extract query components
                 let table_name = query_parsing::extract_table_name(query)?;
-                let mut where_clause = query_parsing::extract_where_clause(query)?;
-
-                println!(
-                    "🔍 EXISTS DEBUG: table_name='{}', original WHERE='{}'",
-                    table_name, where_clause
-                );
-
-                // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause =
-                    substitute_correlation_variables(&where_clause, current_record, context)?;
-
-                println!(
-                    "🔍 EXISTS DEBUG: After correlation: WHERE='{}'",
-                    where_clause
-                );
+                let where_expr = query_parsing::extract_where_expr(query)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
 
-                // Execute EXISTS query using Table SQL interface
-                let result = table.sql_exists(&where_clause)?;
-
-                println!(
-                    "🔍 EXISTS DEBUG: sql_exists('{}') returned: {}",
-                    where_clause, result
-                );
-
-                Ok(result)
+                match where_expr {
+                    Some(expr) => {
+                        let substituted =
+                            substitute_correlation_expr(expr, current_record, context);
+                        table.sql_exists_with_expr(&substituted)
+                    }
+                    None => {
+                        // No WHERE clause means check if table has any records
+                        Ok(!table.is_empty())
+                    }
+                }
             }
             _ => Err(SqlError::ExecutionError {
                 message: "[SUBQ-EXISTS-001] EXISTS subquery must be a SELECT statement".to_string(),
@@ -3456,18 +3470,23 @@ impl SubqueryExecutor for SelectProcessor {
             StreamingQuery::Select { .. } => {
                 // Extract query components
                 let table_name = query_parsing::extract_table_name(query)?;
-                let mut where_clause = query_parsing::extract_where_clause(query)?;
+                let where_expr = query_parsing::extract_where_expr(query)?;
                 let column = query_parsing::extract_select_column(query)?;
-
-                // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause =
-                    substitute_correlation_variables(&where_clause, current_record, context)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
 
-                // Execute IN query using Table SQL interface
-                let values = table.sql_column_values(&column, &where_clause)?;
+                let values = match where_expr {
+                    Some(expr) => {
+                        let substituted =
+                            substitute_correlation_expr(expr, current_record, context);
+                        table.sql_column_values_with_expr(&column, &substituted)?
+                    }
+                    None => {
+                        // No WHERE clause — get all values from the column
+                        table.sql_column_values(&column, "true")?
+                    }
+                };
 
                 // Check if the value exists in the result set
                 Ok(values.contains(value))
