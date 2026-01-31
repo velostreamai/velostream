@@ -138,6 +138,8 @@ pub enum CachedPredicate {
     /// Supports type coercion: String field values are parsed as integers,
     /// Float values are truncated to integers for comparison.
     FieldInIntegerList { field: String, values: Vec<i64> },
+    /// Compound AND predicate: both sub-predicates must evaluate to true
+    And(Box<CachedPredicate>, Box<CachedPredicate>),
 }
 
 impl CachedPredicate {
@@ -199,6 +201,9 @@ impl CachedPredicate {
                     Some(FieldValue::Float(f)) => values.contains(&(*f as i64)),
                     _ => false,
                 }
+            }
+            CachedPredicate::And(left, right) => {
+                left.evaluate(_key, record) && right.evaluate(_key, record)
             }
         }
     }
@@ -782,6 +787,57 @@ fn process_in_value(
 /// let predicate = parse_where_clause_cached("tier IN ('gold', 'platinum')")?;
 /// assert!(predicate.evaluate("key", &record)); // if record.tier == "gold"
 /// ```
+/// Find the position of a top-level AND keyword in a WHERE clause.
+///
+/// Returns the byte offset of the first top-level `AND` (case-insensitive),
+/// skipping any AND that appears inside single/double quotes or parentheses.
+fn find_top_level_and(clause: &str) -> Option<usize> {
+    let upper = clause.to_uppercase();
+    let bytes = upper.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut paren_depth: i32 = 0;
+
+    while i < len {
+        let ch = bytes[i];
+        match ch {
+            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
+            b'(' if !in_single_quote && !in_double_quote => paren_depth += 1,
+            b')' if !in_single_quote && !in_double_quote => paren_depth -= 1,
+            b'A' if !in_single_quote && !in_double_quote && paren_depth == 0 => {
+                // Check for " AND " (with word boundaries)
+                if i + 3 <= len
+                    && bytes[i + 1] == b'N'
+                    && bytes[i + 2] == b'D'
+                    && (i == 0 || bytes[i - 1] == b' ')
+                    && (i + 3 == len || bytes[i + 3] == b' ')
+                {
+                    // Skip AND that is part of BETWEEN ... AND ...
+                    // Check if there's a BETWEEN keyword before this AND
+                    // at the same paren level that hasn't been consumed
+                    let prefix = &upper[..i];
+                    let is_between_and = prefix
+                        .rfind("BETWEEN")
+                        .map(|bp| {
+                            // Verify no other top-level AND between BETWEEN and here
+                            !prefix[bp + 7..].contains(" AND ")
+                        })
+                        .unwrap_or(false);
+                    if !is_between_and {
+                        return Some(i);
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredicate> {
     let clause = where_clause.trim();
 
@@ -794,6 +850,18 @@ pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredic
     // Handle 'false' literal and common "always false" patterns
     if clause == "false" || clause == "1=0" || clause == "1 = 0" {
         return Ok(CachedPredicate::AlwaysFalse);
+    }
+
+    // Handle compound AND expressions BEFORE simple patterns.
+    // This prevents parse_simple_equality from greedily consuming the entire
+    // compound clause as a single equality (e.g., "field = 'val' AND ..." would
+    // incorrectly match as field = "'val' AND ...").
+    if let Some(and_pos) = find_top_level_and(clause) {
+        let left_clause = clause[..and_pos].trim();
+        let right_clause = clause[and_pos + 3..].trim(); // skip "AND"
+        let left = parse_where_clause_cached(left_clause)?;
+        let right = parse_where_clause_cached(right_clause)?;
+        return Ok(CachedPredicate::And(Box::new(left), Box::new(right)));
     }
 
     // Handle simple equality comparisons: "field = 'value'"
