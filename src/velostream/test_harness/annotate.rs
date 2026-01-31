@@ -508,6 +508,8 @@ pub struct DetectedMetric {
     pub buckets: Option<Vec<f64>>,
     /// Source query name
     pub query_name: String,
+    /// Whether this metric came from an explicit @metric annotation (vs auto-detected)
+    pub is_explicit: bool,
 }
 
 /// Prometheus metric type
@@ -860,6 +862,7 @@ impl Annotator {
                     field: ann.field.clone(),
                     buckets: ann.buckets.clone(),
                     query_name: query.name.clone(),
+                    is_explicit: true,
                 })
                 .collect();
         }
@@ -878,6 +881,7 @@ impl Annotator {
             field: None,
             buckets: None,
             query_name: query.name.clone(),
+            is_explicit: false,
         });
 
         // If has COUNT aggregation, suggest counter for count results
@@ -890,6 +894,7 @@ impl Annotator {
                 field: Some("count".to_string()),
                 buckets: None,
                 query_name: query.name.clone(),
+                is_explicit: false,
             });
         }
 
@@ -905,6 +910,7 @@ impl Annotator {
                     field: Some(field.clone()),
                     buckets: None,
                     query_name: query.name.clone(),
+                    is_explicit: false,
                 });
             }
         }
@@ -922,6 +928,7 @@ impl Annotator {
                         field: Some(field.clone()),
                         buckets: Some(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]),
                         query_name: query.name.clone(),
+                        is_explicit: false,
                     });
                 }
             }
@@ -941,6 +948,7 @@ impl Annotator {
                     field: Some(field.clone()),
                     buckets: None,
                     query_name: query.name.clone(),
+                    is_explicit: false,
                 });
             }
         }
@@ -1588,7 +1596,7 @@ overrides:
             panels.push(self.create_piechart_panel(
                 panel_id,
                 "Records Distribution by Query",
-                "sum by (query) (velo_query_records_total)",
+                "sum by (instance) (velo_streaming_records_total)",
                 12,
                 y_pos,
                 12,
@@ -1676,8 +1684,13 @@ overrides:
             y_pos += 6;
         }
 
-        // Add panels for each detected metric with varied types
-        let metrics_to_show: Vec<_> = analysis.metrics.iter().take(12).collect();
+        // Add panels only for explicitly declared @metric annotations (not auto-detected)
+        let metrics_to_show: Vec<_> = analysis
+            .metrics
+            .iter()
+            .filter(|m| m.is_explicit)
+            .take(12)
+            .collect();
         for (i, metric) in metrics_to_show.iter().enumerate() {
             let panel_type = i % 4; // Cycle through different panel types
             let x_pos = (i % 2) * 12;
