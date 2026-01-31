@@ -167,6 +167,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Sink configuration
     'price_movement_alerts.type' = 'kafka_sink',
@@ -223,6 +224,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Sink configuration
     'price_movement_debug.type' = 'kafka_sink',
@@ -253,6 +255,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Sink configuration
     'price_stats.type' = 'kafka_sink',

@@ -186,6 +186,7 @@ WITH (
     'trading_positions_ts.type' = 'kafka_source',
     'trading_positions_ts.topic.name' = 'trading_positions_ts',
     'trading_positions_ts.config_file' = '../configs/kafka_source.yaml',
+    'trading_positions_ts.auto.offset.reset' = 'earliest',
 
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
@@ -278,6 +279,7 @@ WITH (
     'trading_positions_ts.type' = 'kafka_source',
     'trading_positions_ts.topic.name' = 'trading_positions_ts',
     'trading_positions_ts.config_file' = '../configs/kafka_source.yaml',
+    'trading_positions_ts.auto.offset.reset' = 'earliest',
 
     -- Reference tables
     'firm_limits.type' = 'file_source',

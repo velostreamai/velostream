@@ -94,6 +94,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Watchlist table
     'regulatory_watchlist.type' = 'file_source',
@@ -154,6 +155,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Reference tables
     'instrument_schedules.type' = 'file_source',

@@ -503,7 +503,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Top Symbols: Total records processed by compliant_market_data",
+      "description": "Top Symbols: Total compliant records processed",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -557,7 +557,7 @@
           "refId": "A"
         }
       ],
-      "title": "Top Symbols: Total records processed by compliant_market_data",
+      "title": "Top Symbols: Total compliant records processed",
       "type": "bargauge"
     },
     {
@@ -565,7 +565,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Total records processed by compliant_market_data",
+      "description": "Total compliant records processed",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -647,7 +647,7 @@
           "refId": "A"
         }
       ],
-      "title": "Total records processed by compliant_market_data",
+      "title": "Total compliant records processed",
       "type": "timeseries"
     },
     {
@@ -655,39 +655,11 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current m.price value",
+      "description": "Total blocked records (compliance failures)",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
           },
           "mappings": [],
           "thresholds": {
@@ -696,14 +668,10 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           },
-          "unit": "short"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -715,37 +683,41 @@
       },
       "id": 9,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showUnfilled": true
       },
+      "pluginVersion": "9.0.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_m_price",
+          "expr": "topk(5, sum by (symbol) (velo_compliant_market_data_blocked_total))",
           "interval": "",
-          "legendFormat": "{{job}}",
+          "legendFormat": "{{symbol}}",
           "refId": "A"
         }
       ],
-      "title": "Current m.price value",
-      "type": "timeseries"
+      "title": "Total blocked records (compliance failures)",
+      "type": "bargauge"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current m.bid_price value",
+      "description": "Total records processed by compliant_market_data",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -800,7 +772,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_m_bid_price",
+          "expr": "velo_app_compliance_compliant_market_data_records_total",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -808,7 +780,7 @@
           "refId": "A"
         }
       ],
-      "title": "Current m.bid_price value",
+      "title": "Total records processed by compliant_market_data",
       "transformations": [
         {
           "id": "organize",
@@ -831,7 +803,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current m.ask_price value",
+      "description": "Current m.price value",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -907,13 +879,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_m_ask_price",
+          "expr": "velo_app_compliance_current_m_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current m.ask_price value",
+      "title": "Current m.price value",
       "type": "timeseries"
     },
     {
@@ -921,55 +893,33 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Total records processed by active_hours_market_data",
+      "description": "Current m.bid_price value",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "mode": "thresholds"
           },
           "mappings": [],
+          "max": 1000.0,
+          "min": 0,
           "thresholds": {
-            "mode": "absolute",
+            "mode": "percentage",
             "steps": [
               {
                 "color": "green",
                 "value": null
               },
               {
+                "color": "yellow",
+                "value": 70
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 90
               }
             ]
           },
-          "unit": "reqps"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -981,37 +931,39 @@
       },
       "id": 12,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
       },
+      "pluginVersion": "9.0.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_active_hours_market_data_records_total[5m])",
+          "expr": "velo_app_compliance_current_m_bid_price",
           "interval": "",
-          "legendFormat": "{{job}}",
+          "legendFormat": "Current m.bid_price value",
           "refId": "A"
         }
       ],
-      "title": "Total records processed by active_hours_market_data",
-      "type": "timeseries"
+      "title": "Current m.bid_price value",
+      "type": "gauge"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current m.price value",
+      "description": "Current m.ask_price value",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1087,13 +1039,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_m_price",
+          "expr": "velo_app_compliance_current_m_ask_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current m.price value",
+      "title": "Current m.ask_price value",
       "type": "timeseries"
     },
     {
@@ -1101,7 +1053,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current m.bid_price value",
+      "description": "Total records during active trading hours",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1156,7 +1108,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_m_bid_price",
+          "expr": "velo_active_hours_market_data_records_total",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1164,7 +1116,7 @@
           "refId": "A"
         }
       ],
-      "title": "Current m.bid_price value",
+      "title": "Total records during active trading hours",
       "transformations": [
         {
           "id": "organize",
@@ -1181,6 +1133,256 @@
         }
       ],
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Total records processed by active_hours_market_data",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "rate(velo_app_compliance_active_hours_market_data_records_total[5m])",
+          "interval": "",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Total records processed by active_hours_market_data",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Current m.price value",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 1000.0,
+          "min": 0,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "id": 16,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "9.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "velo_app_compliance_current_m_price",
+          "interval": "",
+          "legendFormat": "Current m.price value",
+          "refId": "A"
+        }
+      ],
+      "title": "Current m.price value",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Current m.bid_price value",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 50
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "velo_app_compliance_current_m_bid_price",
+          "interval": "",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Current m.bid_price value",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1242,10 +1444,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 42
+        "x": 0,
+        "y": 58
       },
-      "id": 15,
+      "id": 18,
       "options": {
         "legend": {
           "calcs": [],
@@ -1263,7 +1465,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_m_ask_price",
+          "expr": "velo_app_compliance_current_m_ask_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
@@ -1278,7 +1480,7 @@
   "style": "dark",
   "tags": [
     "velostream",
-    "app_compliance",
+    "app_compliance.annotated",
     "auto-generated"
   ],
   "templating": {
@@ -1290,8 +1492,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Velostream app_compliance",
-  "uid": "velostream-app_compliance",
+  "title": "Velostream app_compliance.annotated",
+  "uid": "velostream-app_compliance.annotated",
   "version": 1,
   "weekStart": ""
 }

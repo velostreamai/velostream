@@ -949,7 +949,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_p.entry_price",
+          "expr": "velo_current_p_entry_price",
           "interval": "",
           "legendFormat": "Current p.entry_price value",
           "refId": "A"
@@ -1039,7 +1039,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_current_p.current_price",
+          "expr": "velo_current_p_current_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"

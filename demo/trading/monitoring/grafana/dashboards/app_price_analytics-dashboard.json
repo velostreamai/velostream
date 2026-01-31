@@ -503,7 +503,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Top Symbols: Total records processed by price_movement_alerts",
+      "description": "Top Symbols: Total price movement alerts generated",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -551,13 +551,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_price_analytics_price_movement_alerts_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_price_movement_alerts_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
         }
       ],
-      "title": "Top Symbols: Total records processed by price_movement_alerts",
+      "title": "Top Symbols: Total price movement alerts generated",
       "type": "bargauge"
     },
     {
@@ -565,7 +565,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Total records processed by price_movement_alerts",
+      "description": "Total price movement alerts generated",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -641,13 +641,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_price_analytics_price_movement_alerts_records_total[5m])",
+          "expr": "rate(velo_price_movement_alerts_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Total records processed by price_movement_alerts",
+      "title": "Total price movement alerts generated",
       "type": "timeseries"
     },
     {
@@ -655,7 +655,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current price value",
+      "description": "Price change percentage",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -731,13 +731,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price",
+          "expr": "velo_price_change_pct",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current price value",
+      "title": "Price change percentage",
       "type": "timeseries"
     },
     {
@@ -745,7 +745,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current prev_price value",
+      "description": "Total records processed by price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -800,7 +800,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_prev_price",
+          "expr": "velo_app_price_analytics_price_movement_debug_records_total",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -808,7 +808,7 @@
           "refId": "A"
         }
       ],
-      "title": "Current prev_price value",
+      "title": "Total records processed by price_movement_debug",
       "transformations": [
         {
           "id": "organize",
@@ -831,7 +831,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current next_price value",
+      "description": "Count aggregation from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -879,7 +879,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -907,13 +907,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_next_price",
+          "expr": "rate(velo_app_price_analytics_price_movement_debug_count[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current next_price value",
+      "title": "Count aggregation from price_movement_debug",
       "type": "timeseries"
     },
     {
@@ -921,7 +921,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current price_change_pct value",
+      "description": "Current record_count from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -977,13 +977,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_change_pct",
+          "expr": "velo_app_price_analytics_price_movement_debug_record_count",
           "interval": "",
-          "legendFormat": "Current price_change_pct value",
+          "legendFormat": "Current record_count from price_movement_debug",
           "refId": "A"
         }
       ],
-      "title": "Current price_change_pct value",
+      "title": "Current record_count from price_movement_debug",
       "type": "gauge"
     },
     {
@@ -991,7 +991,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current price_rank value",
+      "description": "Current avg_price from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1067,13 +1067,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_rank",
+          "expr": "velo_app_price_analytics_price_movement_debug_avg_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current price_rank value",
+      "title": "Current avg_price from price_movement_debug",
       "type": "timeseries"
     },
     {
@@ -1081,7 +1081,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current price_percentile value",
+      "description": "Current stddev_price from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1136,7 +1136,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_percentile",
+          "expr": "velo_app_price_analytics_price_movement_debug_stddev_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1144,7 +1144,7 @@
           "refId": "A"
         }
       ],
-      "title": "Current price_percentile value",
+      "title": "Current stddev_price from price_movement_debug",
       "transformations": [
         {
           "id": "organize",
@@ -1167,7 +1167,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current price_volatility_10_periods value",
+      "description": "Current max_volume from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1243,13 +1243,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_current_price_volatility_10_periods",
+          "expr": "velo_app_price_analytics_price_movement_debug_max_volume",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current price_volatility_10_periods value",
+      "title": "Current max_volume from price_movement_debug",
       "type": "timeseries"
     },
     {
@@ -1257,7 +1257,77 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Total records processed by price_movement_debug",
+      "description": "Current avg_volume from price_movement_debug",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 1000.0,
+          "min": 0,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "id": 16,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "9.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "velo_app_price_analytics_price_movement_debug_avg_volume",
+          "interval": "",
+          "legendFormat": "Current avg_volume from price_movement_debug",
+          "refId": "A"
+        }
+      ],
+      "title": "Current avg_volume from price_movement_debug",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Current passes_count_filter from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1305,17 +1375,17 @@
               }
             ]
           },
-          "unit": "reqps"
+          "unit": "short"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
+        "x": 12,
         "y": 50
       },
-      "id": 16,
+      "id": 17,
       "options": {
         "legend": {
           "calcs": [],
@@ -1333,13 +1403,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_price_analytics_price_movement_debug_records_total[5m])",
+          "expr": "velo_app_price_analytics_price_movement_debug_passes_count_filter",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Total records processed by price_movement_debug",
+      "title": "Current passes_count_filter from price_movement_debug",
       "type": "timeseries"
     },
     {
@@ -1347,69 +1417,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Count aggregation from price_movement_debug",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 50
-      },
-      "id": 17,
-      "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true
-      },
-      "pluginVersion": "9.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "topk(5, sum by (symbol) (velo_app_price_analytics_price_movement_debug_count))",
-          "interval": "",
-          "legendFormat": "{{symbol}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Count aggregation from price_movement_debug",
-      "type": "bargauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Current record_count from price_movement_debug",
+      "description": "Current passes_volume_filter from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1485,13 +1493,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_price_movement_debug_record_count",
+          "expr": "velo_app_price_analytics_price_movement_debug_passes_volume_filter",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current record_count from price_movement_debug",
+      "title": "Current passes_volume_filter from price_movement_debug",
       "type": "timeseries"
     },
     {
@@ -1499,7 +1507,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current avg_price from price_movement_debug",
+      "description": "Current volume_threshold from price_movement_debug",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1575,13 +1583,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_price_analytics_price_movement_debug_avg_price",
+          "expr": "velo_app_price_analytics_price_movement_debug_volume_threshold",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current avg_price from price_movement_debug",
+      "title": "Current volume_threshold from price_movement_debug",
       "type": "timeseries"
     }
   ],

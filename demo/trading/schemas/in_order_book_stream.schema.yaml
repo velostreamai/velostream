@@ -1,0 +1,102 @@
+# Order Book Updates Schema for Test Harness
+# Generates realistic order book update events
+#
+# Based on: schemas/order_book_updates.avsc
+
+name: in_order_book_stream
+description: Order book updates for institutional flow analysis
+
+fields:
+  - name: symbol
+    type: string
+    description: Trading symbol
+    constraints:
+      enum_values:
+        values: [AAPL, GOOGL, MSFT, AMZN, META, NVDA, TSLA]
+        weights: [0.20, 0.15, 0.15, 0.15, 0.10, 0.15, 0.10]
+
+  - name: exchange
+    type: string
+    description: Exchange identifier
+    constraints:
+      enum_values:
+        values: [NYSE, NASDAQ, CBOE]
+        weights: [0.40, 0.50, 0.10]
+
+  - name: timestamp
+    type: integer
+    description: Order book update timestamp (epoch milliseconds)
+    constraints:
+      timestamp_epoch_ms:
+        start: "-5m"
+        end: "now"
+
+  - name: side
+    type: string
+    description: Order side (BUY or SELL)
+    constraints:
+      enum_values:
+        values: [BUY, SELL]
+        weights: [0.50, 0.50]
+
+  - name: price
+    type:
+      decimal:
+        precision: 4
+    description: Order price with 4 decimal places
+    constraints:
+      range:
+        min: 50.0
+        max: 500.0
+
+  - name: quantity
+    type: integer
+    description: Order quantity
+    constraints:
+      range:
+        min: 100
+        max: 50000
+      distribution:
+        log_normal:
+          mean: 8.0
+          std_dev: 1.5
+
+  - name: order_count
+    type: integer
+    description: Number of orders at this price level
+    constraints:
+      range:
+        min: 1
+        max: 100
+
+  - name: update_type
+    type: string
+    description: Type of order book update
+    constraints:
+      enum_values:
+        values: [ADD, MODIFY, DELETE, TRADE]
+        weights: [0.35, 0.30, 0.20, 0.15]
+
+  - name: level
+    type: integer
+    description: Order book level (1 = best bid/ask)
+    constraints:
+      range:
+        min: 1
+        max: 10
+
+  - name: total_volume
+    type: integer
+    description: Total volume at this level
+    constraints:
+      range:
+        min: 1000
+        max: 500000
+
+  - name: sequence_number
+    type: integer
+    description: Sequence number for ordering updates
+    constraints:
+      range:
+        min: 1
+        max: 1000000000

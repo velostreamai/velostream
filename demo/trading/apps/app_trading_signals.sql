@@ -137,6 +137,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Resource management
     'max.memory.mb' = '1024',

@@ -396,39 +396,24 @@ echo ""
 # Clear previous log
 > /tmp/velo_stress.log
 
-# Generate data using velo-test with schema-aware data generation
-# Uses --data-only to publish data without running SQL (SQL runs via deploy-app)
-# Uses --kafka to target the docker-compose Kafka instance
-# Runs in a loop for continuous data generation during the demo
-echo -e "${BLUE}Generating market data using test harness schemas...${NC}"
-print_timestamp "Starting continuous velo-test data generation..."
+# Generate data using generate-data.sh (schema-aware data generation for all apps)
+echo -e "${BLUE}Generating data for all apps using test harness schemas...${NC}"
+print_timestamp "Starting continuous data generation..."
 
-# Calculate number of iterations based on duration (1 iteration per minute, each generates ~4600 records)
-DATA_ITERATIONS=$SIMULATION_DURATION
-
-# Run data generation in a loop in the background
-(
-    for i in $(seq 1 $DATA_ITERATIONS); do
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Data generation batch $i of $DATA_ITERATIONS" >> /tmp/velo_stress.log
-        RUST_LOG=info $VELO_TEST_BINARY_PATH run apps/app_market_data.sql \
-            --data-only \
-            --kafka $KAFKA_BROKER \
-            --timeout-ms 120000 \
-            -y \
-            >> /tmp/velo_stress.log 2>&1
-
-        # Small delay between batches to simulate continuous flow
-        sleep 30
-    done
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Data generation complete" >> /tmp/velo_stress.log
-) &
+# Run data generation in the background
+./generate-data.sh \
+    --kafka "$KAFKA_BROKER" \
+    --iterations "$SIMULATION_DURATION" \
+    --delay 30 \
+    --velo-test "$VELO_TEST_BINARY_PATH" \
+    --log /tmp/velo_stress.log &
 GENERATOR_PID=$!
 
 # Wait for first batch to start generating
 sleep 5
 
 echo -e "${GREEN}✓ Continuous data generator running (PID: $GENERATOR_PID)${NC}"
-print_timestamp "Data generation initiated (will run for $DATA_ITERATIONS batches)"
+print_timestamp "Data generation initiated (will run for $SIMULATION_DURATION batches)"
 
 # Step 9: Verify data is flowing
 print_step "Step 9: Verifying data flow"
@@ -485,7 +470,7 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     echo ""
 
     # Deploy each app sequentially in foreground with unique metrics ports
-    METRICS_PORT=9091
+    METRICS_PORT=9101
     for app in apps/*.sql; do
         app_name=$(basename "$app" .sql)
         print_timestamp "Deploying $app_name on metrics port $METRICS_PORT..."
@@ -512,7 +497,7 @@ else
 
     # Deploy each app in background with unique metrics ports
     DEPLOY_PIDS=""
-    METRICS_PORT=9091
+    METRICS_PORT=9101
     for app in apps/*.sql; do
         app_name=$(basename "$app" .sql)
         echo -e "${BLUE}Deploying: $app_name (metrics port: $METRICS_PORT)${NC}"
@@ -575,7 +560,7 @@ else
     echo -e "  • Kafka UI:   ${GREEN}http://localhost:8090${NC}"
     echo ""
     echo -e "${BLUE}🔍 Observability (Enabled)${NC}"
-    echo -e "  • Velostream Metrics: ${GREEN}http://localhost:9091/metrics${NC} ${BLUE}(Prometheus format)${NC}"
+    echo -e "  • Velostream Metrics: ${GREEN}http://localhost:9101/metrics${NC} ${BLUE}(Prometheus format)${NC}"
     echo -e "  • Distributed Tracing: ${GREEN}ENABLED${NC} ${BLUE}(100% sampling)${NC}"
     echo -e "  • Performance Profiling: ${GREEN}ENABLED${NC}"
     echo ""
