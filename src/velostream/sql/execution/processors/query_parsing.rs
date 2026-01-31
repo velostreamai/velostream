@@ -8,6 +8,7 @@ WHERE clauses, and SELECT expressions for subquery execution with KTable/Table i
 use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::execution::types::FieldValue;
 
 /// Extract table name from a SELECT query's FROM clause
 ///
@@ -66,6 +67,20 @@ pub fn extract_table_name(query: &StreamingQuery) -> Result<String, SqlError> {
         },
         _ => Err(SqlError::ExecutionError {
             message: "Query must be a SELECT statement to extract table name".to_string(),
+            query: None,
+        }),
+    }
+}
+
+/// Extract WHERE clause from a SELECT query as an AST expression
+///
+/// Returns the WHERE clause `Expr` directly from the AST, avoiding the lossy
+/// string round-trip. Returns `None` if there is no WHERE clause.
+pub fn extract_where_expr(query: &StreamingQuery) -> Result<Option<Expr>, SqlError> {
+    match query {
+        StreamingQuery::Select { where_clause, .. } => Ok(where_clause.clone()),
+        _ => Err(SqlError::ExecutionError {
+            message: "Query must be a SELECT statement to extract WHERE clause".to_string(),
             query: None,
         }),
     }
@@ -368,6 +383,181 @@ fn unary_op_to_string(op: &crate::velostream::sql::ast::UnaryOperator) -> &'stat
         UnaryOperator::Plus => "+",
         UnaryOperator::IsNull => "IS NULL",
         UnaryOperator::IsNotNull => "IS NOT NULL",
+    }
+}
+
+/// Convert a `FieldValue` to a `LiteralValue` for AST substitution
+fn field_value_to_literal(value: &FieldValue) -> LiteralValue {
+    match value {
+        FieldValue::String(s) => LiteralValue::String(s.clone()),
+        FieldValue::Integer(i) => LiteralValue::Integer(*i),
+        FieldValue::Float(f) => LiteralValue::Float(*f),
+        FieldValue::Boolean(b) => LiteralValue::Boolean(*b),
+        FieldValue::Null => LiteralValue::Null,
+        FieldValue::ScaledInteger(val, scale) => {
+            // Convert to decimal string for the literal
+            if *scale == 0 {
+                LiteralValue::Integer(*val)
+            } else {
+                let divisor = 10_i64.pow(*scale as u32);
+                let int_part = val / divisor;
+                let frac_part = (val % divisor).unsigned_abs();
+                LiteralValue::Decimal(format!(
+                    "{}.{:0>width$}",
+                    int_part,
+                    frac_part,
+                    width = *scale as usize
+                ))
+            }
+        }
+        // For complex types, convert to string representation
+        _ => LiteralValue::String(format!("{}", value)),
+    }
+}
+
+/// Substitute correlation variables in an `Expr` AST.
+///
+/// Replaces `Expr::Column("table.column")` references that match the correlation
+/// table name or alias with `Expr::Literal(value)` from the current record.
+/// This is the AST-level equivalent of the string-based `substitute_correlation_variables`.
+///
+/// # Arguments
+/// * `expr` - The expression to transform
+/// * `correlation_table` - The table name to match (e.g., "users")
+/// * `correlation_alias` - Optional alias to also match (e.g., "m")
+/// * `record_fields` - Field values from the outer/current record
+pub fn substitute_correlation_variables_in_expr(
+    expr: &Expr,
+    correlation_table: &str,
+    correlation_alias: Option<&str>,
+    record_fields: &std::collections::HashMap<String, FieldValue>,
+) -> Expr {
+    match expr {
+        Expr::Column(name) => {
+            if let Some(dot_pos) = name.find('.') {
+                let table_part = &name[..dot_pos];
+                let column_part = &name[dot_pos + 1..];
+                let is_match = table_part.eq_ignore_ascii_case(correlation_table)
+                    || correlation_alias.is_some_and(|a| table_part.eq_ignore_ascii_case(a));
+                if is_match {
+                    if let Some(value) = record_fields.get(column_part) {
+                        return Expr::Literal(field_value_to_literal(value));
+                    }
+                }
+            }
+            expr.clone()
+        }
+        Expr::BinaryOp { left, op, right } => Expr::BinaryOp {
+            left: Box::new(substitute_correlation_variables_in_expr(
+                left,
+                correlation_table,
+                correlation_alias,
+                record_fields,
+            )),
+            op: op.clone(),
+            right: Box::new(substitute_correlation_variables_in_expr(
+                right,
+                correlation_table,
+                correlation_alias,
+                record_fields,
+            )),
+        },
+        Expr::UnaryOp { op, expr: inner } => Expr::UnaryOp {
+            op: op.clone(),
+            expr: Box::new(substitute_correlation_variables_in_expr(
+                inner,
+                correlation_table,
+                correlation_alias,
+                record_fields,
+            )),
+        },
+        Expr::Function { name, args } => Expr::Function {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|a| {
+                    substitute_correlation_variables_in_expr(
+                        a,
+                        correlation_table,
+                        correlation_alias,
+                        record_fields,
+                    )
+                })
+                .collect(),
+        },
+        Expr::List(items) => Expr::List(
+            items
+                .iter()
+                .map(|i| {
+                    substitute_correlation_variables_in_expr(
+                        i,
+                        correlation_table,
+                        correlation_alias,
+                        record_fields,
+                    )
+                })
+                .collect(),
+        ),
+        Expr::Between {
+            expr: inner,
+            low,
+            high,
+            negated,
+        } => Expr::Between {
+            expr: Box::new(substitute_correlation_variables_in_expr(
+                inner,
+                correlation_table,
+                correlation_alias,
+                record_fields,
+            )),
+            low: Box::new(substitute_correlation_variables_in_expr(
+                low,
+                correlation_table,
+                correlation_alias,
+                record_fields,
+            )),
+            high: Box::new(substitute_correlation_variables_in_expr(
+                high,
+                correlation_table,
+                correlation_alias,
+                record_fields,
+            )),
+            negated: *negated,
+        },
+        Expr::Case {
+            when_clauses,
+            else_clause,
+        } => Expr::Case {
+            when_clauses: when_clauses
+                .iter()
+                .map(|(cond, val)| {
+                    (
+                        substitute_correlation_variables_in_expr(
+                            cond,
+                            correlation_table,
+                            correlation_alias,
+                            record_fields,
+                        ),
+                        substitute_correlation_variables_in_expr(
+                            val,
+                            correlation_table,
+                            correlation_alias,
+                            record_fields,
+                        ),
+                    )
+                })
+                .collect(),
+            else_clause: else_clause.as_ref().map(|e| {
+                Box::new(substitute_correlation_variables_in_expr(
+                    e,
+                    correlation_table,
+                    correlation_alias,
+                    record_fields,
+                ))
+            }),
+        },
+        // Literals, WindowFunction, Subquery — no substitution needed
+        _ => expr.clone(),
     }
 }
 

@@ -465,6 +465,54 @@ impl ExpressionEvaluator {
                 }),
             },
             Expr::BinaryOp { left, op, right } => {
+                // Handle IN/NOT IN BEFORE evaluating right side, since List
+                // nodes cannot be evaluated as standalone expressions.
+                match op {
+                    BinaryOperator::In => {
+                        let left_val = Self::evaluate_expression_value(left, record)?;
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                return Ok(FieldValue::Boolean(false));
+                            }
+                            _ => {
+                                let right_val = Self::evaluate_expression_value(right, record)?;
+                                return Ok(FieldValue::Boolean(Self::values_equal(
+                                    &left_val, &right_val,
+                                )));
+                            }
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        let left_val = Self::evaluate_expression_value(left, record)?;
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                return Ok(FieldValue::Boolean(true));
+                            }
+                            _ => {
+                                let right_val = Self::evaluate_expression_value(right, record)?;
+                                return Ok(FieldValue::Boolean(!Self::values_equal(
+                                    &left_val, &right_val,
+                                )));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
                 let left_val = Self::evaluate_expression_value(left, record)?;
                 let right_val = Self::evaluate_expression_value(right, record)?;
 
@@ -643,62 +691,9 @@ impl ExpressionEvaluator {
                         }),
                     },
 
-                    // Set membership operators
-                    BinaryOperator::In => {
-                        // For IN operator, right side should be a list or subquery
-                        match &**right {
-                            Expr::List(values) => {
-                                for value_expr in values {
-                                    let value =
-                                        Self::evaluate_expression_value(value_expr, record)?;
-                                    if Self::values_equal(&left_val, &value) {
-                                        return Ok(FieldValue::Boolean(true));
-                                    }
-                                }
-                                Ok(FieldValue::Boolean(false))
-                            }
-                            Expr::Subquery { .. } => {
-                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
-                                unreachable!(
-                                    "IN subqueries cannot be evaluated with basic evaluator. \
-                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
-                                )
-                            }
-                            _ => Err(SqlError::ExecutionError {
-                                message:
-                                    "IN operator requires a list or subquery on the right side"
-                                        .to_string(),
-                                query: None,
-                            }),
-                        }
-                    }
-                    BinaryOperator::NotIn => {
-                        // For NOT IN operator, right side should be a list or subquery
-                        match &**right {
-                            Expr::List(values) => {
-                                for value_expr in values {
-                                    let value =
-                                        Self::evaluate_expression_value(value_expr, record)?;
-                                    if Self::values_equal(&left_val, &value) {
-                                        return Ok(FieldValue::Boolean(false));
-                                    }
-                                }
-                                Ok(FieldValue::Boolean(true))
-                            }
-                            Expr::Subquery { .. } => {
-                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
-                                unreachable!(
-                                    "NOT IN subqueries cannot be evaluated with basic evaluator. \
-                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
-                                )
-                            }
-                            _ => Err(SqlError::ExecutionError {
-                                message:
-                                    "NOT IN operator requires a list or subquery on the right side"
-                                        .to_string(),
-                                query: None,
-                            }),
-                        }
+                    // Set membership operators - handled early above (before eager evaluation)
+                    BinaryOperator::In | BinaryOperator::NotIn => {
+                        unreachable!("IN/NOT IN handled above before right-side evaluation")
                     }
 
                     _ => Err(SqlError::ExecutionError {

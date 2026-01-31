@@ -101,6 +101,8 @@ pub struct QueryAnalyzer {
     known_tables: std::collections::HashSet<String>,
     /// Base directory for resolving relative config_file paths (e.g., SQL file's directory)
     base_dir: Option<PathBuf>,
+    /// Job name for generating unique consumer group IDs per job
+    job_name: Option<String>,
 }
 
 impl QueryAnalyzer {
@@ -119,6 +121,7 @@ impl QueryAnalyzer {
             schema_registry,
             known_tables: std::collections::HashSet::new(),
             base_dir: None,
+            job_name: None,
         }
     }
 
@@ -137,12 +140,20 @@ impl QueryAnalyzer {
             schema_registry,
             known_tables: std::collections::HashSet::new(),
             base_dir: Some(base_dir.as_ref().to_path_buf()),
+            job_name: None,
         }
     }
 
     /// Set the base directory for resolving relative config paths
     pub fn set_base_dir<P: AsRef<Path>>(&mut self, base_dir: P) {
         self.base_dir = Some(base_dir.as_ref().to_path_buf());
+    }
+
+    /// Set the job name for generating unique consumer group IDs.
+    /// Consumer groups are formatted as `{base_group_id}-{job_name}-{source_topic}`,
+    /// ensuring each job gets its own consumer group per source topic.
+    pub fn set_job_name(&mut self, job_name: String) {
+        self.job_name = Some(job_name);
     }
 
     /// Load a YAML config file and flatten to properties with topic normalization
@@ -564,10 +575,12 @@ impl QueryAnalyzer {
                     properties.insert("topic".to_string(), table_name.to_string());
                 }
                 if !properties.contains_key("group.id") {
-                    properties.insert(
-                        "group.id".to_string(),
-                        format!("{}-{}", self.default_group_id, table_name),
-                    );
+                    let group_id = if let Some(ref job_name) = self.job_name {
+                        format!("{}-{}-{}", self.default_group_id, job_name, table_name)
+                    } else {
+                        format!("{}-{}", self.default_group_id, table_name)
+                    };
+                    properties.insert("group.id".to_string(), group_id);
                 }
 
                 // Add serialization formats
