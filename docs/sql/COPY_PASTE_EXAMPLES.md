@@ -30,10 +30,10 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 | VAR_POP | `VAR_POP(column)` | Numeric only | Population variance |
 | VAR_SAMP | `VAR_SAMP(column)` | Numeric only | Sample variance |
 | MEDIAN | `MEDIAN(column)` | Numeric only | Median value |
-| LISTAGG | `LISTAGG(column, ',')` | Any | Concatenate values with separator |
-| COLLECT | `COLLECT(column)` | Any | Collect values into comma-separated list |
-| FIRST_VALUE | `FIRST_VALUE(column)` | Any | First non-NULL value |
-| LAST_VALUE | `LAST_VALUE(column)` | Any | Last non-NULL value |
+| APPROX_COUNT_DISTINCT | `APPROX_COUNT_DISTINCT(column)` | Any | Approximate unique count (HyperLogLog, ~2% error) |
+| STRING_AGG | `STRING_AGG(column, ',')` | Any | Concatenate values with separator (aliases: GROUP_CONCAT, LISTAGG, COLLECT) |
+| FIRST | `FIRST(column)` | Any | First non-NULL value (alias: FIRST_VALUE) |
+| LAST | `LAST(column)` | Any | Last non-NULL value (alias: LAST_VALUE) |
 
 > **Type Safety**: Functions marked "Numeric only" accept INTEGER, FLOAT, and SCALED_INTEGER (decimal).
 > Passing a STRING or other non-numeric type to these functions returns an error.

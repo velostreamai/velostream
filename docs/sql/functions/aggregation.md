@@ -138,7 +138,9 @@ WHERE price = (SELECT MIN(price) FROM products)
 
 ## Statistical Functions
 
-### STDDEV - Standard Deviation
+### STDDEV / STDDEV_SAMP - Sample Standard Deviation
+
+Computes sample standard deviation (divides by N-1). Returns NULL for fewer than 2 values. Alias: `STDDEV_SAMP`.
 
 ```sql
 -- Price volatility by category
@@ -154,13 +156,28 @@ SELECT
     customer_id,
     COUNT(*) as order_count,
     AVG(amount) as avg_amount,
-    STDDEV(amount) as amount_consistency
+    STDDEV_SAMP(amount) as amount_consistency
 FROM orders
 GROUP BY customer_id
 HAVING COUNT(*) >= 5;
 ```
 
-### VARIANCE - Calculate Variance
+### STDDEV_POP - Population Standard Deviation
+
+Computes population standard deviation (divides by N). Returns 0.0 for a single value, NULL for empty set.
+
+```sql
+-- Population standard deviation of sensor readings
+SELECT
+    sensor_id,
+    STDDEV_POP(reading) as pop_stddev
+FROM sensor_data
+GROUP BY sensor_id;
+```
+
+### VARIANCE / VAR_SAMP - Sample Variance
+
+Computes sample variance (divides by N-1). Returns NULL for fewer than 2 values. Alias: `VAR_SAMP`.
 
 ```sql
 -- Score variance analysis
@@ -173,9 +190,36 @@ FROM game_scores
 GROUP BY game_level;
 ```
 
+### VAR_POP - Population Variance
+
+Computes population variance (divides by N). Returns 0.0 for a single value, NULL for empty set.
+
+```sql
+-- Population variance of measurements
+SELECT
+    experiment_id,
+    VAR_POP(measurement) as pop_variance
+FROM lab_results
+GROUP BY experiment_id;
+```
+
+### MEDIAN - Median Value
+
+Returns the median (middle value) of numeric values. For even-length sets, returns the average of the two middle values.
+
+```sql
+-- Median price by category
+SELECT
+    category,
+    MEDIAN(price) as median_price,
+    AVG(price) as avg_price
+FROM products
+GROUP BY category;
+```
+
 ## Positional Functions
 
-### FIRST and LAST - First/Last Values
+### FIRST / FIRST_VALUE and LAST / LAST_VALUE
 
 ```sql
 -- First and last status per order
@@ -198,7 +242,7 @@ GROUP BY user_id
 WINDOW SESSION(30m);
 ```
 
-### STRING_AGG - Concatenate Strings
+### STRING_AGG / GROUP_CONCAT / LISTAGG / COLLECT - Concatenate Strings
 
 ```sql
 -- Concatenate product names per order

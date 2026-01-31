@@ -30,11 +30,15 @@ Quick lookup for all available SQL functions organized by category. Click any fu
 | `AVG(column)` | Average of values | `AVG(rating) as avg_rating` |
 | `MIN(column)` | Minimum value | `MIN(price) as lowest_price` |
 | `MAX(column)` | Maximum value | `MAX(date) as latest_date` |
-| `STDDEV(column)` | Standard deviation | `STDDEV(amount) as price_volatility` |
-| `VARIANCE(column)` | Variance | `VARIANCE(score) as score_variance` |
-| `FIRST(column)` | First value in group | `FIRST(status) as initial_status` |
-| `LAST(column)` | Last value in group | `LAST(status) as final_status` |
-| `STRING_AGG(column, sep)` | Concatenate strings | `STRING_AGG(name, ', ') as all_names` |
+| `STDDEV(column)` | Sample standard deviation (alias: STDDEV_SAMP) | `STDDEV(amount) as price_volatility` |
+| `STDDEV_POP(column)` | Population standard deviation | `STDDEV_POP(amount) as pop_stddev` |
+| `VARIANCE(column)` | Sample variance (alias: VAR_SAMP) | `VARIANCE(score) as score_variance` |
+| `VAR_POP(column)` | Population variance | `VAR_POP(score) as pop_variance` |
+| `MEDIAN(column)` | Median value | `MEDIAN(price) as median_price` |
+| `APPROX_COUNT_DISTINCT(column)` | Approximate unique count (HyperLogLog) | `APPROX_COUNT_DISTINCT(user_id)` |
+| `FIRST(column)` | First value in group (alias: FIRST_VALUE) | `FIRST(status) as initial_status` |
+| `LAST(column)` | Last value in group (alias: LAST_VALUE) | `LAST(status) as final_status` |
+| `STRING_AGG(column, sep)` | Concatenate strings (aliases: GROUP_CONCAT, LISTAGG, COLLECT) | `STRING_AGG(name, ', ') as all_names` |
 
 [→ Complete aggregation reference](aggregation.md)
 
