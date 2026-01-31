@@ -1546,12 +1546,10 @@ impl WindowAdapter {
                     "AVG" => {
                         // Generate the same key used by extract_nested_aggregates: "AVG(column)"
                         let key = Self::generate_aggregate_name(&name_upper, args);
-                        if let Some(values) = accumulator.numeric_values.get(&key) {
-                            if !values.is_empty() {
-                                let avg = values.iter().sum::<f64>() / values.len() as f64;
-                                Ok(FieldValue::Float(avg))
-                            } else {
-                                Ok(FieldValue::Null)
+                        if let Some(state) = accumulator.welford_states.get(&key) {
+                            match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                                Some(avg) => Ok(FieldValue::Float(avg)),
+                                None => Ok(FieldValue::Null),
                             }
                         } else {
                             Ok(FieldValue::Null)
@@ -1576,34 +1574,22 @@ impl WindowAdapter {
                             .unwrap_or(FieldValue::Null))
                     }
                     "STDDEV" | "STDDEV_SAMP" => {
-                        // Generate the same key used by extract_nested_aggregates
                         let key = Self::generate_aggregate_name(&name_upper, args);
-                        if let Some(values) = accumulator.numeric_values.get(&key) {
-                            if values.len() > 1 {
-                                let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                let variance =
-                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                        / (values.len() - 1) as f64;
-                                Ok(FieldValue::Float(variance.sqrt()))
-                            } else {
-                                Ok(FieldValue::Null)
+                        if let Some(state) = accumulator.welford_states.get(&key) {
+                            match crate::velostream::sql::execution::aggregation::compute::compute_stddev_from_welford(state, true) {
+                                Some(sd) => Ok(FieldValue::Float(sd)),
+                                None => Ok(FieldValue::Null),
                             }
                         } else {
                             Ok(FieldValue::Null)
                         }
                     }
                     "STDDEV_POP" => {
-                        // Generate the same key used by extract_nested_aggregates
                         let key = Self::generate_aggregate_name(&name_upper, args);
-                        if let Some(values) = accumulator.numeric_values.get(&key) {
-                            if !values.is_empty() {
-                                let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                let variance =
-                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                        / values.len() as f64;
-                                Ok(FieldValue::Float(variance.sqrt()))
-                            } else {
-                                Ok(FieldValue::Null)
+                        if let Some(state) = accumulator.welford_states.get(&key) {
+                            match crate::velostream::sql::execution::aggregation::compute::compute_stddev_from_welford(state, false) {
+                                Some(sd) => Ok(FieldValue::Float(sd)),
+                                None => Ok(FieldValue::Null),
                             }
                         } else {
                             Ok(FieldValue::Null)

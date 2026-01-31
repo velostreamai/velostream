@@ -1009,12 +1009,10 @@ impl SelectProcessor {
                     }
                     "AVG" => {
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if !values.is_empty() {
-                                    let avg = values.iter().sum::<f64>() / values.len() as f64;
-                                    Ok(FieldValue::Float(avg))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                                    Some(avg) => Ok(FieldValue::Float(avg)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1050,17 +1048,12 @@ impl SelectProcessor {
                         }
                     }
                     "STDDEV" | "STDDEV_SAMP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance =
-                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                            / (values.len() - 1) as f64;
-                                    let stddev = variance.sqrt();
-                                    Ok(FieldValue::Float(stddev))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_stddev_from_welford(state, true) {
+                                    Some(sd) => Ok(FieldValue::Float(sd)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1070,13 +1063,12 @@ impl SelectProcessor {
                         }
                     }
                     "VARIANCE" | "VAR_SAMP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let variance = Self::calculate_variance(values);
-                                    Ok(FieldValue::Float(variance))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_variance_from_welford(state, true) {
+                                    Some(var) => Ok(FieldValue::Float(var)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1086,17 +1078,12 @@ impl SelectProcessor {
                         }
                     }
                     "STDDEV_POP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance =
-                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                            / values.len() as f64;
-                                    let stddev = variance.sqrt();
-                                    Ok(FieldValue::Float(stddev))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_stddev_from_welford(state, false) {
+                                    Some(sd) => Ok(FieldValue::Float(sd)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1106,16 +1093,12 @@ impl SelectProcessor {
                         }
                     }
                     "VAR_POP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance =
-                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                            / values.len() as f64;
-                                    Ok(FieldValue::Float(variance))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_variance_from_welford(state, false) {
+                                    Some(var) => Ok(FieldValue::Float(var)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1834,12 +1817,10 @@ impl SelectProcessor {
             "AVG" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "avg");
-                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                        if !values.is_empty() {
-                            let avg = values.iter().sum::<f64>() / values.len() as f64;
-                            Ok(Some(FieldValue::Float(avg)))
-                        } else {
-                            Ok(Some(FieldValue::Null))
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                            Some(avg) => Ok(Some(FieldValue::Float(avg))),
+                            None => Ok(Some(FieldValue::Null)),
                         }
                     } else {
                         Ok(Some(FieldValue::Null))
@@ -1874,7 +1855,7 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "STRING_AGG" | "GROUP_CONCAT" => {
+            "STRING_AGG" | "GROUP_CONCAT" | "LISTAGG" | "COLLECT" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "string_agg");
                     if let Some(string_values) = accumulator.string_values.get(&key) {
@@ -1897,15 +1878,14 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "VARIANCE" | "VAR" => {
+            "VARIANCE" | "VAR" | "VAR_SAMP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "variance");
-                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                        if values.len() > 1 {
-                            let variance = Self::calculate_variance(values);
-                            Ok(Some(FieldValue::Float(variance)))
-                        } else {
-                            Ok(Some(FieldValue::Null))
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_variance_from_welford(state, true) {
+                            Some(var) => Ok(Some(FieldValue::Float(var))),
+                            None => Ok(Some(FieldValue::Null)),
                         }
                     } else {
                         Ok(Some(FieldValue::Null))
@@ -1914,16 +1894,14 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "STDDEV" => {
+            "STDDEV" | "STDDEV_SAMP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "stddev");
-                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                        if values.len() > 1 {
-                            let variance = Self::calculate_variance(values);
-                            let stddev = variance.sqrt();
-                            Ok(Some(FieldValue::Float(stddev)))
-                        } else {
-                            Ok(Some(FieldValue::Null))
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_stddev_from_welford(state, true) {
+                            Some(sd) => Ok(Some(FieldValue::Float(sd))),
+                            None => Ok(Some(FieldValue::Null)),
                         }
                     } else {
                         Ok(Some(FieldValue::Null))
@@ -1932,7 +1910,55 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "FIRST" => {
+            "STDDEV_POP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "stddev_pop");
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_stddev_from_welford(state, false) {
+                            Some(sd) => Ok(Some(FieldValue::Float(sd))),
+                            None => Ok(Some(FieldValue::Null)),
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "VAR_POP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "var_pop");
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_variance_from_welford(state, false) {
+                            Some(var) => Ok(Some(FieldValue::Float(var))),
+                            None => Ok(Some(FieldValue::Null)),
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "MEDIAN" => {
+                use crate::velostream::sql::execution::aggregation::compute;
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "median");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        match compute::compute_median_from_values(values) {
+                            Some(median) => Ok(Some(FieldValue::Float(median))),
+                            None => Ok(Some(FieldValue::Null)),
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "FIRST" | "FIRST_VALUE" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "first");
                     let first_value = accumulator
@@ -1945,7 +1971,7 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "LAST" => {
+            "LAST" | "LAST_VALUE" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "last");
                     let last_value = accumulator
@@ -1991,14 +2017,10 @@ impl SelectProcessor {
 
     /// Calculate variance for a set of numeric values (sample variance)
     fn calculate_variance(values: &[f64]) -> f64 {
-        if values.len() <= 1 {
-            return 0.0;
-        }
-
-        let mean = values.iter().sum::<f64>() / values.len() as f64;
-        // Sample variance uses n-1
-
-        values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
+        crate::velostream::sql::execution::aggregation::compute::compute_variance_from_values(
+            values, true,
+        )
+        .unwrap_or(0.0)
     }
 
     /// Evaluate expression with window and subquery support
@@ -2721,12 +2743,10 @@ impl SelectProcessor {
                 Ok(FieldValue::Float(sum_value))
             }
             "AVG" => {
-                if let Some(values) = accumulator.numeric_values.get(&accumulator_key) {
-                    if !values.is_empty() {
-                        let avg = values.iter().sum::<f64>() / values.len() as f64;
-                        Ok(FieldValue::Float(avg))
-                    } else {
-                        Ok(FieldValue::Null)
+                if let Some(state) = accumulator.welford_states.get(&accumulator_key) {
+                    match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                        Some(avg) => Ok(FieldValue::Float(avg)),
+                        None => Ok(FieldValue::Null),
                     }
                 } else {
                     Ok(FieldValue::Null)

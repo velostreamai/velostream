@@ -176,6 +176,12 @@ pub struct GroupAccumulator {
     pub approx_distinct_values: HashMap<String, HyperLogLogPlus<String, RandomState>>,
     /// Sample record for non-aggregate fields (takes first record's values)
     pub sample_record: Option<StreamRecord>,
+    /// Track whether all SUM inputs were Integer (true) or any were Float (false)
+    pub sum_all_integer: HashMap<String, bool>,
+    /// Track whether SUM received any values (to distinguish 0 sum from empty set)
+    pub sum_has_values: HashMap<String, bool>,
+    /// Welford online algorithm state for AVG/STDDEV/VARIANCE (field_name -> state)
+    pub welford_states: HashMap<String, super::aggregation::compute::WelfordState>,
 }
 
 impl GroupAccumulator {
@@ -194,6 +200,9 @@ impl GroupAccumulator {
             distinct_values: HashMap::new(),
             approx_distinct_values: HashMap::new(),
             sample_record: None,
+            sum_all_integer: HashMap::new(),
+            sum_has_values: HashMap::new(),
+            welford_states: HashMap::new(),
         }
     }
 
@@ -210,9 +219,18 @@ impl GroupAccumulator {
             .or_insert(0) += 1;
     }
 
-    /// Add a value to the sum for a specific field
-    pub fn add_sum(&mut self, field_name: &str, value: f64) {
-        *self.sums.entry(field_name.to_string()).or_insert(0.0) += value;
+    /// Add a value to the sum for a specific field, tracking the input type.
+    ///
+    /// `is_integer` should be true for Integer inputs, false for Float/ScaledInteger.
+    /// This enables returning Integer when all inputs were Integer (matching unified_table behavior).
+    pub fn add_sum(&mut self, field_name: &str, value: f64, is_integer: bool) {
+        let key = field_name.to_string();
+        *self.sums.entry(key.clone()).or_insert(0.0) += value;
+        self.sum_has_values.insert(key.clone(), true);
+        let entry = self.sum_all_integer.entry(key).or_insert(true);
+        if !is_integer {
+            *entry = false;
+        }
     }
 
     /// Update the minimum value for a specific field
@@ -284,6 +302,13 @@ impl GroupAccumulator {
                 let r_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
                 *l < r_float
             }
+            // Mixed Integer/Float comparisons
+            (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) < *r,
+            (FieldValue::Float(l), FieldValue::Integer(r)) => *l < (*r as f64),
+            // Timestamp comparisons
+            (FieldValue::Timestamp(l), FieldValue::Timestamp(r)) => l < r,
+            // Boolean comparisons (false < true)
+            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => !l && *r,
             _ => false, // For complex comparisons, don't update
         }
     }
@@ -326,6 +351,13 @@ impl GroupAccumulator {
                 let r_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
                 *l > r_float
             }
+            // Mixed Integer/Float comparisons
+            (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) > *r,
+            (FieldValue::Float(l), FieldValue::Integer(r)) => *l > (*r as f64),
+            // Timestamp comparisons
+            (FieldValue::Timestamp(l), FieldValue::Timestamp(r)) => l > r,
+            // Boolean comparisons (true > false)
+            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => *l && !r,
             _ => false, // For complex comparisons, don't update
         }
     }
@@ -368,12 +400,20 @@ impl GroupAccumulator {
         self.last_values.insert(field_name.to_string(), value);
     }
 
-    /// Add a value for statistical functions (STDDEV, VARIANCE)
+    /// Add a value for statistical functions that need all values (MEDIAN, PERCENTILE_CONT)
     pub fn add_value_for_stats(&mut self, field_name: &str, value: f64) {
         self.numeric_values
             .entry(field_name.to_string())
             .or_default()
             .push(value);
+    }
+
+    /// Update Welford online state for a field (used by AVG, STDDEV, VARIANCE)
+    pub fn update_welford(&mut self, field_name: &str, value: f64) {
+        self.welford_states
+            .entry(field_name.to_string())
+            .or_default()
+            .update(value);
     }
 
     /// Add to string aggregation

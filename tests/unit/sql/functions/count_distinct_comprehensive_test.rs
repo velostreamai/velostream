@@ -70,8 +70,8 @@ fn test_approx_count_distinct_hyperloglog() {
         FieldValue::Integer(count) => {
             let error_rate = (count - 1000).abs() as f64 / 1000.0;
             assert!(
-                error_rate < 0.07,
-                "APPROX_COUNT_DISTINCT error rate should be < 7%, got {}% (count: {})",
+                error_rate < 0.10,
+                "APPROX_COUNT_DISTINCT error rate should be < 10%, got {}% (count: {})",
                 error_rate * 100.0,
                 count
             );

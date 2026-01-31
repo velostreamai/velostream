@@ -44,6 +44,7 @@
 //! ```
 
 pub mod accumulator;
+pub mod compute;
 pub mod functions;
 pub mod state;
 

@@ -700,12 +700,7 @@ fn find_matching_close_paren(s: &str, open_pos: usize) -> Option<usize> {
 
 /// Convert a `FieldValue` to `f64` for numeric aggregation.
 fn field_value_to_f64(val: &FieldValue) -> Option<f64> {
-    match val {
-        FieldValue::Integer(i) => Some(*i as f64),
-        FieldValue::ScaledInteger(v, scale) => Some(*v as f64 / 10f64.powi(*scale as i32)),
-        FieldValue::Float(f) => Some(*f),
-        _ => None,
-    }
+    crate::velostream::sql::execution::aggregation::compute::field_value_to_f64(val)
 }
 
 /// Check whether the uppercased function string contains DISTINCT.
@@ -1001,22 +996,21 @@ fn compute_max_min(non_null: &[&FieldValue], is_max: bool) -> TableResult<FieldV
 
 /// Compute variance (population or sample) over numeric `FieldValue`s.
 fn compute_variance(values: &[FieldValue], sample: bool) -> FieldValue {
+    use crate::velostream::sql::execution::aggregation::compute;
     let numerics: Vec<f64> = values.iter().filter_map(field_value_to_f64).collect();
-    let n = numerics.len();
-    if n == 0 || (sample && n < 2) {
-        return FieldValue::Null;
+    match compute::compute_variance_from_values(&numerics, sample) {
+        Some(var) => FieldValue::Float(var),
+        None => FieldValue::Null,
     }
-    let mean: f64 = numerics.iter().sum::<f64>() / n as f64;
-    let sum_sq: f64 = numerics.iter().map(|v| (v - mean).powi(2)).sum();
-    let divisor = if sample { (n - 1) as f64 } else { n as f64 };
-    FieldValue::Float(sum_sq / divisor)
 }
 
 /// Compute standard deviation (population or sample) over numeric `FieldValue`s.
 fn compute_stddev(values: &[FieldValue], sample: bool) -> FieldValue {
-    match compute_variance(values, sample) {
-        FieldValue::Float(var) => FieldValue::Float(var.sqrt()),
-        other => other,
+    use crate::velostream::sql::execution::aggregation::compute;
+    let numerics: Vec<f64> = values.iter().filter_map(field_value_to_f64).collect();
+    match compute::compute_stddev_from_values(&numerics, sample) {
+        Some(sd) => FieldValue::Float(sd),
+        None => FieldValue::Null,
     }
 }
 
@@ -2920,12 +2914,7 @@ fn evaluate_condition(value: &FieldValue, condition: &WildcardCondition) -> bool
 
 /// Extract numeric value from a FieldValue for comparisons
 fn extract_numeric_value(value: &FieldValue) -> Option<f64> {
-    match value {
-        FieldValue::Integer(i) => Some(*i as f64),
-        FieldValue::Float(f) => Some(*f),
-        FieldValue::ScaledInteger(value, scale) => Some(*value as f64 / 10_f64.powi(*scale as i32)),
-        _ => None,
-    }
+    crate::velostream::sql::execution::aggregation::compute::field_value_to_f64(value)
 }
 
 /// Parse an aggregate expression to extract function and path

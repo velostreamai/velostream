@@ -2774,7 +2774,7 @@ register_sql_function!(
 
 register_sql_function!(
     name: "FIRST_VALUE",
-    aliases: [],
+    aliases: ["FIRST"],
     category: FunctionCategory::Aggregate,
     aggregate: true,
     window: true,
@@ -2783,7 +2783,7 @@ register_sql_function!(
 
 register_sql_function!(
     name: "LAST_VALUE",
-    aliases: [],
+    aliases: ["LAST"],
     category: FunctionCategory::Aggregate,
     aggregate: true,
     window: true,
@@ -2792,7 +2792,7 @@ register_sql_function!(
 
 register_sql_function!(
     name: "LISTAGG",
-    aliases: [],
+    aliases: ["COLLECT"],
     category: FunctionCategory::Aggregate,
     aggregate: true,
     window: false,
@@ -2801,7 +2801,7 @@ register_sql_function!(
 
 register_sql_function!(
     name: "STRING_AGG",
-    aliases: [],
+    aliases: ["GROUP_CONCAT"],
     category: FunctionCategory::Aggregate,
     aggregate: true,
     window: false,
