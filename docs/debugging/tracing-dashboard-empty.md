@@ -53,7 +53,7 @@ pub async fn new(config: TracingConfig) -> Result<Self, SqlError> {
 
 ### 2. No Tempo Service in Docker Compose ❌
 
-**File**: `demo/trading/kafka-compose.yml`
+**File**: `demo/trading/docker-compose.yml`
 
 The docker-compose only includes:
 - ✅ Kafka + Zookeeper
@@ -63,7 +63,7 @@ The docker-compose only includes:
 
 **Missing Configuration:**
 ```yaml
-# This service does NOT exist in kafka-compose.yml
+# This service does NOT exist in docker-compose.yml
 tempo:
   image: grafana/tempo:latest
   ports:
@@ -111,7 +111,7 @@ When you run the demo with `RUST_LOG=info`, you'll now see:
 
 ### Phase 1: Add Tempo Service to Docker Compose
 
-**File**: `demo/trading/kafka-compose.yml`
+**File**: `demo/trading/docker-compose.yml`
 
 ```yaml
 services:

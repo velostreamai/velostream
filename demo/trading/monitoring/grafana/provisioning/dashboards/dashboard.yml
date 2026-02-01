@@ -1,7 +1,7 @@
 apiVersion: 1
 
 providers:
-  - name: 'app_trading_signals'
+  - name: 'curated'
     orgId: 1
     folder: 'Velostream'
     type: file
@@ -9,4 +9,14 @@ providers:
     updateIntervalSeconds: 10
     allowUiUpdates: true
     options:
-      path: /var/lib/grafana/dashboards
+      path: /var/lib/grafana/dashboards/curated
+
+  - name: 'generated'
+    orgId: 1
+    folder: 'Velostream - Generated'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/generated

@@ -167,7 +167,7 @@ async fn test_sql_parser_extracts_all_jobs() {
 async fn test_multi_job_server_deploy_all_jobs() {
     if !is_kafka_available().await {
         println!("⏸️ Skipping integration test - Kafka not available");
-        println!("💡 Start Kafka with: docker-compose -f demo/trading/kafka-compose.yml up -d");
+        println!("💡 Start Kafka with: docker-compose -f demo/trading/docker-compose.yml up -d");
         return;
     }
 
@@ -624,7 +624,7 @@ async fn test_prerequisites() {
 
     if !kafka_available {
         println!(
-            "💡 Start Kafka with 'docker-compose -f demo/trading/kafka-compose.yml up -d' for integration tests"
+            "💡 Start Kafka with 'docker-compose -f demo/trading/docker-compose.yml up -d' for integration tests"
         );
     }
 
@@ -634,7 +634,7 @@ async fn test_prerequisites() {
     println!("   • test_job_deployment_with_mock_topics: Future test (requires HTTP API)");
 
     println!("\n📝 To run integration tests:");
-    println!("   1. Start Kafka: docker-compose -f demo/trading/kafka-compose.yml up -d");
+    println!("   1. Start Kafka: docker-compose -f demo/trading/docker-compose.yml up -d");
     println!("   2. Build binary: cargo build --release --bin velo-sql");
     println!("   3. Run tests: cargo test test_multi_job_server -- --ignored");
 }

@@ -64,10 +64,12 @@
 -- @metric: velo_compliant_market_data_records_total
 -- @metric_type: counter
 -- @metric_help: "Total compliant records processed"
+-- @metric_labels: symbol
 --
 -- @metric: velo_compliant_market_data_blocked_total
 -- @metric_type: counter
 -- @metric_help: "Total blocked records (compliance failures)"
+-- @metric_labels: symbol
 
 CREATE STREAM compliant_market_data AS
 SELECT

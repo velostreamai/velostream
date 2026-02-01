@@ -242,8 +242,22 @@ if [ ${#PORT_CONFLICTS[@]} -gt 0 ]; then
     sleep 5
 fi
 
-# Step 1: Check Docker is running
-print_step "Step 1: Checking Docker"
+# Step 1: Ensure deploy/ artifacts exist (dashboards, annotated SQL, prometheus config)
+print_step "Step 1: Checking deploy/ artifacts"
+if [ ! -d "deploy/apps" ] || [ ! -f "deploy/monitoring/prometheus.yml" ]; then
+    echo -e "${YELLOW}⚠ deploy/ directory not found or incomplete.${NC}"
+    echo -e "${YELLOW}  Running ./velo-dashboard-generate.sh to generate deploy/ artifacts...${NC}"
+    ./velo-dashboard-generate.sh --build
+fi
+if [ ! -f "deploy/monitoring/prometheus.yml" ]; then
+    echo -e "${RED}✗ Failed to generate deploy/ artifacts${NC}"
+    echo -e "${YELLOW}Run ./velo-dashboard-generate.sh manually to diagnose.${NC}"
+    exit 1
+fi
+check_status "deploy/ artifacts ready"
+
+# Step 2: Check Docker is running
+print_step "Step 2: Checking Docker is running"
 if ! docker info > /dev/null 2>&1; then
     echo -e "${RED}✗ Docker is not running${NC}"
     exit 1
@@ -251,25 +265,25 @@ fi
 check_status "Docker is running"
 
 # Step 2: Start Kafka
-print_step "Step 2: Starting Kafka infrastructure"
+print_step "Step 3: Starting Kafka infrastructure"
 echo -e "${YELLOW}This may take a few minutes on first run (downloading Docker images)...${NC}"
-if ! docker-compose -f kafka-compose.yml up -d; then
+if ! docker-compose up -d; then
     echo -e "${RED}✗ Failed to start Kafka containers${NC}"
     echo -e "${YELLOW}This could be due to:${NC}"
     echo -e "${YELLOW}  - Network connectivity issues (can't pull Docker images)${NC}"
     echo -e "${YELLOW}  - Port conflicts (check ports 9092, 2181, 3000, 9090, 8090)${NC}"
     echo -e "${YELLOW}  - Insufficient disk space${NC}"
-    echo -e "${YELLOW}Try: docker-compose -f kafka-compose.yml logs${NC}"
+    echo -e "${YELLOW}Try: docker-compose logs${NC}"
     exit 1
 fi
 check_status "Kafka containers started"
 
 # Step 3: Wait for Kafka to be ready
-print_step "Step 3: Waiting for Kafka to be ready"
+print_step "Step 4: Waiting for Kafka to be ready"
 wait_for 60 2 "docker exec simple-kafka kafka-broker-api-versions --bootstrap-server localhost:9092" "Kafka broker ready"
 
 # Step 4: Validate/Create topics
-print_step "Step 4: Ensuring all required topics exist"
+print_step "Step 5: Ensuring all required topics exist"
 
 REQUIRED_TOPICS=(
     "market_data_stream:12"
@@ -312,10 +326,10 @@ done
 
 # Step 5: Build binaries (always check for updates)
 if [ "$FORCE_REBUILD" = true ]; then
-    print_step "Step 5: Force rebuilding project binaries (clean + build)"
+    print_step "Step 6: Force rebuilding project binaries (clean + build)"
     echo -e "${YELLOW}⚠ Force rebuild requested - this will take longer${NC}"
 else
-    print_step "Step 5: Building project binaries (Cargo rebuilds only if source changed)"
+    print_step "Step 6: Building project binaries (Cargo rebuilds only if source changed)"
 fi
 
 # Force rebuild if requested
@@ -360,7 +374,7 @@ echo ""
 echo -e "${GREEN}✓ All binaries up-to-date${NC}"
 
 # Step 6: Reset consumer groups (for clean demo start)
-print_step "Step 6: Resetting consumer groups for clean start"
+print_step "Step 7: Resetting consumer groups for clean start"
 echo -e "${YELLOW}⚠ Deleting existing consumer groups...${NC}"
 for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server localhost:9092 --list 2>/dev/null | grep "velo-sql"); do
     docker exec simple-kafka kafka-consumer-groups \
@@ -370,7 +384,7 @@ for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server
 done
 
 # Step 7: Build velo-test binary for data generation
-print_step "Step 7: Building velo-test binary"
+print_step "Step 8: Building velo-test binary"
 cd ../..
 VELO_TEST_BINARY_PATH_BUILD="$BUILD_DIR/velo-test"
 print_binary_info "$VELO_TEST_BINARY_PATH_BUILD"
@@ -385,7 +399,7 @@ check_status "velo-test ready"
 cd demo/trading
 
 # Step 8: Generate data using test harness (schema-aware data generation)
-print_step "Step 8: Starting data generator (velo-test --data-only)"
+print_step "Step 9: Starting data generator (velo-test --data-only)"
 echo "Simulation duration: ${SIMULATION_DURATION} minutes"
 
 # Show binary info before execution
@@ -416,11 +430,11 @@ echo -e "${GREEN}✓ Continuous data generator running (PID: $GENERATOR_PID)${NC
 print_timestamp "Data generation initiated (will run for $SIMULATION_DURATION batches)"
 
 # Step 9: Verify data is flowing
-print_step "Step 9: Verifying data flow"
+print_step "Step 10: Verifying data flow"
 wait_for 30 2 "docker exec simple-kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic in_market_data_stream --max-messages 1 --timeout-ms 1000" "Data flowing to in_market_data_stream"
 
 # Step 10: Deploy SQL application
-print_step "Step 10: Deploying SQL application"
+print_step "Step 11: Deploying SQL application"
 
 # Show binary info before execution
 echo ""
@@ -454,10 +468,13 @@ export NODE_NAME="velostream-trading-engine"
 export REGION="us-east-1"
 export APP_VERSION="1.0.0"
 
+# Deploy from deploy/apps/ (annotated SQL with full deployment annotations)
+DEPLOY_APPS_DIR="deploy/apps"
+
 # Count apps to deploy
-APP_COUNT=$(ls -1 apps/*.sql 2>/dev/null | wc -l | tr -d ' ')
+APP_COUNT=$(ls -1 "$DEPLOY_APPS_DIR"/*.sql 2>/dev/null | wc -l | tr -d ' ')
 QUERY_COUNT=0
-for app in apps/*.sql; do
+for app in "$DEPLOY_APPS_DIR"/*.sql; do
     QUERY_COUNT=$((QUERY_COUNT + $(grep -c 'CREATE STREAM\|START JOB' "$app" 2>/dev/null || echo 0)))
 done
 
@@ -471,7 +488,7 @@ if [ "$INTERACTIVE_MODE" = true ]; then
 
     # Deploy each app sequentially in foreground with unique metrics ports
     METRICS_PORT=9101
-    for app in apps/*.sql; do
+    for app in "$DEPLOY_APPS_DIR"/*.sql; do
         app_name=$(basename "$app" .sql)
         print_timestamp "Deploying $app_name on metrics port $METRICS_PORT..."
         echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file $app --enable-tracing --enable-metrics --metrics-port $METRICS_PORT --enable-profiling${NC}"
@@ -498,7 +515,7 @@ else
     # Deploy each app in background with unique metrics ports
     DEPLOY_PIDS=""
     METRICS_PORT=9101
-    for app in apps/*.sql; do
+    for app in "$DEPLOY_APPS_DIR"/*.sql; do
         app_name=$(basename "$app" .sql)
         echo -e "${BLUE}Deploying: $app_name (metrics port: $METRICS_PORT)${NC}"
 
@@ -521,7 +538,7 @@ else
     echo -e "${GREEN}✓ All apps deployed with observability${NC}"
 
     # Step 11: Monitor deployment
-    print_step "Step 11: Monitoring deployment"
+    print_step "Step 12: Monitoring deployment"
     sleep 10  # Give deployment time to initialize
 
     # Check if deployment is still running

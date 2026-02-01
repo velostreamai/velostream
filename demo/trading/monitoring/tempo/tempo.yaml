@@ -23,7 +23,7 @@ metrics_generator:
   registry:
     external_labels:
       source: tempo
-      cluster: velostream-app_trading_signals
+      cluster: velostream-trading-demo
   storage:
     path: /tmp/tempo/generator/wal
     remote_write:
