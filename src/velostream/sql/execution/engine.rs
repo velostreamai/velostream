@@ -504,6 +504,7 @@ impl StreamExecutionEngine {
                     buffer: window_state.buffer.clone(),
                     last_emit: window_state.last_emit,
                     should_emit: false,
+                    buffer_includes_current: false,
                 });
             }
         }
@@ -513,6 +514,7 @@ impl StreamExecutionEngine {
             buffer: Vec::new(),
             last_emit: 0,
             should_emit: false,
+            buffer_includes_current: false,
         })
     }
 

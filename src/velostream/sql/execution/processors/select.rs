@@ -5,9 +5,11 @@
 
 use super::{
     DistinctState, HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor,
-    ProcessorContext, ProcessorResult, TableReference, query_parsing,
+    ProcessorContext, ProcessorResult, TableReference, WindowContext, query_parsing,
 };
-use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
+use crate::velostream::sql::ast::{
+    Expr, LiteralValue, RowsEmitMode, SelectField, StreamSource, WindowSpec,
+};
 use crate::velostream::sql::execution::{
     FieldValue, StreamRecord,
     aggregation::{AccumulatorManager, state::GroupByStateManager},
@@ -513,6 +515,67 @@ impl SelectProcessor {
                 );
             }
 
+            // === ROWS WINDOW buffer management for non-windowed SELECT ===
+            // When SELECT fields contain window functions with ROWS WINDOW OVER clauses
+            // but there is no top-level WINDOW clause, we need to manage the buffer here.
+            // Use cached ROWS WINDOW config to avoid re-walking the AST every record.
+            // Cache key uses the source name which is constant for a given query.
+            let cache_key = match from {
+                StreamSource::Stream(name) | StreamSource::Table(name) => name.as_str(),
+                StreamSource::Uri(uri) => uri.as_str(),
+                StreamSource::Subquery(_) => "subquery",
+            };
+            if !context.rows_window_config_cache.contains_key(cache_key) {
+                let config = Self::extract_rows_window_config(fields).map(|(buf, parts, emit)| {
+                    let source_label = match from {
+                        StreamSource::Stream(name) | StreamSource::Table(name) => name.clone(),
+                        StreamSource::Uri(uri) => uri.replace("://", "_").replace("/", "_"),
+                        StreamSource::Subquery(_) => "subquery".to_string(),
+                    };
+                    let prefix = format!("rows_window:select_{}", source_label);
+                    (buf, parts, emit, prefix)
+                });
+                context
+                    .rows_window_config_cache
+                    .insert(cache_key.to_string(), config);
+            }
+            // Clone is cheap here: Option of (u32, small Vec<String>, enum, short String).
+            // Required because we need mutable access to context below for rows_window_state.
+            let rows_window_cached = context
+                .rows_window_config_cache
+                .get(cache_key)
+                .cloned()
+                .unwrap();
+            if let Some((max_buffer, ref partition_cols, ref emit_mode, ref prefix)) =
+                rows_window_cached
+            {
+                let partition_key = Self::compute_partition_key(&joined_record, partition_cols);
+                let state_key = format!("{}:{}", prefix, partition_key);
+
+                let state = context.get_or_create_rows_window_state(
+                    &state_key,
+                    max_buffer,
+                    emit_mode.clone(),
+                    None, // time_gap
+                    partition_key,
+                );
+
+                // Add current record to buffer FIRST, then clone once
+                state.row_buffer.push_back(joined_record.clone());
+                if state.row_buffer.len() > state.buffer_size as usize {
+                    state.row_buffer.pop_front();
+                }
+                state.record_count += 1;
+                let buffer: Vec<StreamRecord> = state.row_buffer.iter().cloned().collect();
+
+                context.window_context = Some(WindowContext {
+                    buffer,
+                    last_emit: 0,
+                    should_emit: true,
+                    buffer_includes_current: true,
+                });
+            }
+
             // Apply SELECT fields
             // Phase 3: Validate SELECT clause expressions exist in the joined record
             let select_expressions: Vec<&Expr> = fields
@@ -532,96 +595,107 @@ impl SelectProcessor {
             let mut alias_context = SelectAliasContext::new();
             let mut header_mutations = Vec::new();
 
-            for field in fields {
-                match field {
-                    SelectField::Wildcard => {
-                        result_fields.extend(joined_record.fields.clone());
-                    }
-                    SelectField::Column(name) => {
-                        // Check for system columns first (case insensitive)
-                        let field_value = match name.to_uppercase().as_str() {
-                            system_columns::TIMESTAMP => {
-                                Some(FieldValue::Integer(joined_record.timestamp))
-                            }
-                            system_columns::OFFSET => {
-                                Some(FieldValue::Integer(joined_record.offset))
-                            }
-                            system_columns::PARTITION => {
-                                Some(FieldValue::Integer(joined_record.partition as i64))
-                            }
-                            _ => {
-                                // Support qualified names like "c.id" by stripping the alias prefix
-                                if let Some(value) = joined_record.fields.get(name).cloned() {
-                                    Some(value)
-                                } else if let Some(pos) = name.rfind('.') {
-                                    // Try with just the base column name (after the dot)
-                                    let base_name = &name[pos + 1..];
-                                    joined_record.fields.get(base_name).cloned()
-                                } else {
-                                    None
-                                }
-                            }
-                        };
-
-                        if let Some(value) = field_value {
-                            result_fields.insert(name.clone(), value);
+            let eval_result: Result<(), SqlError> = (|| {
+                for field in fields {
+                    match field {
+                        SelectField::Wildcard => {
+                            result_fields.extend(joined_record.fields.clone());
                         }
-                    }
-                    SelectField::AliasedColumn { column, alias } => {
-                        // Check for system columns first (case insensitive)
-                        let field_value = match column.to_uppercase().as_str() {
-                            system_columns::TIMESTAMP => {
-                                Some(FieldValue::Integer(joined_record.timestamp))
-                            }
-                            system_columns::OFFSET => {
-                                Some(FieldValue::Integer(joined_record.offset))
-                            }
-                            system_columns::PARTITION => {
-                                Some(FieldValue::Integer(joined_record.partition as i64))
-                            }
-                            _ => {
-                                // Support qualified names like "c.id" by stripping the alias prefix
-                                if let Some(value) = joined_record.fields.get(column).cloned() {
-                                    Some(value)
-                                } else if let Some(pos) = column.rfind('.') {
-                                    // Try with just the base column name (after the dot)
-                                    let base_name = &column[pos + 1..];
-                                    joined_record.fields.get(base_name).cloned()
-                                } else {
-                                    None
+                        SelectField::Column(name) => {
+                            // Check for system columns first (case insensitive)
+                            let field_value = match name.to_uppercase().as_str() {
+                                system_columns::TIMESTAMP => {
+                                    Some(FieldValue::Integer(joined_record.timestamp))
                                 }
-                            }
-                        };
+                                system_columns::OFFSET => {
+                                    Some(FieldValue::Integer(joined_record.offset))
+                                }
+                                system_columns::PARTITION => {
+                                    Some(FieldValue::Integer(joined_record.partition as i64))
+                                }
+                                _ => {
+                                    // Support qualified names like "c.id" by stripping the alias prefix
+                                    if let Some(value) = joined_record.fields.get(name).cloned() {
+                                        Some(value)
+                                    } else if let Some(pos) = name.rfind('.') {
+                                        // Try with just the base column name (after the dot)
+                                        let base_name = &name[pos + 1..];
+                                        joined_record.fields.get(base_name).cloned()
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
 
-                        if let Some(value) = field_value {
-                            result_fields.insert(alias.clone(), value.clone());
-                            alias_context.add_alias(alias.clone(), value);
+                            if let Some(value) = field_value {
+                                result_fields.insert(name.clone(), value);
+                            }
                         }
-                    }
-                    SelectField::Expression { expr, alias } => {
-                        // NEW: Use evaluator that supports BOTH alias context AND subqueries
-                        // This enables scalar subqueries in SELECT fields to work properly (Phase 5)
-                        let subquery_executor = SelectProcessor;
-                        let value =
-                            ExpressionEvaluator::evaluate_expression_value_with_alias_and_subquery_context(
-                                expr,
-                                &joined_record,
-                                &alias_context,
-                                &subquery_executor,
-                                context,
-                            )?;
-                        let field_name = alias
-                            .as_ref()
-                            .unwrap_or(&Self::get_expression_name(expr))
-                            .clone();
-                        result_fields.insert(field_name.clone(), value.clone());
-                        // NEW: Add this field's alias to context for next field
-                        if let Some(alias_name) = alias {
-                            alias_context.add_alias(alias_name.clone(), value);
+                        SelectField::AliasedColumn { column, alias } => {
+                            // Check for system columns first (case insensitive)
+                            let field_value = match column.to_uppercase().as_str() {
+                                system_columns::TIMESTAMP => {
+                                    Some(FieldValue::Integer(joined_record.timestamp))
+                                }
+                                system_columns::OFFSET => {
+                                    Some(FieldValue::Integer(joined_record.offset))
+                                }
+                                system_columns::PARTITION => {
+                                    Some(FieldValue::Integer(joined_record.partition as i64))
+                                }
+                                _ => {
+                                    // Support qualified names like "c.id" by stripping the alias prefix
+                                    if let Some(value) = joined_record.fields.get(column).cloned() {
+                                        Some(value)
+                                    } else if let Some(pos) = column.rfind('.') {
+                                        // Try with just the base column name (after the dot)
+                                        let base_name = &column[pos + 1..];
+                                        joined_record.fields.get(base_name).cloned()
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
+
+                            if let Some(value) = field_value {
+                                result_fields.insert(alias.clone(), value.clone());
+                                alias_context.add_alias(alias.clone(), value);
+                            }
+                        }
+                        SelectField::Expression { expr, alias } => {
+                            // NEW: Use evaluator that supports BOTH alias context AND subqueries
+                            // This enables scalar subqueries in SELECT fields to work properly (Phase 5)
+                            let subquery_executor = SelectProcessor;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value_with_alias_and_subquery_context(
+                                    expr,
+                                    &joined_record,
+                                    &alias_context,
+                                    &subquery_executor,
+                                    context,
+                                )?;
+                            let field_name = alias
+                                .as_ref()
+                                .unwrap_or(&Self::get_expression_name(expr))
+                                .clone();
+                            result_fields.insert(field_name.clone(), value.clone());
+                            // NEW: Add this field's alias to context for next field
+                            if let Some(alias_name) = alias {
+                                alias_context.add_alias(alias_name.clone(), value);
+                            }
                         }
                     }
                 }
+                Ok(())
+            })();
+
+            // Always clear ROWS WINDOW context, even on error
+            if rows_window_cached.is_some() {
+                context.window_context = None;
             }
+
+            // Propagate any error from expression evaluation
+            eval_result?;
 
             // FR-081: Detect if any field was aliased as _EVENT_TIME for SQL-based event-time assignment
             // This allows queries like: SELECT timestamp as _event_time FROM stream
@@ -1449,11 +1523,13 @@ impl SelectProcessor {
         for group_expr in group_exprs.iter() {
             if let Expr::Column(col_name) = group_expr {
                 if !accumulator.first_values.contains_key(col_name) {
-                    // Validate that the GROUP BY column exists in the record
-                    if let Some(value) = record.fields.get(col_name) {
-                        accumulator
-                            .first_values
-                            .insert(col_name.clone(), value.clone());
+                    // Resolve column value (handles system columns and qualified names)
+                    let value = record.resolve_column(col_name);
+                    if !matches!(value, FieldValue::Null)
+                        || record.fields.contains_key(col_name)
+                        || system_columns::normalize_if_system_column(col_name).is_some()
+                    {
+                        accumulator.first_values.insert(col_name.clone(), value);
                     } else {
                         // GROUP BY column not found in record - this is an error
                         return Err(SqlError::ExecutionError {
@@ -1730,11 +1806,8 @@ impl SelectProcessor {
     ) -> Result<String, SqlError> {
         match expr {
             Expr::Column(col_name) => {
-                if let Some(value) = record.fields.get(col_name) {
-                    Ok(GroupByStateManager::field_value_to_group_key(value))
-                } else {
-                    Ok("NULL".to_string()) // NULL values group together
-                }
+                let value = record.resolve_column(col_name);
+                Ok(GroupByStateManager::field_value_to_group_key(&value))
             }
             Expr::Literal(literal) => Ok(Self::literal_to_group_key(literal)),
             Expr::Function { name: _, args: _ } => {
@@ -2040,6 +2113,122 @@ impl SelectProcessor {
             &subquery_executor,
             context,
         )
+    }
+
+    /// Extract ROWS WINDOW configuration from SELECT fields containing window functions.
+    /// Scans for Expr::WindowFunction with OverClause containing WindowSpec::Rows.
+    /// Returns (max_buffer_size, partition_columns, emit_mode) if any ROWS WINDOW found.
+    fn extract_rows_window_config(
+        fields: &[SelectField],
+    ) -> Option<(u32, Vec<String>, RowsEmitMode)> {
+        let mut max_buffer: u32 = 0;
+        let mut partition_cols: Vec<String> = Vec::new();
+        let mut emit_mode = RowsEmitMode::EveryRecord;
+        let mut found = false;
+
+        for field in fields {
+            if let SelectField::Expression { expr, .. } = field {
+                Self::scan_expr_for_rows_window(
+                    expr,
+                    &mut max_buffer,
+                    &mut partition_cols,
+                    &mut emit_mode,
+                    &mut found,
+                );
+            }
+        }
+
+        if found {
+            Some((max_buffer, partition_cols, emit_mode))
+        } else {
+            None
+        }
+    }
+
+    /// Recursively scan an expression for WindowFunction nodes with ROWS WINDOW specs.
+    fn scan_expr_for_rows_window(
+        expr: &Expr,
+        max_buffer: &mut u32,
+        partition_cols: &mut Vec<String>,
+        emit_mode: &mut RowsEmitMode,
+        found: &mut bool,
+    ) {
+        match expr {
+            Expr::WindowFunction { over_clause, .. } => {
+                if let Some(spec) = &over_clause.window_spec {
+                    if let WindowSpec::Rows {
+                        buffer_size,
+                        partition_by,
+                        emit_mode: rows_emit,
+                        ..
+                    } = spec.as_ref()
+                    {
+                        *found = true;
+                        if *buffer_size > *max_buffer {
+                            *max_buffer = *buffer_size;
+                        }
+                        *emit_mode = rows_emit.clone();
+                        // Extract partition column names
+                        for part_expr in partition_by {
+                            if let Expr::Column(name) = part_expr {
+                                if !partition_cols.contains(name) {
+                                    partition_cols.push(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                Self::scan_expr_for_rows_window(left, max_buffer, partition_cols, emit_mode, found);
+                Self::scan_expr_for_rows_window(
+                    right,
+                    max_buffer,
+                    partition_cols,
+                    emit_mode,
+                    found,
+                );
+            }
+            Expr::UnaryOp { expr: inner, .. } => {
+                Self::scan_expr_for_rows_window(
+                    inner,
+                    max_buffer,
+                    partition_cols,
+                    emit_mode,
+                    found,
+                );
+            }
+            Expr::Function { args, .. } => {
+                for arg in args {
+                    Self::scan_expr_for_rows_window(
+                        arg,
+                        max_buffer,
+                        partition_cols,
+                        emit_mode,
+                        found,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Compute a partition key from a record's field values for the given partition columns.
+    fn compute_partition_key(record: &StreamRecord, partition_columns: &[String]) -> String {
+        if partition_columns.is_empty() {
+            return "__global__".to_string();
+        }
+        partition_columns
+            .iter()
+            .map(|col| {
+                record
+                    .fields
+                    .get(col)
+                    .map(|v| format!("{:?}", v))
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("\0")
     }
 
     /// Get expression name for result field
@@ -3389,11 +3578,49 @@ fn substitute_correlation_expr(
     context: &ProcessorContext,
 ) -> Expr {
     if let Some(cc) = &context.correlation_context {
+        // Build an augmented fields map that includes system columns so that
+        // correlated references like `m._event_time` resolve correctly.
+        let mut fields = current_record.fields.clone();
+        // Resolve _EVENT_TIME as a Timestamp so that correlated date/time
+        // comparisons (e.g. `w.effective_date <= m._event_time`) work correctly.
+        // Insert under BOTH uppercase (_EVENT_TIME) and lowercase (_event_time) keys
+        // because the SQL parser preserves the original case from the query while
+        // system_columns constants are uppercase.
+        let event_time_val = match ExpressionEvaluator::get_event_time_value(current_record) {
+            FieldValue::Integer(ms) => chrono::DateTime::from_timestamp_millis(ms)
+                .map(|dt| FieldValue::Timestamp(dt.naive_utc()))
+                .unwrap_or(FieldValue::Integer(ms)),
+            other => other,
+        };
+        fields
+            .entry(system_columns::EVENT_TIME.to_string())
+            .or_insert(event_time_val.clone());
+        fields
+            .entry(system_columns::EVENT_TIME.to_lowercase())
+            .or_insert(event_time_val);
+        fields
+            .entry(system_columns::TIMESTAMP.to_string())
+            .or_insert(FieldValue::Integer(current_record.timestamp));
+        fields
+            .entry(system_columns::TIMESTAMP.to_lowercase())
+            .or_insert(FieldValue::Integer(current_record.timestamp));
+        fields
+            .entry(system_columns::OFFSET.to_string())
+            .or_insert(FieldValue::Integer(current_record.offset));
+        fields
+            .entry(system_columns::OFFSET.to_lowercase())
+            .or_insert(FieldValue::Integer(current_record.offset));
+        fields
+            .entry(system_columns::PARTITION.to_string())
+            .or_insert(FieldValue::Integer(current_record.partition as i64));
+        fields
+            .entry(system_columns::PARTITION.to_lowercase())
+            .or_insert(FieldValue::Integer(current_record.partition as i64));
         query_parsing::substitute_correlation_variables_in_expr(
             &expr,
             &cc.name,
             cc.alias.as_deref(),
-            &current_record.fields,
+            &fields,
         )
     } else {
         expr

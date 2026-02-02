@@ -56,11 +56,11 @@ use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 /// Enhanced window function evaluator for streaming SQL execution
 pub struct WindowFunctions;
 
-/// Window context for enhanced window function processing
-#[derive(Debug, Clone)]
-pub struct WindowContext {
-    /// Window buffer containing ordered records
-    pub buffer: Vec<StreamRecord>,
+/// Window context for enhanced window function processing (borrows buffer to avoid cloning)
+#[derive(Debug)]
+pub struct WindowContext<'a> {
+    /// Window buffer containing ordered records (borrowed, not owned)
+    pub buffer: &'a [StreamRecord],
     /// Current partition boundaries (start_idx, end_idx)
     pub partition_bounds: Option<(usize, usize)>,
     /// Current row position within the partition
@@ -72,16 +72,74 @@ pub struct WindowContext {
 impl WindowFunctions {
     /// Evaluate window functions with proper OVER clause processing
     ///
-    /// Enhanced implementation that integrates with WindowProcessor for proper window context
+    /// Enhanced implementation that integrates with WindowProcessor for proper window context.
+    /// When `buffer_includes_current` is true and no ORDER BY is needed, the buffer is used
+    /// directly without cloning (zero-copy fast path).
     pub fn evaluate_window_function(
         function_name: &str,
         args: &[Expr],
         over_clause: &OverClause,
         record: &StreamRecord,
         window_buffer: &[StreamRecord],
+        buffer_includes_current: bool,
     ) -> Result<FieldValue, SqlError> {
-        // Create enhanced window context with proper ordering and partitioning
-        let window_context = Self::create_window_context(over_clause, record, window_buffer)?;
+        // Fast path: buffer already includes current record and no sorting needed
+        // Slow path: need to clone buffer to add current record or sort
+        let sorted_storage: Vec<StreamRecord>;
+
+        let effective_buffer: &[StreamRecord] =
+            if buffer_includes_current && over_clause.order_by.is_empty() {
+                // Zero-copy: use buffer directly
+                window_buffer
+            } else {
+                let mut buf = window_buffer.to_vec();
+                if !buffer_includes_current {
+                    buf.push(record.clone());
+                }
+                if !over_clause.order_by.is_empty() {
+                    Self::sort_buffer_by_order(&mut buf, &over_clause.order_by)?;
+                }
+                sorted_storage = buf;
+                &sorted_storage
+            };
+
+        // Find current position in buffer
+        let current_position = if buffer_includes_current && over_clause.order_by.is_empty() {
+            // Current record is last in buffer (just appended before calling)
+            effective_buffer.len().saturating_sub(1)
+        } else {
+            effective_buffer
+                .iter()
+                .position(|r| Self::records_equal(r, record))
+                .unwrap_or(effective_buffer.len().saturating_sub(1))
+        };
+
+        // Calculate partition bounds
+        let partition_bounds = if !over_clause.partition_by.is_empty() {
+            Self::calculate_partition_bounds(
+                effective_buffer,
+                current_position,
+                &over_clause.partition_by,
+                record,
+            )?
+        } else {
+            Some((0, effective_buffer.len()))
+        };
+
+        // Calculate window frame bounds
+        let frame_bounds = Self::calculate_frame_bounds(
+            &over_clause.window_frame,
+            current_position,
+            &partition_bounds,
+            effective_buffer,
+        )?;
+
+        let window_context = WindowContext {
+            buffer: effective_buffer,
+            partition_bounds,
+            current_position,
+            frame_bounds,
+        };
 
         match function_name.to_uppercase().as_str() {
             "LAG" => Self::evaluate_lag_function(args, record, &window_context),
@@ -119,58 +177,6 @@ impl WindowFunctions {
                 query: Some(format!("{}(...) OVER (...)", other)),
             }),
         }
-    }
-
-    /// Create enhanced window context from OVER clause
-    fn create_window_context(
-        over_clause: &OverClause,
-        current_record: &StreamRecord,
-        window_buffer: &[StreamRecord],
-    ) -> Result<WindowContext, SqlError> {
-        // Create ordered buffer based on ORDER BY clause
-        let mut ordered_buffer = window_buffer.to_vec();
-
-        // Add current record to buffer for processing
-        ordered_buffer.push(current_record.clone());
-
-        // Apply ORDER BY if specified
-        if !over_clause.order_by.is_empty() {
-            Self::sort_buffer_by_order(&mut ordered_buffer, &over_clause.order_by)?;
-        }
-
-        // Find current position in ordered buffer
-        let current_position = ordered_buffer
-            .iter()
-            .position(|r| Self::records_equal(r, current_record))
-            .unwrap_or(ordered_buffer.len() - 1);
-
-        // Calculate partition bounds based on PARTITION BY
-        let partition_bounds = if !over_clause.partition_by.is_empty() {
-            Self::calculate_partition_bounds(
-                &ordered_buffer,
-                current_position,
-                &over_clause.partition_by,
-                current_record,
-            )?
-        } else {
-            // No partitioning - entire buffer is one partition
-            Some((0, ordered_buffer.len()))
-        };
-
-        // Calculate window frame bounds
-        let frame_bounds = Self::calculate_frame_bounds(
-            &over_clause.window_frame,
-            current_position,
-            &partition_bounds,
-            &ordered_buffer,
-        )?;
-
-        Ok(WindowContext {
-            buffer: ordered_buffer,
-            partition_bounds,
-            current_position,
-            frame_bounds,
-        })
     }
 
     /// Sort buffer by ORDER BY clause
@@ -270,11 +276,7 @@ impl WindowFunctions {
     ) -> Result<Vec<FieldValue>, SqlError> {
         let mut key = Vec::new();
         for column_name in partition_by {
-            let value = match record.fields.get(column_name) {
-                Some(v) => v.clone(),
-                None => FieldValue::Null,
-            };
-            key.push(value);
+            key.push(record.resolve_column(column_name));
         }
         Ok(key)
     }
@@ -360,7 +362,7 @@ impl WindowFunctions {
     fn evaluate_lag_function(
         args: &[Expr],
         record: &StreamRecord,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         // Validate argument count
         if args.is_empty() {
@@ -434,7 +436,7 @@ impl WindowFunctions {
     fn evaluate_lead_function(
         args: &[Expr],
         record: &StreamRecord,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         // Validate argument count
         if args.is_empty() {
@@ -507,7 +509,7 @@ impl WindowFunctions {
     /// Enhanced ROW_NUMBER function with proper window context
     fn evaluate_row_number_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if !args.is_empty() {
             return Err(SqlError::ExecutionError {
@@ -531,7 +533,7 @@ impl WindowFunctions {
     fn evaluate_rank_function(
         args: &[Expr],
         over_clause: &OverClause,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if !args.is_empty() {
             return Err(SqlError::ExecutionError {
@@ -562,7 +564,7 @@ impl WindowFunctions {
     fn evaluate_dense_rank_function(
         args: &[Expr],
         over_clause: &OverClause,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if !args.is_empty() {
             return Err(SqlError::ExecutionError {
@@ -593,7 +595,7 @@ impl WindowFunctions {
     /// Enhanced FIRST_VALUE function with proper window context
     fn evaluate_first_value_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -622,7 +624,7 @@ impl WindowFunctions {
     /// Enhanced LAST_VALUE function with proper window context
     fn evaluate_last_value_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -652,7 +654,7 @@ impl WindowFunctions {
     fn evaluate_nth_value_function(
         args: &[Expr],
         record: &StreamRecord,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 2 {
             return Err(SqlError::ExecutionError {
@@ -712,7 +714,7 @@ impl WindowFunctions {
     fn evaluate_percent_rank_function(
         args: &[Expr],
         over_clause: &OverClause,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if !args.is_empty() {
             return Err(SqlError::ExecutionError {
@@ -747,7 +749,7 @@ impl WindowFunctions {
     fn evaluate_cume_dist_function(
         args: &[Expr],
         _over_clause: &OverClause,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if !args.is_empty() {
             return Err(SqlError::ExecutionError {
@@ -773,7 +775,7 @@ impl WindowFunctions {
     fn evaluate_ntile_function(
         args: &[Expr],
         record: &StreamRecord,
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -827,7 +829,7 @@ impl WindowFunctions {
     /// Evaluate AVG as a window function - computes average over the window frame
     fn evaluate_avg_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -888,7 +890,7 @@ impl WindowFunctions {
     /// Evaluate SUM as a window function - computes sum over the window frame
     fn evaluate_sum_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -937,7 +939,7 @@ impl WindowFunctions {
     /// Evaluate MIN as a window function - finds minimum over the window frame
     fn evaluate_min_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -982,7 +984,7 @@ impl WindowFunctions {
     /// Evaluate MAX as a window function - finds maximum over the window frame
     fn evaluate_max_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -1027,7 +1029,7 @@ impl WindowFunctions {
     /// Evaluate COUNT as a window function - counts non-NULL values over the window frame
     fn evaluate_count_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         // Calculate actual frame indices using frame bounds
         let (start_idx, end_idx) =
@@ -1084,7 +1086,7 @@ impl WindowFunctions {
     /// Evaluate STDDEV_SAMP (sample standard deviation) as a window function
     fn evaluate_stddev_samp_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -1146,7 +1148,7 @@ impl WindowFunctions {
     /// Evaluate STDDEV_POP (population standard deviation) as a window function
     fn evaluate_stddev_pop_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -1206,7 +1208,7 @@ impl WindowFunctions {
     /// Evaluate VAR_SAMP (sample variance) as a window function
     fn evaluate_variance_samp_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -1267,7 +1269,7 @@ impl WindowFunctions {
     /// Evaluate VAR_POP (population variance) as a window function
     fn evaluate_variance_pop_window_function(
         args: &[Expr],
-        window_context: &WindowContext,
+        window_context: &WindowContext<'_>,
     ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {

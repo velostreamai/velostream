@@ -99,6 +99,7 @@ impl WindowProcessor {
             buffer: Vec::new(),
             last_emit: 0,
             should_emit: false,
+            buffer_includes_current: false,
         }
     }
 
