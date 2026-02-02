@@ -678,10 +678,18 @@ impl ProcessorMetricsHelper {
                                         v,
                                         scale,
                                     ) => Some((*v as f64) / 10_f64.powi(*scale as i32)),
+                                    crate::velostream::sql::execution::FieldValue::Decimal(d) => {
+                                        use rust_decimal::prelude::ToPrimitive;
+                                        d.to_f64()
+                                    }
+                                    crate::velostream::sql::execution::FieldValue::Null => {
+                                        // NULL values (e.g. from LAG on first records) - skip silently
+                                        None
+                                    }
                                     _ => {
                                         debug!(
-                                            "Job '{}': Metric '{}' field '{}' is not numeric, skipping",
-                                            job_name, annotation.name, field_name
+                                            "Job '{}': Metric '{}' field '{}' is not numeric (type: {:?}), skipping",
+                                            job_name, annotation.name, field_name, field_value
                                         );
                                         continue;
                                     }

@@ -421,9 +421,32 @@ impl TableRegistry {
 
             for (i, header) in headers.iter().enumerate() {
                 if let Some(value) = values.get(i) {
-                    // Parse value - try integer first, then keep as string
-                    let field_value = if let Ok(int_val) = value.parse::<i64>() {
+                    // Parse value with type inference
+                    let field_value = if value.is_empty() || *value == "NULL" || *value == "null" {
+                        FieldValue::Null
+                    } else if let Ok(int_val) = value.parse::<i64>() {
                         FieldValue::Integer(int_val)
+                    } else if let Ok(float_val) = value.parse::<f64>() {
+                        FieldValue::Float(float_val)
+                    } else if *value == "true" || *value == "false" {
+                        FieldValue::Boolean(*value == "true")
+                    } else if value.len() == 10
+                        && value.as_bytes().get(4) == Some(&b'-')
+                        && value.as_bytes().get(7) == Some(&b'-')
+                    {
+                        // ISO 8601 date: YYYY-MM-DD
+                        chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                            .map(FieldValue::Date)
+                            .unwrap_or_else(|_| FieldValue::String(value.to_string()))
+                    } else if value.len() >= 19 && value.contains('T') {
+                        // ISO 8601 datetime: 2025-01-01T00:00:00 or 2025-01-01T00:00:00Z
+                        chrono::DateTime::parse_from_rfc3339(value)
+                            .map(|dt| FieldValue::Timestamp(dt.naive_utc()))
+                            .or_else(|_| {
+                                chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
+                                    .map(FieldValue::Timestamp)
+                            })
+                            .unwrap_or_else(|_| FieldValue::String(value.to_string()))
                     } else {
                         FieldValue::String(value.to_string())
                     };
