@@ -88,6 +88,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -125,6 +126,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -161,6 +163,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -194,6 +197,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -227,6 +231,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -260,6 +265,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -294,6 +300,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -330,6 +337,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -365,6 +373,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -400,6 +409,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -435,6 +445,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -465,6 +476,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
         assert!(result.is_err());
 
@@ -479,6 +491,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
         assert!(result.is_err());
 
@@ -489,6 +502,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
         assert!(result.is_err());
     }
@@ -511,6 +525,7 @@ mod enhanced_window_function_tests {
             &empty_over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
         assert!(result.is_ok());
 
@@ -521,6 +536,7 @@ mod enhanced_window_function_tests {
             &empty_over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
         assert!(result.is_ok());
         match result.unwrap() {
@@ -558,6 +574,7 @@ mod enhanced_window_function_tests {
             &over_clause,
             &current_record,
             &window_buffer,
+            false,
         );
 
         assert!(result.is_ok());
@@ -566,5 +583,220 @@ mod enhanced_window_function_tests {
             FieldValue::Integer(i) => assert_eq!(i, 2), // Second row in partition A
             _ => panic!("Expected Integer value, got {:?}", value),
         }
+    }
+
+    /// Test that buffer_includes_current=true (zero-copy fast path) produces identical
+    /// results to buffer_includes_current=false (legacy path) for window functions
+    /// without ORDER BY.
+    #[test]
+    fn test_buffer_includes_current_fast_path_matches_legacy() {
+        // Build a buffer that already contains the "current" record as its last element
+        let current_record = create_test_record(5, "A", 250.0, 3000);
+        let buffer_with_current = vec![
+            create_test_record(1, "A", 100.0, 1000),
+            create_test_record(2, "A", 200.0, 2000),
+            create_test_record(3, "B", 150.0, 1500),
+            create_test_record(4, "B", 300.0, 2500),
+            current_record.clone(),
+        ];
+        // Legacy buffer excludes the current record (it gets added inside evaluate)
+        let buffer_without_current = vec![
+            create_test_record(1, "A", 100.0, 1000),
+            create_test_record(2, "A", 200.0, 2000),
+            create_test_record(3, "B", 150.0, 1500),
+            create_test_record(4, "B", 300.0, 2500),
+        ];
+
+        let over_clause_no_order = OverClause {
+            window_spec: None,
+            partition_by: vec![],
+            order_by: vec![],
+            window_frame: None,
+        };
+
+        // Compare ROW_NUMBER
+        let fast = WindowFunctions::evaluate_window_function(
+            "ROW_NUMBER",
+            &[],
+            &over_clause_no_order,
+            &current_record,
+            &buffer_with_current,
+            true,
+        )
+        .unwrap();
+        let legacy = WindowFunctions::evaluate_window_function(
+            "ROW_NUMBER",
+            &[],
+            &over_clause_no_order,
+            &current_record,
+            &buffer_without_current,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fast, legacy,
+            "ROW_NUMBER mismatch between fast and legacy path"
+        );
+
+        // Compare AVG
+        let args = vec![Expr::Column("value".to_string())];
+        let fast_avg = WindowFunctions::evaluate_window_function(
+            "AVG",
+            &args,
+            &over_clause_no_order,
+            &current_record,
+            &buffer_with_current,
+            true,
+        )
+        .unwrap();
+        let legacy_avg = WindowFunctions::evaluate_window_function(
+            "AVG",
+            &args,
+            &over_clause_no_order,
+            &current_record,
+            &buffer_without_current,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fast_avg, legacy_avg,
+            "AVG mismatch between fast and legacy path"
+        );
+
+        // Compare LAG(value, 1)
+        let lag_args = vec![
+            Expr::Column("value".to_string()),
+            Expr::Literal(LiteralValue::Integer(1)),
+        ];
+        let fast_lag = WindowFunctions::evaluate_window_function(
+            "LAG",
+            &lag_args,
+            &over_clause_no_order,
+            &current_record,
+            &buffer_with_current,
+            true,
+        )
+        .unwrap();
+        let legacy_lag = WindowFunctions::evaluate_window_function(
+            "LAG",
+            &lag_args,
+            &over_clause_no_order,
+            &current_record,
+            &buffer_without_current,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fast_lag, legacy_lag,
+            "LAG mismatch between fast and legacy path"
+        );
+
+        // Compare COUNT
+        let fast_count = WindowFunctions::evaluate_window_function(
+            "COUNT",
+            &[],
+            &over_clause_no_order,
+            &current_record,
+            &buffer_with_current,
+            true,
+        )
+        .unwrap();
+        let legacy_count = WindowFunctions::evaluate_window_function(
+            "COUNT",
+            &[],
+            &over_clause_no_order,
+            &current_record,
+            &buffer_without_current,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fast_count, legacy_count,
+            "COUNT mismatch between fast and legacy path"
+        );
+    }
+
+    /// Test that buffer_includes_current=true with ORDER BY still produces correct results
+    /// (falls back to slow path with sort).
+    #[test]
+    fn test_buffer_includes_current_with_order_by() {
+        let current_record = create_test_record(5, "A", 250.0, 3000);
+        let buffer_with_current = vec![
+            create_test_record(1, "A", 100.0, 1000),
+            create_test_record(3, "B", 150.0, 1500),
+            create_test_record(2, "A", 200.0, 2000),
+            create_test_record(4, "B", 300.0, 2500),
+            current_record.clone(),
+        ];
+
+        let over_clause_with_order = OverClause {
+            window_spec: None,
+            partition_by: vec![],
+            order_by: vec![OrderByExpr {
+                expr: Expr::Column("value".to_string()),
+                direction: OrderDirection::Asc,
+            }],
+            window_frame: None,
+        };
+
+        // RANK should work correctly after sorting by value
+        let result = WindowFunctions::evaluate_window_function(
+            "RANK",
+            &[],
+            &over_clause_with_order,
+            &current_record,
+            &buffer_with_current,
+            true,
+        )
+        .unwrap();
+
+        // current_record has value=250.0, sorted: 100, 150, 200, 250, 300
+        // Position should be 4 (1-indexed)
+        match result {
+            FieldValue::Integer(i) => assert_eq!(i, 4),
+            _ => panic!("Expected Integer value, got {:?}", result),
+        }
+    }
+
+    /// Test fast path with empty buffer (edge case: buffer_includes_current=true but empty)
+    #[test]
+    fn test_buffer_includes_current_single_record() {
+        let current_record = create_test_record(1, "A", 100.0, 1000);
+        let buffer = vec![current_record.clone()];
+
+        let over_clause = OverClause {
+            window_spec: None,
+            partition_by: vec![],
+            order_by: vec![],
+            window_frame: None,
+        };
+
+        let result = WindowFunctions::evaluate_window_function(
+            "ROW_NUMBER",
+            &[],
+            &over_clause,
+            &current_record,
+            &buffer,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(result, FieldValue::Integer(1));
+
+        // LAG with offset=1 should return NULL (no previous record)
+        let lag_args = vec![
+            Expr::Column("value".to_string()),
+            Expr::Literal(LiteralValue::Integer(1)),
+        ];
+        let lag_result = WindowFunctions::evaluate_window_function(
+            "LAG",
+            &lag_args,
+            &over_clause,
+            &current_record,
+            &buffer,
+            true,
+        )
+        .unwrap();
+        assert_eq!(lag_result, FieldValue::Null);
     }
 }

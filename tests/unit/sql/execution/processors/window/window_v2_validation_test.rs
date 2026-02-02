@@ -63,6 +63,7 @@ fn create_context_with_window_v2_enabled() -> ProcessorContext {
         window_v2_states: HashMap::new(),
         streaming_config: Some(StreamingConfig::new()),
         distinct_seen: HashMap::new(),
+        rows_window_config_cache: HashMap::new(),
     };
 
     context
@@ -111,6 +112,7 @@ async fn test_window_v2_feature_flag_disabled_by_default() {
         window_v2_states: HashMap::new(),
         streaming_config: None, // Default config (window_v2 is still always enabled)
         distinct_seen: HashMap::new(),
+        rows_window_config_cache: HashMap::new(),
     };
 
     // Window_v2 is the only architecture available (Phase 2E+)
