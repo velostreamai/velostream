@@ -53,6 +53,7 @@ storage:
       path: /tmp/tempo/blocks
 
 overrides:
+  max_live_traces: 50000
   metrics_generator_processors:
     - service-graphs
     - span-metrics

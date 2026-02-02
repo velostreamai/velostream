@@ -11,6 +11,8 @@
 #   ├── apps/                        # Annotated SQL (deployed by start-demo.sh)
 #   │   ├── app_compliance.sql
 #   │   └── ...
+#   ├── configs -> ../configs        # Symlink (so ../configs/ paths in SQL resolve)
+#   ├── schemas -> ../schemas        # Symlink (so ../schemas/ paths in SQL resolve)
 #   └── monitoring/                  # Generated monitoring configs
 #       ├── prometheus.yml           # Combined scrape config for all apps
 #       └── grafana/
@@ -63,6 +65,11 @@ echo ""
 rm -rf "$DEPLOY_DIR"
 mkdir -p "$DEPLOY_APPS_DIR"
 mkdir -p "$DEPLOY_MONITORING_DIR/grafana/dashboards"
+
+# Symlink configs/ so relative paths in SQL files (../configs/) resolve correctly
+ln -s "$SCRIPT_DIR/configs" "$DEPLOY_DIR/configs"
+# Symlink schemas/ for the same reason
+ln -s "$SCRIPT_DIR/schemas" "$DEPLOY_DIR/schemas"
 
 # Clean up any leftover annotated SQL files from previous runs
 rm -f "$APPS_DIR"/*.annotated.sql 2>/dev/null || true

@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # Default configuration
 SIMULATION_DURATION=10
-USE_RELEASE_BUILD=false
+USE_RELEASE_BUILD=true
 INTERACTIVE_MODE=false
 QUICK_START=false
 ENABLE_METRICS=false
@@ -264,11 +264,11 @@ if ! docker info > /dev/null 2>&1; then
 fi
 check_status "Docker is running"
 
-# Step 2: Start Kafka
-print_step "Step 3: Starting Kafka infrastructure"
+# Step 3: Start infrastructure
+print_step "Step 3: Starting infrastructure (Kafka, Prometheus, Grafana, Tempo)"
 echo -e "${YELLOW}This may take a few minutes on first run (downloading Docker images)...${NC}"
 if ! docker-compose up -d; then
-    echo -e "${RED}✗ Failed to start Kafka containers${NC}"
+    echo -e "${RED}✗ Failed to start containers${NC}"
     echo -e "${YELLOW}This could be due to:${NC}"
     echo -e "${YELLOW}  - Network connectivity issues (can't pull Docker images)${NC}"
     echo -e "${YELLOW}  - Port conflicts (check ports 9092, 2181, 3000, 9090, 8090)${NC}"
@@ -276,13 +276,15 @@ if ! docker-compose up -d; then
     echo -e "${YELLOW}Try: docker-compose logs${NC}"
     exit 1
 fi
-check_status "Kafka containers started"
+# Restart containers that mount from deploy/ to ensure fresh bind mounts
+docker restart velo-prometheus velo-grafana > /dev/null 2>&1 || true
+check_status "Infrastructure started"
 
-# Step 3: Wait for Kafka to be ready
+# Step 4: Wait for Kafka to be ready
 print_step "Step 4: Waiting for Kafka to be ready"
 wait_for 60 2 "docker exec simple-kafka kafka-broker-api-versions --bootstrap-server localhost:9092" "Kafka broker ready"
 
-# Step 4: Validate/Create topics
+# Step 5: Validate/Create topics
 print_step "Step 5: Ensuring all required topics exist"
 
 REQUIRED_TOPICS=(
@@ -324,7 +326,7 @@ for topic_spec in "${REQUIRED_TOPICS[@]}"; do
     fi
 done
 
-# Step 5: Build binaries (always check for updates)
+# Step 6: Build binaries (always check for updates)
 if [ "$FORCE_REBUILD" = true ]; then
     print_step "Step 6: Force rebuilding project binaries (clean + build)"
     echo -e "${YELLOW}⚠ Force rebuild requested - this will take longer${NC}"
@@ -373,7 +375,7 @@ print_binary_info "$VELO_TEST_BINARY_PATH"
 echo ""
 echo -e "${GREEN}✓ All binaries up-to-date${NC}"
 
-# Step 6: Reset consumer groups (for clean demo start)
+# Step 7: Reset consumer groups (for clean demo start)
 print_step "Step 7: Resetting consumer groups for clean start"
 echo -e "${YELLOW}⚠ Deleting existing consumer groups...${NC}"
 for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server localhost:9092 --list 2>/dev/null | grep "velo-sql"); do
@@ -383,7 +385,7 @@ for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server
         --delete 2>/dev/null || true
 done
 
-# Step 7: Build velo-test binary for data generation
+# Step 8: Build velo-test binary for data generation
 print_step "Step 8: Building velo-test binary"
 cd ../..
 VELO_TEST_BINARY_PATH_BUILD="$BUILD_DIR/velo-test"
@@ -398,7 +400,7 @@ print_timestamp "Completed velo-test build"
 check_status "velo-test ready"
 cd demo/trading
 
-# Step 8: Generate data using test harness (schema-aware data generation)
+# Step 9: Generate data using test harness (schema-aware data generation)
 print_step "Step 9: Starting data generator (velo-test --data-only)"
 echo "Simulation duration: ${SIMULATION_DURATION} minutes"
 
@@ -429,11 +431,11 @@ sleep 5
 echo -e "${GREEN}✓ Continuous data generator running (PID: $GENERATOR_PID)${NC}"
 print_timestamp "Data generation initiated (will run for $SIMULATION_DURATION batches)"
 
-# Step 9: Verify data is flowing
+# Step 10: Verify data is flowing
 print_step "Step 10: Verifying data flow"
 wait_for 30 2 "docker exec simple-kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic in_market_data_stream --max-messages 1 --timeout-ms 1000" "Data flowing to in_market_data_stream"
 
-# Step 10: Deploy SQL application
+# Step 11: Deploy SQL application
 print_step "Step 11: Deploying SQL application"
 
 # Show binary info before execution
@@ -568,26 +570,25 @@ else
     echo -e "${BLUE}Kafka Commands:${NC}"
     echo -e "  docker exec simple-kafka kafka-topics --list --bootstrap-server localhost:9092"
     echo -e "  docker exec simple-kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic market_data_ts --from-beginning --max-messages 10"
-    echo ""
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}📊 Monitoring Dashboards (Already Running)${NC}"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  • Grafana:    ${GREEN}http://localhost:3000${NC} ${BLUE}(admin/admin)${NC}"
-    echo -e "  • Prometheus: ${GREEN}http://localhost:9090${NC}"
-    echo -e "  • Kafka UI:   ${GREEN}http://localhost:8090${NC}"
-    echo ""
-    echo -e "${BLUE}🔍 Observability (Enabled)${NC}"
-    echo -e "  • Velostream Metrics: ${GREEN}http://localhost:9101/metrics${NC} ${BLUE}(Prometheus format)${NC}"
-    echo -e "  • Distributed Tracing: ${GREEN}ENABLED${NC} ${BLUE}(100% sampling)${NC}"
-    echo -e "  • Performance Profiling: ${GREEN}ENABLED${NC}"
-    echo ""
-    echo -e "${YELLOW}Pre-configured Grafana Dashboards:${NC}"
-    echo -e "  • Velostream Trading Demo - Real-time analytics & alerts"
-    echo -e "  • Velostream Overview - System health & throughput"
-    echo -e "  • Kafka Metrics - Broker performance & topic stats"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "${BLUE}Stop Demo:${NC}"
-    echo -e "  ./stop-demo.sh"
-    echo -e "${GREEN}========================================${NC}"
 fi
+
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}📊 Monitoring Dashboards${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  • Grafana:    ${GREEN}http://localhost:3000${NC} ${BLUE}(admin/admin)${NC}"
+echo -e "  • Prometheus: ${GREEN}http://localhost:9090${NC}"
+echo -e "  • Kafka UI:   ${GREEN}http://localhost:8090${NC}"
+echo ""
+echo -e "${BLUE}🔍 Observability${NC}"
+echo -e "  • Velostream Metrics: ${GREEN}http://localhost:9101/metrics${NC} ${BLUE}(Prometheus format)${NC}"
+echo -e "  • Distributed Tracing: ${GREEN}ENABLED${NC} ${BLUE}(100% sampling)${NC}"
+echo -e "  • Performance Profiling: ${GREEN}ENABLED${NC}"
+echo ""
+echo -e "${YELLOW}Grafana Dashboards:${NC}"
+echo -e "  • ${YELLOW}Velostream${NC} (curated)   - Overview, Ops, Kafka, Tracing, Errors"
+echo -e "  • ${YELLOW}Velostream - Generated${NC} - Per-app dashboards from @metric annotations"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${BLUE}Stop Demo:${NC}  ./stop-demo.sh"
+echo -e "${GREEN}========================================${NC}"
