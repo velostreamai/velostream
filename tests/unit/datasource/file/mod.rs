@@ -7,3 +7,5 @@
 // pub mod file_datasource_test;
 // pub mod file_error_test;
 // pub mod file_watcher_test;
+
+pub mod reader_date_parsing_test;
