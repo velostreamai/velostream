@@ -124,7 +124,7 @@ impl HashJoinTable {
         for expr in &self.key_exprs {
             // Get field value from expression
             let value = match expr {
-                Expr::Column(name) => record.fields.get(name).cloned().unwrap_or(FieldValue::Null),
+                Expr::Column(name) => record.resolve_column(name),
                 _ => {
                     // For complex expressions, evaluate as boolean and hash that
                     let result = ExpressionEvaluator::evaluate_expression(expr, record)?;

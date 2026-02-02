@@ -615,8 +615,17 @@ pub fn evaluate_expr_against_record(
 ) -> TableResult<bool> {
     let stream_record = StreamRecord::new(record.clone());
     ExpressionEvaluator::evaluate_expression(expr, &stream_record).map_err(|e| {
+        let field_types: Vec<String> = record
+            .iter()
+            .map(|(k, v)| format!("{}:{}", k, v.type_name()))
+            .collect();
         SqlError::ExecutionError {
-            message: format!("Failed to evaluate expression against table record: {}", e),
+            message: format!(
+                "Failed to evaluate expression against table record: {} | expr={:?} | record_fields=[{}]",
+                e,
+                expr,
+                field_types.join(", ")
+            ),
             query: None,
         }
     })

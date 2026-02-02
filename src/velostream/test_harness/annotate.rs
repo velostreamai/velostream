@@ -890,116 +890,15 @@ impl Annotator {
         Ok(output)
     }
 
-    /// Insert metric annotations immediately before each CREATE STREAM/TABLE statement
-    fn insert_metrics_before_queries(&self, original_sql: &str, analysis: &SqlAnalysis) -> String {
-        // Group metrics by query_name
-        let mut metrics_by_query: std::collections::HashMap<String, Vec<&DetectedMetric>> =
-            std::collections::HashMap::new();
-        for metric in &analysis.metrics {
-            metrics_by_query
-                .entry(metric.query_name.clone())
-                .or_default()
-                .push(metric);
-        }
-
-        let mut result = String::new();
-        let mut current_pos = 0;
-        let sql_upper = original_sql.to_uppercase();
-
-        // Find all CREATE STREAM and CREATE TABLE positions
-        let create_patterns = ["CREATE STREAM", "CREATE TABLE"];
-
-        // Collect all CREATE positions with their query names
-        let mut create_positions: Vec<(usize, String)> = Vec::new();
-
-        for pattern in &create_patterns {
-            let mut search_pos = 0;
-            while let Some(pos) = sql_upper[search_pos..].find(pattern) {
-                let absolute_pos = search_pos + pos;
-
-                // Extract the query name (word after CREATE STREAM/TABLE)
-                let after_pattern = &original_sql[absolute_pos + pattern.len()..];
-                let query_name = after_pattern
-                    .trim_start()
-                    .split(|c: char| !c.is_alphanumeric() && c != '_')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-
-                if !query_name.is_empty() {
-                    create_positions.push((absolute_pos, query_name));
-                }
-
-                search_pos = absolute_pos + pattern.len();
-            }
-        }
-
-        // Sort by position
-        create_positions.sort_by_key(|(pos, _)| *pos);
-
-        // Build result with metrics inserted before each CREATE
-        for (create_pos, query_name) in create_positions {
-            // Add SQL content before this CREATE statement
-            result.push_str(&original_sql[current_pos..create_pos]);
-
-            // Add metrics for this query if any exist
-            if let Some(metrics) = metrics_by_query.get(&query_name) {
-                result.push_str(&self.format_metrics_for_query(metrics, &query_name));
-            }
-
-            current_pos = create_pos;
-        }
-
-        // Add remaining SQL after the last CREATE
-        result.push_str(&original_sql[current_pos..]);
-
-        result
-    }
-
-    /// Format metrics as SQL comments for a specific query
-    /// Note: Comments must NOT appear on the same line as annotation values
-    /// because the parser reads the full value after `: ` including any comments
-    fn format_metrics_for_query(&self, metrics: &[&DetectedMetric], query_name: &str) -> String {
-        let mut output = String::new();
-        output.push_str(
-            "-- -----------------------------------------------------------------------------\n",
-        );
-        output.push_str(&format!("-- METRICS for {}\n", query_name));
-        output.push_str(
-            "-- -----------------------------------------------------------------------------\n",
-        );
-
-        for metric in metrics {
-            output.push_str(&format!("-- @metric: {}\n", metric.name));
-            output.push_str(&format!(
-                "-- @metric_type: {}\n",
-                metric.metric_type.as_str()
-            ));
-            output.push_str(&format!("-- @metric_help: \"{}\"\n", metric.help));
-
-            if !metric.labels.is_empty() {
-                output.push_str(&format!(
-                    "-- @metric_labels: {}\n",
-                    metric.labels.join(", ")
-                ));
-            }
-
-            if let Some(ref field) = metric.field {
-                output.push_str(&format!("-- @metric_field: {}\n", field));
-            }
-
-            if let Some(ref buckets) = metric.buckets {
-                let bucket_str = buckets
-                    .iter()
-                    .map(|b| b.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                output.push_str(&format!("-- @metric_buckets: [{}]\n", bucket_str));
-            }
-            output.push_str("--\n");
-        }
-
-        output
+    /// Pass through the original SQL queries, preserving developer-authored `@metric`
+    /// annotations as the single authoritative source.
+    ///
+    /// `analysis.metrics` is derived from parsing those same source annotations, so
+    /// re-inserting them would always produce duplicates. The annotator's role is to
+    /// generate the header (deployment, observability, SLA) and external artifacts
+    /// (dashboards, prometheus config) — not to rewrite metric annotations.
+    fn insert_metrics_before_queries(&self, original_sql: &str, _analysis: &SqlAnalysis) -> String {
+        original_sql.to_string()
     }
 
     /// Generate header annotations
@@ -1645,7 +1544,7 @@ overrides:
                 (2, _) if i < 8 => self.create_table_panel(
                     panel_id,
                     &metric.help,
-                    &metric.name,
+                    &expr,
                     x_pos as i32,
                     y_pos,
                     12,

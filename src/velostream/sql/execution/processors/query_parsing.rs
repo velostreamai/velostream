@@ -410,6 +410,12 @@ fn field_value_to_literal(value: &FieldValue) -> LiteralValue {
                 ))
             }
         }
+        // Temporal types — preserve as typed string literals so comparisons
+        // round-trip correctly through the evaluator.
+        FieldValue::Timestamp(dt) => {
+            LiteralValue::String(dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        }
+        FieldValue::Date(d) => LiteralValue::String(d.format("%Y-%m-%d").to_string()),
         // For complex types, convert to string representation
         _ => LiteralValue::String(format!("{}", value)),
     }
@@ -440,7 +446,18 @@ pub fn substitute_correlation_variables_in_expr(
                 let is_match = table_part.eq_ignore_ascii_case(correlation_table)
                     || correlation_alias.is_some_and(|a| table_part.eq_ignore_ascii_case(a));
                 if is_match {
-                    if let Some(value) = record_fields.get(column_part) {
+                    // Try exact match first, then case-insensitive (system columns
+                    // are uppercase but SQL may reference them in lowercase)
+                    let value = record_fields.get(column_part).or_else(|| {
+                        record_fields.iter().find_map(|(k, v)| {
+                            if k.eq_ignore_ascii_case(column_part) {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        })
+                    });
+                    if let Some(value) = value {
                         return Expr::Literal(field_value_to_literal(value));
                     }
                 }

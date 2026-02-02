@@ -2,6 +2,7 @@
 //!
 //! Tests for JOIN operations between streams and stream-table joins.
 
+pub mod compliance_date_correlation_test;
 pub mod correlated_exists_test;
 pub mod correlated_subquery_test;
 pub mod dynamic_correlation_test;

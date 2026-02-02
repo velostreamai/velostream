@@ -42,4 +42,5 @@ pub mod performance;
 // execute_with_record_sync multi-result tests
 pub mod execute_sync_multi_result_test;
 pub mod failure_path_test;
+pub mod temporal_comparison_test;
 pub mod window_system_columns_test;
