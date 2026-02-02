@@ -13,6 +13,7 @@ pub mod fr079_phase1_detection_test;
 pub mod group_by_window_having_debug_sql_test;
 pub mod group_by_window_having_order_sql_test;
 pub mod row_expiration_test;
+pub mod rows_window_integration_test;
 pub mod rows_window_sql_test;
 pub mod rows_window_test;
 pub mod session_window_functions_sql_test;
