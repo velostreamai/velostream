@@ -4,6 +4,16 @@
 
 set -e  # Exit on error
 
+# Cleanup background processes on exit
+cleanup() {
+    echo -e "\n${YELLOW}Cleaning up background processes...${NC}"
+    [ -n "${GENERATOR_PID:-}" ] && kill "$GENERATOR_PID" 2>/dev/null || true
+    for pid in ${DEPLOY_PIDS:-}; do
+        kill "$pid" 2>/dev/null || true
+    done
+}
+trap cleanup EXIT INT TERM
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -115,7 +125,6 @@ fi
 
 # Configuration
 KAFKA_BROKER="localhost:9092"
-DOCKER_BROKER="broker:9092"
 
 echo -e "${BLUE}========================================${NC}"
 if [ "$QUICK_START" = true ]; then
@@ -165,9 +174,12 @@ print_binary_info() {
     fi
 }
 
-# Function: Check status
+# Function: Check status of last command
+# Usage: some_command; check_status "description"
+# NOTE: Must be called immediately after the command — no echo/if between them.
 check_status() {
-    if [ $? -eq 0 ]; then
+    local status=$?
+    if [ $status -eq 0 ]; then
         echo -e "${GREEN}✓ $1${NC}"
     else
         echo -e "${RED}✗ $1 failed${NC}"
@@ -215,16 +227,20 @@ if ! command -v docker &> /dev/null; then
 fi
 echo -e "${GREEN}✓ Docker found${NC}"
 
-# Check Docker Compose
-if ! docker compose version &> /dev/null && ! command -v docker-compose &> /dev/null; then
+# Check Docker Compose (prefer v2 plugin, fall back to v1 standalone)
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+else
     echo -e "${RED}✗ Docker Compose is not installed${NC}"
     echo -e "${YELLOW}Install from: https://docs.docker.com/compose/install/${NC}"
     exit 1
 fi
-echo -e "${GREEN}✓ Docker Compose found${NC}"
+echo -e "${GREEN}✓ Docker Compose found ($DOCKER_COMPOSE)${NC}"
 
 # Check for port conflicts
-REQUIRED_PORTS=(9092 2181 3000 9090 8090)
+REQUIRED_PORTS=(9092 2181 3000 9090 8090 4317 4318 3200)
 PORT_CONFLICTS=()
 for port in "${REQUIRED_PORTS[@]}"; do
     if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 || nc -z localhost $port 2>/dev/null; then
@@ -267,13 +283,13 @@ check_status "Docker is running"
 # Step 3: Start infrastructure
 print_step "Step 3: Starting infrastructure (Kafka, Prometheus, Grafana, Tempo)"
 echo -e "${YELLOW}This may take a few minutes on first run (downloading Docker images)...${NC}"
-if ! docker-compose up -d; then
+if ! $DOCKER_COMPOSE up -d; then
     echo -e "${RED}✗ Failed to start containers${NC}"
     echo -e "${YELLOW}This could be due to:${NC}"
     echo -e "${YELLOW}  - Network connectivity issues (can't pull Docker images)${NC}"
     echo -e "${YELLOW}  - Port conflicts (check ports 9092, 2181, 3000, 9090, 8090)${NC}"
     echo -e "${YELLOW}  - Insufficient disk space${NC}"
-    echo -e "${YELLOW}Try: docker-compose logs${NC}"
+    echo -e "${YELLOW}Try: $DOCKER_COMPOSE logs${NC}"
     exit 1
 fi
 # Restart containers that mount from deploy/ to ensure fresh bind mounts
@@ -288,26 +304,28 @@ wait_for 60 2 "docker exec simple-kafka kafka-broker-api-versions --bootstrap-se
 print_step "Step 5: Ensuring all required topics exist"
 
 REQUIRED_TOPICS=(
-    "market_data_stream:12"
-    "market_data_ts:12"
-    "market_data_stream_a:12"
-    "market_data_stream_b:12"
-    "trading_positions_stream:8"
-    "order_book_stream:12"
-    "in_market_data_stream:12"
-    "in_market_data_stream_a:12"
-    "in_market_data_stream_b:12"
-    "in_trading_positions_stream:8"
-    "in_order_book_stream:12"
-    "price_movement_debug:1"
-    "price_movement_debug_2:1"
-    "tick_buckets:1"
-    "advanced_price_movement_alerts:1"
-    "volume_spike_analysis:1"
-    "trading_positions_with_event_time:1"
-    "comprehensive_risk_monitor:1"
-    "order_flow_imbalance_detection:1"
-    "arbitrage_opportunities_detection:1"
+    # Input topics (ingested by SQL apps)
+    "in_market_data_stream:12"          # app_market_data
+    "market_data_ts:12"                 # shared: price_analytics, trading_signals, risk, compliance
+    "in_market_data_stream_a:12"        # app_trading_signals (arbitrage)
+    "in_market_data_stream_b:12"        # app_trading_signals (arbitrage)
+    "in_trading_positions_stream:8"     # app_risk
+    "in_order_book_stream:12"           # app_trading_signals
+
+    # Output topics (produced by SQL apps)
+    "tick_buckets:8"                    # app_market_data
+    "enriched_market_data:8"            # app_market_data
+    "price_alerts:8"                    # app_price_analytics
+    "price_movement_debug:1"            # app_price_analytics (debug)
+    "price_stats:8"                     # app_price_analytics
+    "volume_spikes:8"                   # app_trading_signals
+    "order_imbalance:8"                 # app_trading_signals
+    "arbitrage_opportunities:8"         # app_trading_signals
+    "trading_positions_ts:8"            # app_risk
+    "risk_alerts:8"                     # app_risk
+    "risk_hierarchy_validation:8"       # app_risk
+    "compliant_market_data:8"           # app_compliance
+    "active_hours_market_data:8"        # app_compliance
 )
 
 for topic_spec in "${REQUIRED_TOPICS[@]}"; do
@@ -539,7 +557,7 @@ else
     print_timestamp "Deployments started (PIDs:$DEPLOY_PIDS)"
     echo -e "${GREEN}✓ All apps deployed with observability${NC}"
 
-    # Step 11: Monitor deployment
+    # Step 12: Monitor deployment
     print_step "Step 12: Monitoring deployment"
     sleep 10  # Give deployment time to initialize
 
@@ -552,7 +570,7 @@ else
 
     echo -e "${GREEN}✓ Deployment process running${NC}"
 
-    # Step 11: Summary
+    # Step 13: Summary
     print_step "Demo Started Successfully!"
     echo ""
     echo -e "${GREEN}========================================${NC}"

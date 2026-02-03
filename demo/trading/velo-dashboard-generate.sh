@@ -122,20 +122,10 @@ PROMETHEUS_YML="global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-rule_files:
-  # - \"first_rules.yml\"
-  # - \"second_rules.yml\"
-
 scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
-
-  - job_name: 'kafka'
-    static_configs:
-      - targets: ['kafka:9092']
-    metrics_path: /metrics
-    scrape_interval: 10s
 
   - job_name: 'velo-sql'
     static_configs:
@@ -150,11 +140,6 @@ scrape_configs:
 ${TELEMETRY_TARGETS}    metrics_path: /metrics
     scrape_interval: 5s
     scrape_timeout: 3s
-
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['host.docker.internal:9100']
-    scrape_interval: 10s
 "
 
 echo "$PROMETHEUS_YML" > "$DEPLOY_MONITORING_DIR/prometheus.yml"
@@ -168,4 +153,4 @@ echo "  Dashboards:    deploy/monitoring/grafana/dashboards/app_*-dashboard.json
 echo "  Prometheus:    deploy/monitoring/prometheus.yml"
 echo ""
 echo "Restart Grafana to pick up changes:"
-echo "  docker restart trading-grafana-1"
+echo "  docker restart velo-grafana"
