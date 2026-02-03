@@ -116,12 +116,14 @@ SELECT
         ELSE 'NORMAL'
     END AS spike_classification,
 
-    -- Circuit breaker state
+    -- Circuit breaker state (inlines spike_classification logic to avoid self-referencing alias)
     CASE
         WHEN AVG(volume) > 0 AND MAX(volume) > 10 * AVG(volume) THEN 'TRIGGER_BREAKER'
-        WHEN spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
+        WHEN (AVG(volume) > 0 AND MAX(volume) > 5 * AVG(volume)
+              OR (STDDEV_POP(volume) > 0
+                  AND ABS((MAX(volume) - AVG(volume)) / STDDEV_POP(volume)) > 2.0))
             AND STDDEV_POP(volume) > 3 THEN 'PAUSE_FEED'
-        WHEN spike_classification = 'HIGH_SPIKE'
+        WHEN AVG(volume) > 0 AND MAX(volume) > 3 * AVG(volume)
             AND STDDEV_POP(volume) > 2 THEN 'SLOW_MODE'
         ELSE 'ALLOW'
     END AS circuit_state,

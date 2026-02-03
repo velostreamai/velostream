@@ -161,6 +161,7 @@ SELECT
 
     NOW() as detection_time
 FROM market_data_ts
+EMIT CHANGES
 
 WITH (
     -- Source configuration (external dependency)
