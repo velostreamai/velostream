@@ -1092,6 +1092,14 @@ impl WindowAdapter {
             }
         }
 
+        // Preserve event_time on output record for downstream operations (metrics, joins, etc.)
+        // Use window_end_time as the canonical event_time for aggregation results.
+        // This matches stream processing semantics where aggregation results are "complete"
+        // at the end of the window.
+        result.event_time = window_stats
+            .window_end_time
+            .and_then(chrono::DateTime::from_timestamp_millis);
+
         Ok(result)
     }
 

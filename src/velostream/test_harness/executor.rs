@@ -1546,6 +1546,8 @@ impl QueryExecutor {
                 }
                 if let Some(ts) = Self::extract_event_time_ms(record) {
                     sr.timestamp = ts;
+                    // Also set event_time for proper event-time semantics in windows and metrics
+                    sr.event_time = chrono::DateTime::from_timestamp_millis(ts);
                 }
                 sr
             })

@@ -7,6 +7,7 @@ pub mod emit_changes_advanced_sql_test;
 pub mod emit_changes_basic_sql_test;
 pub mod emit_changes_late_data_semantics_sql_test;
 pub mod emit_changes_sql_test;
+pub mod event_time_preservation_test;
 pub mod financial_ticker_analytics_test;
 pub mod fr079_aggregate_expressions_sql_test;
 pub mod fr079_phase1_detection_test;
