@@ -424,6 +424,22 @@ impl FileReader {
             }
         }
 
+        // Date/datetime detection for fields with temporal names
+        let lower_name = field_name.to_lowercase();
+        if lower_name.contains("date") || lower_name.contains("time") {
+            // Try ISO 8601 with timezone suffix (e.g., 2025-01-01T10:30:00Z)
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(field_value) {
+                return FieldValue::Timestamp(dt.naive_utc());
+            }
+            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(field_value, "%Y-%m-%dT%H:%M:%S")
+            {
+                return FieldValue::Timestamp(dt);
+            }
+            if let Ok(d) = chrono::NaiveDate::parse_from_str(field_value, "%Y-%m-%d") {
+                return FieldValue::Date(d);
+            }
+        }
+
         // Fallback to simple type inference (integer, float, boolean, string)
         self.infer_field_type_simple(field_value)
     }
@@ -1229,6 +1245,26 @@ impl FileReader {
             "true" | "yes" => return FieldValue::Boolean(true),
             "false" | "no" => return FieldValue::Boolean(false),
             _ => {}
+        }
+
+        // Try ISO 8601 date (YYYY-MM-DD pattern)
+        if value.len() == 10
+            && value.as_bytes().get(4) == Some(&b'-')
+            && value.as_bytes().get(7) == Some(&b'-')
+        {
+            if let Ok(d) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+                return FieldValue::Date(d);
+            }
+        }
+
+        // Try ISO 8601 datetime (with optional timezone suffix)
+        if value.len() >= 19 && value.contains('T') {
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) {
+                return FieldValue::Timestamp(dt.naive_utc());
+            }
+            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
+                return FieldValue::Timestamp(dt);
+            }
         }
 
         // Default to string

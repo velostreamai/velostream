@@ -29,3 +29,5 @@ pub mod unified_loading_test;
 // CTAS mock tests
 pub mod ctas_error_handling_test;
 pub mod ctas_mock_test;
+// AST-based expression predicate tests
+pub mod expr_predicate_test;

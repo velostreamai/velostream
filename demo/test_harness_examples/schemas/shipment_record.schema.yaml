@@ -28,17 +28,19 @@ fields:
         max: 25
 
   - name: shipped_at
-    type: timestamp
+    type: integer
     nullable: false
+    description: Shipment timestamp (epoch milliseconds)
     constraints:
-      timestamp_range:
+      timestamp_epoch_ms:
         start: "-30m"
         end: "now"
 
   - name: event_time
-    type: timestamp
+    type: integer
     nullable: false
+    description: Event timestamp (epoch milliseconds)
     constraints:
-      timestamp_range:
+      timestamp_epoch_ms:
         start: "-1h"
         end: "now"

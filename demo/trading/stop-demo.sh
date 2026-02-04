@@ -47,16 +47,9 @@ kill_processes "velo-test"
 # Stop Docker services
 echo -e "${YELLOW}🐳 Stopping Docker services...${NC}"
 
-# Check if kafka-compose.yml services are running
-if docker-compose -f kafka-compose.yml ps -q 2>/dev/null | grep -q .; then
-    echo "Stopping Kafka setup..."
-    docker-compose -f kafka-compose.yml down
-    echo -e "${GREEN}✓ Kafka setup stopped${NC}"
-fi
-
-# Check if main docker-compose services are running  
+# Check if docker-compose services are running
 if docker-compose ps -q 2>/dev/null | grep -q .; then
-    echo "Stopping main docker-compose services..."
+    echo "Stopping docker-compose services..."
     docker-compose down
     echo -e "${GREEN}✓ Main services stopped${NC}"
 fi

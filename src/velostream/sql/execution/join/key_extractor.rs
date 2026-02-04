@@ -3,6 +3,7 @@
 //! Extracts join keys from stream records based on column specifications.
 //! Supports multi-column keys with consistent string serialization for lookup.
 
+use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 
 /// Extracts join keys from stream records
@@ -65,9 +66,24 @@ impl JoinKeyExtractor {
         let mut key_parts = Vec::with_capacity(self.columns.len());
 
         for col in &self.columns {
-            match record.fields.get(col) {
-                Some(value) => key_parts.push(Self::value_to_key_string(value)),
-                None => return None, // Missing key column
+            // Strip table qualifier if present
+            let bare_col = if col.contains('.') {
+                col.split('.').next_back().unwrap_or(col)
+            } else {
+                col.as_str()
+            };
+            // System columns are always present on the record
+            if system_columns::normalize_if_system_column(bare_col).is_some() {
+                key_parts.push(Self::value_to_key_string(&record.resolve_column(col)));
+            } else {
+                match record
+                    .fields
+                    .get(col)
+                    .or_else(|| record.fields.get(bare_col))
+                {
+                    Some(value) => key_parts.push(Self::value_to_key_string(value)),
+                    None => return None, // Missing key column
+                }
             }
         }
 

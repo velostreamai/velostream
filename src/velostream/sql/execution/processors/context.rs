@@ -124,6 +124,12 @@ pub struct ProcessorContext {
     /// Maps query_id to DistinctState for tracking seen record hashes
     /// Uses FIFO eviction when max_entries is exceeded to prevent unbounded memory growth
     pub distinct_seen: HashMap<String, DistinctState>,
+
+    // === ROWS WINDOW CONFIG CACHE ===
+    /// Cached ROWS WINDOW configuration extracted from SELECT fields (constant per query).
+    /// Avoids re-walking the AST on every record.
+    /// Maps cache_key to Option<(buffer_size, partition_cols, emit_mode, state_key_prefix)>
+    pub rows_window_config_cache: HashMap<String, Option<(u32, Vec<String>, RowsEmitMode, String)>>,
 }
 
 /// Bounded state for SELECT DISTINCT deduplication.
@@ -234,6 +240,9 @@ pub struct WindowContext {
     pub last_emit: i64,
     /// Should emit in this processing cycle
     pub should_emit: bool,
+    /// Whether the buffer already includes the current record being processed.
+    /// When true, window functions can avoid cloning the buffer (zero-copy fast path).
+    pub buffer_includes_current: bool,
 }
 
 impl ProcessorContext {
@@ -266,6 +275,7 @@ impl ProcessorContext {
             window_v2_states: HashMap::new(),   // FR-081 Phase 2A: Initialize window v2 state map
             streaming_config: None,             // Use default config unless explicitly set
             distinct_seen: HashMap::new(),      // SELECT DISTINCT deduplication state
+            rows_window_config_cache: HashMap::new(), // ROWS WINDOW config cache
         }
     }
 

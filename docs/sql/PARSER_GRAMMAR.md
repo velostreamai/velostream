@@ -308,8 +308,17 @@ SUM([DISTINCT] expression)
 AVG([DISTINCT] expression)
 MIN([DISTINCT] expression)
 MAX([DISTINCT] expression)
-STDDEV(expression)
-VARIANCE(expression)
+STDDEV(expression)                -- alias: STDDEV_SAMP
+STDDEV_POP(expression)
+VARIANCE(expression)              -- alias: VAR_SAMP
+VAR_POP(expression)
+MEDIAN(expression)
+PERCENTILE_CONT(expression)
+COUNT_DISTINCT(expression)
+APPROX_COUNT_DISTINCT(expression)
+FIRST(expression)                 -- alias: FIRST_VALUE
+LAST(expression)                  -- alias: LAST_VALUE
+STRING_AGG(expression, separator) -- aliases: GROUP_CONCAT, LISTAGG, COLLECT
 ```
 
 ### Window Functions

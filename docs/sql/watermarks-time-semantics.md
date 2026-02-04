@@ -474,6 +474,163 @@ let config = StreamingConfig {
 watermark_manager.log_watermark_status();
 ```
 
+## Derived Event Time via _EVENT_TIME Aliasing
+
+In addition to extracting event time at the source level via `event.time.field`, Velostream supports **deriving event time via SQL expressions** by aliasing a field or expression as `_EVENT_TIME`.
+
+### Use Cases
+
+1. **Time Simulation** - Testing with synthetic or replayed timestamps
+2. **Derived Event Time** - Parsing timestamps from nested JSON, combining date/time fields
+3. **Event Time from Computed Expressions** - Using UDFs or complex logic to determine event time
+4. **Post-Join Event Time Selection** - Choosing which input's event time to use after a JOIN
+
+### Basic Syntax
+
+```sql
+-- Derive event time from a payload field
+SELECT
+    trade_timestamp AS _EVENT_TIME,  -- Sets record.event_time
+    symbol,
+    price
+FROM trades;
+
+-- Derive from computed expression (nested JSON)
+SELECT
+    CAST(JSON_EXTRACT(payload, '$.event_ts') AS BIGINT) AS _EVENT_TIME,
+    *
+FROM raw_events;
+
+-- Derive from combined fields
+SELECT
+    UNIX_TIMESTAMP(CONCAT(event_date, ' ', event_time)) AS _EVENT_TIME,
+    *
+FROM legacy_events;
+```
+
+### Supported Value Types
+
+The `_EVENT_TIME` alias accepts:
+
+| Type | Interpretation |
+|------|---------------|
+| `INTEGER` (BIGINT) | Milliseconds since Unix epoch |
+| `TIMESTAMP` | Converted to DateTime<Utc> |
+| Other types | Falls back to input record's `_EVENT_TIME` |
+
+### Event Time Propagation Through Queries
+
+When `_EVENT_TIME` is **not explicitly aliased**, Velostream preserves the input record's `_EVENT_TIME`:
+
+```sql
+-- _EVENT_TIME is preserved from input (no explicit _EVENT_TIME alias)
+SELECT symbol, price FROM trades;  -- Output inherits input's _EVENT_TIME
+```
+
+### Event Time in JOINs
+
+For JOIN operations, event time propagation follows these rules:
+
+#### Inner/Outer JOIN
+- **When both inputs have `_EVENT_TIME`**: Uses the **maximum** (newer) of the two
+- **When only one has `_EVENT_TIME`**: Uses that one
+- **When neither has `_EVENT_TIME`**: Output has no event time
+
+```sql
+-- Output _EVENT_TIME = MAX(orders._EVENT_TIME, shipments._EVENT_TIME)
+SELECT o.*, s.*
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id;
+```
+
+#### Selecting Specific Event Time from JOIN
+
+To explicitly choose which input's event time to use:
+
+```sql
+-- Use the order's event time as the output event time
+SELECT
+    o.order_timestamp AS _EVENT_TIME,  -- Explicitly set from orders
+    o.order_id,
+    s.shipped_at
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id;
+
+-- Use the shipment's event time instead
+SELECT
+    s.shipped_at AS _EVENT_TIME,  -- Explicitly set from shipments
+    o.order_id,
+    o.order_timestamp
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id;
+```
+
+### Event Time in GROUP BY
+
+Event time aliasing also works with aggregations:
+
+```sql
+-- Use the maximum trade timestamp as the group's event time
+SELECT
+    MAX(trade_timestamp) AS _EVENT_TIME,
+    symbol,
+    COUNT(*) as trade_count,
+    SUM(volume) as total_volume
+FROM trades
+GROUP BY symbol;
+```
+
+### Accessing _EVENT_TIME in Queries
+
+The `_EVENT_TIME` system column is always available and falls back to `_TIMESTAMP` (processing time) if event time was not set:
+
+```sql
+-- _EVENT_TIME always returns a value (never NULL)
+SELECT
+    _EVENT_TIME,        -- Event time (or falls back to processing time)
+    _TIMESTAMP,         -- Processing time (Kafka message timestamp)
+    symbol,
+    price
+FROM trades;
+```
+
+### Case-Insensitive System Columns
+
+System columns (`_EVENT_TIME`, `_TIMESTAMP`, `_OFFSET`, `_PARTITION`) are matched **case-insensitively**. All of the following are equivalent:
+
+```sql
+-- All of these reference the same system column
+SELECT _EVENT_TIME FROM trades;      -- Uppercase (canonical)
+SELECT _event_time FROM trades;      -- Lowercase
+SELECT _Event_Time FROM trades;      -- Mixed case
+
+-- Same applies in window definitions
+WINDOW SLIDING(_event_time, 5m, 1m)  -- Lowercase works
+WINDOW SLIDING(_EVENT_TIME, 5m, 1m)  -- Uppercase works
+
+-- And in ORDER BY clauses
+ORDER BY _event_time                  -- Lowercase works
+ORDER BY _EVENT_TIME                  -- Uppercase works
+```
+
+This case-insensitivity applies to:
+- SELECT expressions
+- WHERE clause predicates
+- ORDER BY clauses (including within ROWS WINDOW)
+- WINDOW time column specifications
+- AS alias assignments (for derived event time)
+
+**Note**: While system columns are case-insensitive, regular field names from your data are case-sensitive and must match exactly.
+
+### Comparison with Flink/ksqlDB
+
+| Feature | Velostream | Flink SQL | ksqlDB |
+|---------|------------|-----------|--------|
+| Source-level event time | `event.time.field` | `WATERMARK FOR` | `TIMESTAMP` property |
+| Derived event time | `AS _EVENT_TIME` alias | Computed columns | CSAS with TIMESTAMP |
+| Event time in JOIN output | MAX of inputs + override via alias | Implicit | Not configurable |
+| Event time fallback | Falls back to `_TIMESTAMP` | Requires explicit config | ROWTIME always available |
+
 ## Related Features
 
 - [Observability Guide](../ops/OBSERVABILITY.md) - Monitoring watermark performance

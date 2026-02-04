@@ -19,9 +19,10 @@ fields:
     type: string
     nullable: false
     constraints:
-      length:
-        min: 8
-        max: 12
+      enum_values:
+        # Match products.csv IDs for join tests
+        values: ["PROD001", "PROD002", "PROD003", "PROD004", "PROD005", "PROD006", "PROD007", "PROD008", "PROD009"]
+        weights: [0.15, 0.15, 0.15, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05]
 
   - name: quantity
     type: integer
@@ -104,9 +105,10 @@ fields:
         max: 5000.00
 
   - name: event_time
-    type: timestamp
+    type: integer
     nullable: false
+    description: Event timestamp (epoch milliseconds)
     constraints:
-      timestamp_range:
+      timestamp_epoch_ms:
         start: "-24h"
         end: "now"

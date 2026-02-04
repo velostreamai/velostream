@@ -131,6 +131,30 @@ cargo build --release --bin velo-test
 ./target/release/velo-test run demo/test_harness_examples/tier1_basic/01_passthrough.test.yaml
 ```
 
+#### Container Reuse for Faster Test Iterations
+
+When running tests with testcontainers, use `--reuse-containers` to keep the Kafka container running between test runs. This significantly speeds up subsequent test executions by skipping container startup (~5-10 seconds saved per run).
+
+```bash
+# First run - starts a new container with reuse label
+./target/release/velo-test run app.sql --spec test.yaml --use-testcontainers --reuse-containers
+
+# Subsequent runs - reuses existing container (instant startup)
+./target/release/velo-test run app.sql --spec test.yaml --use-testcontainers --reuse-containers
+
+# Clean up reusable containers manually when done
+docker ps --filter "label=velostream.test.reusable" --format "{{.ID}}" | xargs docker rm -f
+```
+
+**How it works**:
+- Containers are labeled with `velostream.test.reusable` for identification
+- On startup with `--reuse-containers`, the harness looks for existing labeled containers
+- If found, it connects to the existing container and cleans up stale topics
+- If not found, it starts a new labeled container
+- At test completion, the container is preserved for future runs
+
+**Without `--reuse-containers`**: Orphaned containers from previous runs are automatically cleaned up before starting fresh.
+
 #### Test Spec Structure
 
 ```yaml
@@ -343,6 +367,19 @@ precedence over configuration file settings (12-factor app style).
 |-----------------------------------------|----------------------------------|---------|
 | `VELOSTREAM_DEFAULT_PARTITIONS`         | Default Kafka topic partitions   | `6`     |
 | `VELOSTREAM_DEFAULT_REPLICATION_FACTOR` | Default topic replication factor | `3`     |
+
+### Transactional Configuration
+
+| Environment Variable                       | Description                                              | Default |
+|--------------------------------------------|----------------------------------------------------------|---------|
+| `VELOSTREAM_ALLOW_TRANSACTIONAL_FALLBACK`  | Allow fallback to non-transactional when init fails      | `false` |
+
+**Important**: When `@job_mode: transactional` is configured, the system requires exactly-once semantics. If the
+transactional producer fails to initialize (e.g., on testcontainers), the job will **fail by default** to prevent
+silent degradation of guarantees.
+
+Set `VELOSTREAM_ALLOW_TRANSACTIONAL_FALLBACK=true` only for testing with testcontainers where transaction coordinator
+support is limited. **Never use in production** as it breaks exactly-once semantics.
 
 ### Usage Examples
 

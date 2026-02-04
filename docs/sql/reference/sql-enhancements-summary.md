@@ -249,7 +249,7 @@ HAVING COUNT(*) > 50 AND COUNT(DISTINCT location) > 3;
 | **Math Functions** | ABS, ROUND, CEIL, FLOOR, MOD, POWER, SQRT | ✅ Complete |
 | **String Functions** | CONCAT, LENGTH, TRIM, UPPER, LOWER, REPLACE, LEFT, RIGHT, SUBSTRING, **POSITION** | ✅ Complete |
 | **Date/Time Functions** | NOW, CURRENT_TIMESTAMP, DATE_FORMAT, EXTRACT, **DATEDIFF** | ✅ Complete |
-| **Aggregate Functions** | COUNT, SUM, AVG, MIN, MAX, **LISTAGG** | ✅ Complete |
+| **Aggregate Functions** | COUNT, SUM, AVG, MIN, MAX, STDDEV/STDDEV_SAMP, STDDEV_POP, VARIANCE/VAR_SAMP, VAR_POP, MEDIAN, COUNT_DISTINCT, APPROX_COUNT_DISTINCT, FIRST/FIRST_VALUE, LAST/LAST_VALUE, STRING_AGG/LISTAGG/GROUP_CONCAT/COLLECT | ✅ Complete |
 | **Utility Functions** | COALESCE, NULLIF, CAST, TIMESTAMP | ✅ Complete |
 | **JSON Functions** | JSON_VALUE, JSON_EXTRACT | ✅ Complete |
 | **Header Functions** | HEADER, HAS_HEADER, HEADER_KEYS | ✅ Complete |

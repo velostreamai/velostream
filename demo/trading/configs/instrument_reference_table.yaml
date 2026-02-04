@@ -21,6 +21,10 @@ data_source:
   format: csv
   has_headers: true
 
+# File path for the data
+file:
+  path: ../data/instrument_reference.csv
+
 # Table schema definition
 schema:
   fields:

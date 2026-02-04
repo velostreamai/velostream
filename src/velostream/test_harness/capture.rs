@@ -177,13 +177,34 @@ impl SinkCapture {
         let mut last_message_time: Option<std::time::Instant> = None;
         let mut received_first_message = false;
 
+        // Retry configuration for topics that haven't been created yet
+        // (e.g., auto-created by the producer on a fresh Kafka container)
+        let mut topic_not_found_retries: u32 = 0;
+        let max_topic_retries: u32 = 5;
+        let topic_retry_delay = Duration::from_secs(2);
+
         // Create message stream
         let mut stream = consumer.stream();
+
+        // Initial wait timeout: fail fast if no messages within reasonable time
+        // Use 30 seconds or half the total timeout, whichever is smaller
+        let initial_wait_timeout = std::cmp::min(Duration::from_secs(30), self.config.timeout / 2);
 
         loop {
             // Check overall timeout
             if start.elapsed() >= self.config.timeout {
                 log::debug!("Overall timeout reached after {:?}", start.elapsed());
+                break;
+            }
+
+            // Check initial wait timeout: if we haven't received ANY messages
+            // within initial_wait_timeout, the topic is likely empty or doesn't exist
+            if !received_first_message && start.elapsed() >= initial_wait_timeout {
+                log::warn!(
+                    "No messages received from topic '{}' after {:?}, assuming empty or missing",
+                    topic,
+                    initial_wait_timeout
+                );
                 break;
             }
 
@@ -288,6 +309,57 @@ impl SinkCapture {
                         }
                     }
                     Err(e) => {
+                        let error_str = e.to_string();
+                        // Check for topic-not-yet-created errors
+                        // When running tests back-to-back with fresh containers, the output
+                        // topic may not exist yet because the producer is still auto-creating it.
+                        // Retry with backoff instead of failing immediately.
+                        if error_str.contains("UnknownTopicOrPartition")
+                            || error_str.contains("Unknown topic or partition")
+                        {
+                            topic_not_found_retries += 1;
+                            if topic_not_found_retries <= max_topic_retries {
+                                log::warn!(
+                                    "Topic '{}' not yet available (attempt {}/{}), retrying in {}s...",
+                                    topic,
+                                    topic_not_found_retries,
+                                    max_topic_retries,
+                                    topic_retry_delay.as_secs()
+                                );
+                                // Unsubscribe and resubscribe after a delay,
+                                // then recreate the stream to avoid stale state.
+                                consumer.unsubscribe();
+                                tokio::time::sleep(topic_retry_delay).await;
+                                consumer.subscribe(&[topic]).map_err(|e| {
+                                    TestHarnessError::CaptureError {
+                                        message: format!(
+                                            "Failed to resubscribe to topic '{}': {}",
+                                            topic, e
+                                        ),
+                                        sink_name: topic.to_string(),
+                                        source: Some(e.to_string()),
+                                    }
+                                })?;
+                                stream = consumer.stream();
+                                continue;
+                            }
+                            // Exhausted retries - fail
+                            log::error!(
+                                "Topic '{}' does not exist after {} retries: {}",
+                                topic,
+                                max_topic_retries,
+                                error_str
+                            );
+                            return Err(TestHarnessError::CaptureError {
+                                message: format!(
+                                    "Topic '{}' does not exist. This usually means the query \
+                                    failed to produce output or the output topic was not created.",
+                                    topic
+                                ),
+                                sink_name: topic.to_string(),
+                                source: Some(error_str),
+                            });
+                        }
                         warnings.push(format!("Error consuming message: {}", e));
                     }
                 },

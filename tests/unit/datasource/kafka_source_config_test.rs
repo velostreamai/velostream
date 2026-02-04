@@ -469,3 +469,60 @@ datasource:
 // Config file loading functionality is thoroughly tested by:
 // - test_config_file_loading_with_sql_pattern (main SQL pattern)
 // - Common helper tests in config_loader module
+
+#[test]
+fn test_event_time_config_parsed_from_properties() {
+    use velostream::velostream::datasource::TimestampFormat;
+
+    // Given: Properties with event.time.field and event.time.format
+    let mut props = HashMap::new();
+    props.insert(
+        "bootstrap.servers".to_string(),
+        "localhost:9092".to_string(),
+    );
+    props.insert("event.time.field".to_string(), "timestamp".to_string());
+    props.insert("event.time.format".to_string(), "epoch_millis".to_string());
+
+    // When: Creating data source
+    let data_source =
+        KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
+
+    // Then: event_time_config should be parsed from properties
+    let event_time_config = data_source.event_time_config();
+    assert!(
+        event_time_config.is_some(),
+        "event_time_config should be parsed from properties"
+    );
+
+    let etc = event_time_config.unwrap();
+    assert_eq!(
+        etc.field_name, "timestamp",
+        "event_time field_name should be 'timestamp'"
+    );
+    assert_eq!(
+        etc.format,
+        Some(TimestampFormat::EpochMillis),
+        "event_time format should be EpochMillis"
+    );
+}
+
+#[test]
+fn test_event_time_config_is_none_when_not_specified() {
+    // Given: Properties WITHOUT event.time.field
+    let mut props = HashMap::new();
+    props.insert(
+        "bootstrap.servers".to_string(),
+        "localhost:9092".to_string(),
+    );
+
+    // When: Creating data source
+    let data_source =
+        KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
+
+    // Then: event_time_config should be None
+    let event_time_config = data_source.event_time_config();
+    assert!(
+        event_time_config.is_none(),
+        "event_time_config should be None when event.time.field is not specified"
+    );
+}

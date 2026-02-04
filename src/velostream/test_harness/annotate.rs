@@ -584,6 +584,8 @@ pub struct QueryAnalysis {
     pub select_fields: Vec<String>,
     /// Numeric fields in SELECT
     pub numeric_select_fields: Vec<String>,
+    /// Metric annotations from SQL @metric comments
+    pub metric_annotations: Vec<crate::velostream::sql::parser::annotations::MetricAnnotation>,
 }
 
 /// Query type
@@ -710,15 +712,20 @@ impl Annotator {
             group_by: Vec::new(),
             select_fields: Vec::new(),
             numeric_select_fields: Vec::new(),
+            metric_annotations: Vec::new(),
         };
 
         // Extract info based on query type
         match query {
             StreamingQuery::CreateStream {
-                name, as_select, ..
+                name,
+                as_select,
+                metric_annotations,
+                ..
             } => {
                 analysis.name = name.clone();
                 analysis.query_type = QueryType::CreateStream;
+                analysis.metric_annotations = metric_annotations.clone();
                 // Recursively analyze the inner SELECT
                 let inner = self.analyze_query(as_select);
                 analysis.has_count = inner.has_count;
@@ -804,103 +811,40 @@ impl Annotator {
         analysis
     }
 
-    /// Sanitize a field name for use in a Prometheus metric name
-    /// Prometheus metric names only allow [a-zA-Z_:][a-zA-Z0-9_:]*
-    fn sanitize_metric_name_part(&self, name: &str) -> String {
-        name.chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '_' || c == ':' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect()
+    /// Convert a parser MetricType to the local MetricType
+    fn convert_metric_type(
+        mt: &crate::velostream::sql::parser::annotations::MetricType,
+    ) -> MetricType {
+        match mt {
+            crate::velostream::sql::parser::annotations::MetricType::Counter => MetricType::Counter,
+            crate::velostream::sql::parser::annotations::MetricType::Gauge => MetricType::Gauge,
+            crate::velostream::sql::parser::annotations::MetricType::Histogram => {
+                MetricType::Histogram
+            }
+        }
     }
 
-    /// Generate metrics for a query based on analysis
+    /// Generate metrics for a query from explicit `@metric` annotations.
+    ///
+    /// Only explicit annotations are used — these match what the server actually emits.
+    /// Queries without `@metric` annotations produce no metrics.
     fn generate_metrics_for_query(&self, query: &QueryAnalysis) -> Vec<DetectedMetric> {
-        let mut metrics = Vec::new();
-        let prefix = format!("velo_{}", self.config.app_name.replace('-', "_"));
-        let query_name = self.sanitize_metric_name_part(&query.name);
-
-        // Always generate a records counter for each query
-        metrics.push(DetectedMetric {
-            name: format!("{}_{}_records_total", prefix, query_name),
-            metric_type: MetricType::Counter,
-            help: format!("Total records processed by {}", query.name),
-            labels: query.group_by.clone(),
-            field: None,
-            buckets: None,
-            query_name: query.name.clone(),
-        });
-
-        // If has COUNT aggregation, suggest counter for count results
-        if query.has_count {
-            metrics.push(DetectedMetric {
-                name: format!("{}_{}_count", prefix, query_name),
-                metric_type: MetricType::Counter,
-                help: format!("Count aggregation from {}", query.name),
-                labels: query.group_by.clone(),
-                field: Some("count".to_string()),
-                buckets: None,
+        query
+            .metric_annotations
+            .iter()
+            .map(|ann| DetectedMetric {
+                name: ann.name.clone(),
+                metric_type: Self::convert_metric_type(&ann.metric_type),
+                help: ann
+                    .help
+                    .clone()
+                    .unwrap_or_else(|| format!("{} metric", ann.name)),
+                labels: ann.labels.clone(),
+                field: ann.field.clone(),
+                buckets: ann.buckets.clone(),
                 query_name: query.name.clone(),
-            });
-        }
-
-        // If has SUM/AVG, suggest gauge for aggregated values
-        if query.has_sum || query.has_avg {
-            for field in &query.numeric_select_fields {
-                let sanitized_field = self.sanitize_metric_name_part(field);
-                metrics.push(DetectedMetric {
-                    name: format!("{}_{}_{}", prefix, query_name, sanitized_field),
-                    metric_type: MetricType::Gauge,
-                    help: format!("Current {} from {}", field, query.name),
-                    labels: query.group_by.clone(),
-                    field: Some(field.clone()),
-                    buckets: None,
-                    query_name: query.name.clone(),
-                });
-            }
-        }
-
-        // If has window with latency-like fields, suggest histogram
-        if query.has_window {
-            for field in &query.numeric_select_fields {
-                if self.is_latency_field(field) {
-                    let sanitized_field = self.sanitize_metric_name_part(field);
-                    metrics.push(DetectedMetric {
-                        name: format!("{}_{}_{}_seconds", prefix, query_name, sanitized_field),
-                        metric_type: MetricType::Histogram,
-                        help: format!("Distribution of {} from {}", field, query.name),
-                        labels: query.group_by.clone(),
-                        field: Some(field.clone()),
-                        buckets: Some(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]),
-                        query_name: query.name.clone(),
-                    });
-                }
-            }
-        }
-
-        // If query has price-like fields, suggest gauge
-        for field in &query.numeric_select_fields {
-            if self.is_price_field(field)
-                && !metrics.iter().any(|m| m.field.as_ref() == Some(field))
-            {
-                let sanitized_field = self.sanitize_metric_name_part(field);
-                metrics.push(DetectedMetric {
-                    name: format!("{}_current_{}", prefix, sanitized_field),
-                    metric_type: MetricType::Gauge,
-                    help: format!("Current {} value", field),
-                    labels: query.group_by.clone(),
-                    field: Some(field.clone()),
-                    buckets: None,
-                    query_name: query.name.clone(),
-                });
-            }
-        }
-
-        metrics
+            })
+            .collect()
     }
 
     /// Generate annotated SQL content
@@ -946,116 +890,15 @@ impl Annotator {
         Ok(output)
     }
 
-    /// Insert metric annotations immediately before each CREATE STREAM/TABLE statement
-    fn insert_metrics_before_queries(&self, original_sql: &str, analysis: &SqlAnalysis) -> String {
-        // Group metrics by query_name
-        let mut metrics_by_query: std::collections::HashMap<String, Vec<&DetectedMetric>> =
-            std::collections::HashMap::new();
-        for metric in &analysis.metrics {
-            metrics_by_query
-                .entry(metric.query_name.clone())
-                .or_default()
-                .push(metric);
-        }
-
-        let mut result = String::new();
-        let mut current_pos = 0;
-        let sql_upper = original_sql.to_uppercase();
-
-        // Find all CREATE STREAM and CREATE TABLE positions
-        let create_patterns = ["CREATE STREAM", "CREATE TABLE"];
-
-        // Collect all CREATE positions with their query names
-        let mut create_positions: Vec<(usize, String)> = Vec::new();
-
-        for pattern in &create_patterns {
-            let mut search_pos = 0;
-            while let Some(pos) = sql_upper[search_pos..].find(pattern) {
-                let absolute_pos = search_pos + pos;
-
-                // Extract the query name (word after CREATE STREAM/TABLE)
-                let after_pattern = &original_sql[absolute_pos + pattern.len()..];
-                let query_name = after_pattern
-                    .trim_start()
-                    .split(|c: char| !c.is_alphanumeric() && c != '_')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-
-                if !query_name.is_empty() {
-                    create_positions.push((absolute_pos, query_name));
-                }
-
-                search_pos = absolute_pos + pattern.len();
-            }
-        }
-
-        // Sort by position
-        create_positions.sort_by_key(|(pos, _)| *pos);
-
-        // Build result with metrics inserted before each CREATE
-        for (create_pos, query_name) in create_positions {
-            // Add SQL content before this CREATE statement
-            result.push_str(&original_sql[current_pos..create_pos]);
-
-            // Add metrics for this query if any exist
-            if let Some(metrics) = metrics_by_query.get(&query_name) {
-                result.push_str(&self.format_metrics_for_query(metrics, &query_name));
-            }
-
-            current_pos = create_pos;
-        }
-
-        // Add remaining SQL after the last CREATE
-        result.push_str(&original_sql[current_pos..]);
-
-        result
-    }
-
-    /// Format metrics as SQL comments for a specific query
-    /// Note: Comments must NOT appear on the same line as annotation values
-    /// because the parser reads the full value after `: ` including any comments
-    fn format_metrics_for_query(&self, metrics: &[&DetectedMetric], query_name: &str) -> String {
-        let mut output = String::new();
-        output.push_str(
-            "-- -----------------------------------------------------------------------------\n",
-        );
-        output.push_str(&format!("-- METRICS for {}\n", query_name));
-        output.push_str(
-            "-- -----------------------------------------------------------------------------\n",
-        );
-
-        for metric in metrics {
-            output.push_str(&format!("-- @metric: {}\n", metric.name));
-            output.push_str(&format!(
-                "-- @metric_type: {}\n",
-                metric.metric_type.as_str()
-            ));
-            output.push_str(&format!("-- @metric_help: \"{}\"\n", metric.help));
-
-            if !metric.labels.is_empty() {
-                output.push_str(&format!(
-                    "-- @metric_labels: {}\n",
-                    metric.labels.join(", ")
-                ));
-            }
-
-            if let Some(ref field) = metric.field {
-                output.push_str(&format!("-- @metric_field: {}\n", field));
-            }
-
-            if let Some(ref buckets) = metric.buckets {
-                let bucket_str = buckets
-                    .iter()
-                    .map(|b| b.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                output.push_str(&format!("-- @metric_buckets: [{}]\n", bucket_str));
-            }
-            output.push_str("--\n");
-        }
-
-        output
+    /// Pass through the original SQL queries, preserving developer-authored `@metric`
+    /// annotations as the single authoritative source.
+    ///
+    /// `analysis.metrics` is derived from parsing those same source annotations, so
+    /// re-inserting them would always produce duplicates. The annotator's role is to
+    /// generate the header (deployment, observability, SLA) and external artifacts
+    /// (dashboards, prometheus config) — not to rewrite metric annotations.
+    fn insert_metrics_before_queries(&self, original_sql: &str, _analysis: &SqlAnalysis) -> String {
+        original_sql.to_string()
     }
 
     /// Generate header annotations
@@ -1538,16 +1381,24 @@ overrides:
         ));
         panel_id += 1;
 
-        // Add pie chart for records by query (if we have metrics)
-        if !analysis.metrics.is_empty() {
+        // Add pie chart for records by query using explicit @metric counters
+        let counter_names: Vec<_> = analysis
+            .metrics
+            .iter()
+            .filter(|m| matches!(m.metric_type, MetricType::Counter))
+            .map(|m| m.name.as_str())
+            .collect();
+        if !counter_names.is_empty() {
+            let regex = counter_names.join("|");
             panels.push(self.create_piechart_panel(
                 panel_id,
                 "Records Distribution by Query",
-                "sum by (query) (velo_query_records_total)",
+                &format!("sum by (__name__) ({{__name__=~\"{}\"}})", regex),
                 12,
                 y_pos,
                 12,
                 8,
+                "{{__name__}}",
             ));
             panel_id += 1;
         } else {
@@ -1577,12 +1428,21 @@ overrides:
                 panels.push(self.create_bargauge_panel(
                     panel_id,
                     &format!("Top Symbols: {}", metric.help),
-                    &format!("topk(5, sum by (symbol) ({}))", metric.name),
+                    &if metric.labels.is_empty() {
+                        format!("sum({})", metric.name)
+                    } else {
+                        format!(
+                            "topk(5, sum by ({}) ({}))",
+                            metric.labels.join(", "),
+                            metric.name
+                        )
+                    },
                     0,
                     y_pos,
                     12,
                     6,
                     "short",
+                    &Self::legend_format_from_labels(&metric.labels),
                 ));
                 panel_id += 1;
             }
@@ -1623,7 +1483,7 @@ overrides:
             y_pos += 6;
         }
 
-        // Add panels for each detected metric with varied types
+        // Add panels for @metric annotations
         let metrics_to_show: Vec<_> = analysis.metrics.iter().take(12).collect();
         for (i, metric) in metrics_to_show.iter().enumerate() {
             let panel_type = i % 4; // Cycle through different panel types
@@ -1664,25 +1524,34 @@ overrides:
                 (1, MetricType::Counter) => self.create_bargauge_panel(
                     panel_id,
                     &metric.help,
-                    &format!("topk(5, sum by (symbol) ({}))", metric.name),
+                    &if metric.labels.is_empty() {
+                        format!("sum({})", metric.name)
+                    } else {
+                        format!(
+                            "topk(5, sum by ({}) ({}))",
+                            metric.labels.join(", "),
+                            metric.name
+                        )
+                    },
                     x_pos as i32,
                     y_pos,
                     12,
                     8,
                     unit,
+                    &Self::legend_format_from_labels(&metric.labels),
                 ),
                 // Third: table for showing raw metric values
                 (2, _) if i < 8 => self.create_table_panel(
                     panel_id,
                     &metric.help,
-                    &metric.name,
+                    &expr,
                     x_pos as i32,
                     y_pos,
                     12,
                     8,
                 ),
                 // Default: timeseries
-                _ => self.create_timeseries_panel(
+                _ => self.create_timeseries_panel_with_legend(
                     panel_id,
                     &metric.help,
                     &expr,
@@ -1691,6 +1560,7 @@ overrides:
                     12,
                     8,
                     unit,
+                    &Self::legend_format_from_labels(&metric.labels),
                 ),
             };
             panels.push(panel);
@@ -1810,6 +1680,20 @@ overrides:
         })
     }
 
+    /// Build a Grafana legend format string from metric labels.
+    /// e.g. ["symbol"] → "{{symbol}}", ["symbol", "exchange"] → "{{symbol}} - {{exchange}}"
+    fn legend_format_from_labels(labels: &[String]) -> String {
+        if labels.is_empty() {
+            "{{job}}".to_string()
+        } else {
+            labels
+                .iter()
+                .map(|l| format!("{{{{{}}}}}", l))
+                .collect::<Vec<_>>()
+                .join(" - ")
+        }
+    }
+
     /// Create a timeseries panel
     fn create_timeseries_panel(
         &self,
@@ -1821,6 +1705,21 @@ overrides:
         w: i32,
         h: i32,
         unit: &str,
+    ) -> JsonValue {
+        self.create_timeseries_panel_with_legend(id, title, expr, x, y, w, h, unit, "{{job}}")
+    }
+
+    fn create_timeseries_panel_with_legend(
+        &self,
+        id: i32,
+        title: &str,
+        expr: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        unit: &str,
+        legend_format: &str,
     ) -> JsonValue {
         json!({
             "datasource": {
@@ -1877,7 +1776,7 @@ overrides:
                 },
                 "expr": expr,
                 "interval": "",
-                "legendFormat": "{{job}}",
+                "legendFormat": legend_format,
                 "refId": "A"
             }],
             "title": title,
@@ -1961,6 +1860,7 @@ overrides:
         w: i32,
         h: i32,
         unit: &str,
+        legend_format: &str,
     ) -> JsonValue {
         json!({
             "datasource": {
@@ -2004,7 +1904,7 @@ overrides:
                 },
                 "expr": expr,
                 "interval": "",
-                "legendFormat": "{{symbol}}",
+                "legendFormat": legend_format,
                 "refId": "A"
             }],
             "title": title,
@@ -2022,6 +1922,7 @@ overrides:
         y: i32,
         w: i32,
         h: i32,
+        legend_format: &str,
     ) -> JsonValue {
         json!({
             "datasource": {
@@ -2066,7 +1967,7 @@ overrides:
                 "expr": expr,
                 "instant": true,
                 "interval": "",
-                "legendFormat": "{{symbol}}",
+                "legendFormat": legend_format,
                 "refId": "A"
             }],
             "title": title,
@@ -2217,23 +2118,6 @@ overrides:
             || lower.contains("duration")
             || lower.ends_with("_ms")
             || lower.ends_with("_seconds")
-    }
-
-    fn is_latency_field(&self, name: &str) -> bool {
-        let lower = name.to_lowercase();
-        lower.contains("latency")
-            || lower.contains("duration")
-            || lower.contains("time")
-            || lower.ends_with("_ms")
-            || lower.ends_with("_seconds")
-    }
-
-    fn is_price_field(&self, name: &str) -> bool {
-        let lower = name.to_lowercase();
-        lower.contains("price")
-            || lower.contains("amount")
-            || lower.contains("value")
-            || lower.contains("cost")
     }
 
     fn extract_source(&self, query: &StreamingQuery) -> Option<String> {

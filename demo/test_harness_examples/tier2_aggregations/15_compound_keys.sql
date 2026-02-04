@@ -65,6 +65,7 @@ WITH (
 
 -- Example 3: Single PRIMARY KEY with compound GROUP BY
 -- PRIMARY KEY takes precedence - Kafka key will be just: "AAPL" (not compound)
+-- Note: Uses trades_3 as input to avoid topic conflicts with trader_symbol_stats
 CREATE TABLE symbol_only_key AS
 SELECT
     symbol PRIMARY KEY,
@@ -73,14 +74,14 @@ SELECT
     SUM(quantity * price) AS total_value,
     _window_start AS window_start,
     _window_end AS window_end
-FROM trades
+FROM trades_3
 GROUP BY symbol, exchange
 WINDOW TUMBLING(1m)
 EMIT CHANGES
 WITH (
-    'trades.type' = 'kafka_source',
-    'trades.topic.name' = 'test_trades',
-    'trades.config_file' = '../configs/trades_source.yaml',
+    'trades_3.type' = 'kafka_source',
+    'trades_3.topic.name' = 'test_trades_3',
+    'trades_3.config_file' = '../configs/trades_source.yaml',
 
     'symbol_only_key.type' = 'kafka_sink',
     'symbol_only_key.topic.name' = 'test_symbol_only_key',

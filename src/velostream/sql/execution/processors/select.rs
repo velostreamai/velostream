@@ -5,9 +5,11 @@
 
 use super::{
     DistinctState, HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor,
-    ProcessorContext, ProcessorResult, TableReference, query_parsing,
+    ProcessorContext, ProcessorResult, TableReference, WindowContext, query_parsing,
 };
-use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
+use crate::velostream::sql::ast::{
+    Expr, LiteralValue, RowsEmitMode, SelectField, StreamSource, WindowSpec,
+};
 use crate::velostream::sql::execution::{
     FieldValue, StreamRecord,
     aggregation::{AccumulatorManager, state::GroupByStateManager},
@@ -42,6 +44,15 @@ const HASH_TYPE_INTERVAL: u8 = 11;
 /// This prevents unbounded memory growth in long-running streams.
 /// When exceeded, oldest entries are evicted (FIFO).
 pub const DEFAULT_DISTINCT_MAX_ENTRIES: usize = 100_000;
+
+/// Prefix for ROWS WINDOW state keys in the ProcessorContext cache.
+/// Format: "{ROWS_WINDOW_STATE_KEY_PREFIX}{source_name}:{partition_key}"
+const ROWS_WINDOW_STATE_KEY_PREFIX: &str = "rows_window:select_";
+
+/// Maximum number of ROWS WINDOW config entries to cache per ProcessorContext.
+/// Prevents unbounded memory growth if many different source names are used.
+/// In practice, most contexts have 1-3 sources, so this is generous.
+const ROWS_WINDOW_CONFIG_CACHE_MAX_SIZE: usize = 100;
 
 /// Parameter binding for SQL queries to prevent injection
 #[derive(Debug, Clone)]
@@ -513,6 +524,72 @@ impl SelectProcessor {
                 );
             }
 
+            // === ROWS WINDOW buffer management for non-windowed SELECT ===
+            // When SELECT fields contain window functions with ROWS WINDOW OVER clauses
+            // but there is no top-level WINDOW clause, we need to manage the buffer here.
+            // Use cached ROWS WINDOW config to avoid re-walking the AST every record.
+            // Cache key uses the source name which is constant for a given query.
+            let cache_key = match from {
+                StreamSource::Stream(name) | StreamSource::Table(name) => name.clone(),
+                StreamSource::Uri(uri) => uri.clone(),
+                StreamSource::Subquery(_) => "subquery".to_string(),
+            };
+
+            // Use entry API for efficient cache access (single lookup instead of contains+get+insert)
+            // Evict oldest entries if cache exceeds max size to prevent unbounded growth
+            if context.rows_window_config_cache.len() >= ROWS_WINDOW_CONFIG_CACHE_MAX_SIZE {
+                // Simple eviction: remove first entry (HashMap iteration order is arbitrary but stable)
+                if let Some(key_to_remove) = context.rows_window_config_cache.keys().next().cloned()
+                {
+                    context.rows_window_config_cache.remove(&key_to_remove);
+                }
+            }
+
+            let rows_window_cached = context
+                .rows_window_config_cache
+                .entry(cache_key.clone())
+                .or_insert_with(|| {
+                    Self::extract_rows_window_config(fields).map(|(buf, parts, emit)| {
+                        let source_label = match from {
+                            StreamSource::Stream(name) | StreamSource::Table(name) => name.clone(),
+                            StreamSource::Uri(uri) => uri.replace("://", "_").replace("/", "_"),
+                            StreamSource::Subquery(_) => "subquery".to_string(),
+                        };
+                        let prefix = format!("{}{}", ROWS_WINDOW_STATE_KEY_PREFIX, source_label);
+                        (buf, parts, emit, prefix)
+                    })
+                })
+                .clone(); // Clone is cheap: Option of (u32, small Vec<String>, enum, short String)
+            if let Some((max_buffer, ref partition_cols, ref emit_mode, ref prefix)) =
+                rows_window_cached
+            {
+                let partition_key = Self::compute_partition_key(&joined_record, partition_cols);
+                let state_key = format!("{}:{}", prefix, partition_key);
+
+                let state = context.get_or_create_rows_window_state(
+                    &state_key,
+                    max_buffer,
+                    emit_mode.clone(),
+                    None, // time_gap
+                    partition_key,
+                );
+
+                // Add current record to buffer FIRST, then clone once
+                state.row_buffer.push_back(joined_record.clone());
+                if state.row_buffer.len() > state.buffer_size as usize {
+                    state.row_buffer.pop_front();
+                }
+                state.record_count += 1;
+                let buffer: Vec<StreamRecord> = state.row_buffer.iter().cloned().collect();
+
+                context.window_context = Some(WindowContext {
+                    buffer,
+                    last_emit: 0,
+                    should_emit: true,
+                    buffer_includes_current: true,
+                });
+            }
+
             // Apply SELECT fields
             // Phase 3: Validate SELECT clause expressions exist in the joined record
             let select_expressions: Vec<&Expr> = fields
@@ -532,96 +609,107 @@ impl SelectProcessor {
             let mut alias_context = SelectAliasContext::new();
             let mut header_mutations = Vec::new();
 
-            for field in fields {
-                match field {
-                    SelectField::Wildcard => {
-                        result_fields.extend(joined_record.fields.clone());
-                    }
-                    SelectField::Column(name) => {
-                        // Check for system columns first (case insensitive)
-                        let field_value = match name.to_uppercase().as_str() {
-                            system_columns::TIMESTAMP => {
-                                Some(FieldValue::Integer(joined_record.timestamp))
-                            }
-                            system_columns::OFFSET => {
-                                Some(FieldValue::Integer(joined_record.offset))
-                            }
-                            system_columns::PARTITION => {
-                                Some(FieldValue::Integer(joined_record.partition as i64))
-                            }
-                            _ => {
-                                // Support qualified names like "c.id" by stripping the alias prefix
-                                if let Some(value) = joined_record.fields.get(name).cloned() {
-                                    Some(value)
-                                } else if let Some(pos) = name.rfind('.') {
-                                    // Try with just the base column name (after the dot)
-                                    let base_name = &name[pos + 1..];
-                                    joined_record.fields.get(base_name).cloned()
-                                } else {
-                                    None
-                                }
-                            }
-                        };
-
-                        if let Some(value) = field_value {
-                            result_fields.insert(name.clone(), value);
+            let eval_result: Result<(), SqlError> = (|| {
+                for field in fields {
+                    match field {
+                        SelectField::Wildcard => {
+                            result_fields.extend(joined_record.fields.clone());
                         }
-                    }
-                    SelectField::AliasedColumn { column, alias } => {
-                        // Check for system columns first (case insensitive)
-                        let field_value = match column.to_uppercase().as_str() {
-                            system_columns::TIMESTAMP => {
-                                Some(FieldValue::Integer(joined_record.timestamp))
-                            }
-                            system_columns::OFFSET => {
-                                Some(FieldValue::Integer(joined_record.offset))
-                            }
-                            system_columns::PARTITION => {
-                                Some(FieldValue::Integer(joined_record.partition as i64))
-                            }
-                            _ => {
-                                // Support qualified names like "c.id" by stripping the alias prefix
-                                if let Some(value) = joined_record.fields.get(column).cloned() {
-                                    Some(value)
-                                } else if let Some(pos) = column.rfind('.') {
-                                    // Try with just the base column name (after the dot)
-                                    let base_name = &column[pos + 1..];
-                                    joined_record.fields.get(base_name).cloned()
-                                } else {
-                                    None
+                        SelectField::Column(name) => {
+                            // Check for system columns first (case insensitive)
+                            let field_value = match name.to_uppercase().as_str() {
+                                system_columns::TIMESTAMP => {
+                                    Some(FieldValue::Integer(joined_record.timestamp))
                                 }
-                            }
-                        };
+                                system_columns::OFFSET => {
+                                    Some(FieldValue::Integer(joined_record.offset))
+                                }
+                                system_columns::PARTITION => {
+                                    Some(FieldValue::Integer(joined_record.partition as i64))
+                                }
+                                _ => {
+                                    // Support qualified names like "c.id" by stripping the alias prefix
+                                    if let Some(value) = joined_record.fields.get(name).cloned() {
+                                        Some(value)
+                                    } else if let Some(pos) = name.rfind('.') {
+                                        // Try with just the base column name (after the dot)
+                                        let base_name = &name[pos + 1..];
+                                        joined_record.fields.get(base_name).cloned()
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
 
-                        if let Some(value) = field_value {
-                            result_fields.insert(alias.clone(), value.clone());
-                            alias_context.add_alias(alias.clone(), value);
+                            if let Some(value) = field_value {
+                                result_fields.insert(name.clone(), value);
+                            }
                         }
-                    }
-                    SelectField::Expression { expr, alias } => {
-                        // NEW: Use evaluator that supports BOTH alias context AND subqueries
-                        // This enables scalar subqueries in SELECT fields to work properly (Phase 5)
-                        let subquery_executor = SelectProcessor;
-                        let value =
-                            ExpressionEvaluator::evaluate_expression_value_with_alias_and_subquery_context(
-                                expr,
-                                &joined_record,
-                                &alias_context,
-                                &subquery_executor,
-                                context,
-                            )?;
-                        let field_name = alias
-                            .as_ref()
-                            .unwrap_or(&Self::get_expression_name(expr))
-                            .clone();
-                        result_fields.insert(field_name.clone(), value.clone());
-                        // NEW: Add this field's alias to context for next field
-                        if let Some(alias_name) = alias {
-                            alias_context.add_alias(alias_name.clone(), value);
+                        SelectField::AliasedColumn { column, alias } => {
+                            // Check for system columns first (case insensitive)
+                            let field_value = match column.to_uppercase().as_str() {
+                                system_columns::TIMESTAMP => {
+                                    Some(FieldValue::Integer(joined_record.timestamp))
+                                }
+                                system_columns::OFFSET => {
+                                    Some(FieldValue::Integer(joined_record.offset))
+                                }
+                                system_columns::PARTITION => {
+                                    Some(FieldValue::Integer(joined_record.partition as i64))
+                                }
+                                _ => {
+                                    // Support qualified names like "c.id" by stripping the alias prefix
+                                    if let Some(value) = joined_record.fields.get(column).cloned() {
+                                        Some(value)
+                                    } else if let Some(pos) = column.rfind('.') {
+                                        // Try with just the base column name (after the dot)
+                                        let base_name = &column[pos + 1..];
+                                        joined_record.fields.get(base_name).cloned()
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
+
+                            if let Some(value) = field_value {
+                                result_fields.insert(alias.clone(), value.clone());
+                                alias_context.add_alias(alias.clone(), value);
+                            }
+                        }
+                        SelectField::Expression { expr, alias } => {
+                            // NEW: Use evaluator that supports BOTH alias context AND subqueries
+                            // This enables scalar subqueries in SELECT fields to work properly (Phase 5)
+                            let subquery_executor = SelectProcessor;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value_with_alias_and_subquery_context(
+                                    expr,
+                                    &joined_record,
+                                    &alias_context,
+                                    &subquery_executor,
+                                    context,
+                                )?;
+                            let field_name = alias
+                                .as_ref()
+                                .unwrap_or(&Self::get_expression_name(expr))
+                                .clone();
+                            result_fields.insert(field_name.clone(), value.clone());
+                            // NEW: Add this field's alias to context for next field
+                            if let Some(alias_name) = alias {
+                                alias_context.add_alias(alias_name.clone(), value);
+                            }
                         }
                     }
                 }
+                Ok(())
+            })();
+
+            // Always clear ROWS WINDOW context, even on error
+            if rows_window_cached.is_some() {
+                context.window_context = None;
             }
+
+            // Propagate any error from expression evaluation
+            eval_result?;
 
             // FR-081: Detect if any field was aliased as _EVENT_TIME for SQL-based event-time assignment
             // This allows queries like: SELECT timestamp as _event_time FROM stream
@@ -785,37 +873,11 @@ impl SelectProcessor {
                 &mut header_mutations,
             )?;
 
-            // FR-081: Convert event_time_value to DateTime if _event_time was assigned
-            // Default to NOW() if not assigned or conversion fails
-            let computed_event_time = match event_time_value {
-                Some(val) => {
-                    match val {
-                        FieldValue::Integer(millis) => {
-                            // Convert milliseconds since epoch to DateTime
-                            chrono::DateTime::from_timestamp(
-                                millis / 1000,
-                                ((millis % 1000) * 1_000_000) as u32,
-                            )
-                            .or_else(|| Some(chrono::Utc::now()))
-                        }
-                        FieldValue::Timestamp(naive_dt) => {
-                            // Convert NaiveDateTime to DateTime<Utc>
-                            Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                                naive_dt,
-                                chrono::Utc,
-                            ))
-                        }
-                        _ => {
-                            // Other types: String, Float, Boolean, ScaledInteger default to NOW()
-                            Some(chrono::Utc::now())
-                        }
-                    }
-                }
-                None => {
-                    // No _event_time assigned: default to NOW()
-                    Some(chrono::Utc::now())
-                }
-            };
+            // FR-081: Compute event_time from _EVENT_TIME alias or preserve from input
+            let computed_event_time = Self::compute_output_event_time(
+                event_time_value.as_ref(),
+                joined_record.event_time,
+            );
 
             let final_record = StreamRecord {
                 fields: result_fields,
@@ -1035,12 +1097,10 @@ impl SelectProcessor {
                     }
                     "AVG" => {
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if !values.is_empty() {
-                                    let avg = values.iter().sum::<f64>() / values.len() as f64;
-                                    Ok(FieldValue::Float(avg))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                                    Some(avg) => Ok(FieldValue::Float(avg)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1076,17 +1136,12 @@ impl SelectProcessor {
                         }
                     }
                     "STDDEV" | "STDDEV_SAMP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance =
-                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                            / (values.len() - 1) as f64;
-                                    let stddev = variance.sqrt();
-                                    Ok(FieldValue::Float(stddev))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_stddev_from_welford(state, true) {
+                                    Some(sd) => Ok(FieldValue::Float(sd)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1096,13 +1151,12 @@ impl SelectProcessor {
                         }
                     }
                     "VARIANCE" | "VAR_SAMP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let variance = Self::calculate_variance(values);
-                                    Ok(FieldValue::Float(variance))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_variance_from_welford(state, true) {
+                                    Some(var) => Ok(FieldValue::Float(var)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1112,17 +1166,12 @@ impl SelectProcessor {
                         }
                     }
                     "STDDEV_POP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance =
-                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                            / values.len() as f64;
-                                    let stddev = variance.sqrt();
-                                    Ok(FieldValue::Float(stddev))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_stddev_from_welford(state, false) {
+                                    Some(sd) => Ok(FieldValue::Float(sd)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1132,16 +1181,12 @@ impl SelectProcessor {
                         }
                     }
                     "VAR_POP" => {
+                        use crate::velostream::sql::execution::aggregation::compute;
                         if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance =
-                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                                            / values.len() as f64;
-                                    Ok(FieldValue::Float(variance))
-                                } else {
-                                    Ok(FieldValue::Null)
+                            if let Some(state) = accumulator.welford_states.get(col_name) {
+                                match compute::compute_variance_from_welford(state, false) {
+                                    Some(var) => Ok(FieldValue::Float(var)),
+                                    None => Ok(FieldValue::Null),
                                 }
                             } else {
                                 Ok(FieldValue::Null)
@@ -1325,7 +1370,7 @@ impl SelectProcessor {
                     }
                     // Handle IN operator with accumulator support
                     crate::velostream::sql::ast::BinaryOperator::In => {
-                        // NULL IN (...) returns false
+                        // SQL semantics: NULL IN (...) returns NULL, treated as false in boolean context
                         if matches!(left_value, FieldValue::Null) {
                             return Ok(FieldValue::Boolean(false));
                         }
@@ -1343,12 +1388,16 @@ impl SelectProcessor {
                                 }
                                 Ok(FieldValue::Boolean(false))
                             }
-                            _ => Ok(FieldValue::Boolean(false)),
+                            _ => Err(SqlError::ExecutionError {
+                                message: "IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
                         }
                     }
                     // Handle NOT IN operator with accumulator support
                     crate::velostream::sql::ast::BinaryOperator::NotIn => {
-                        // NULL NOT IN (...) returns false
+                        // SQL semantics: NULL NOT IN (...) returns NULL, treated as false in boolean context
                         if matches!(left_value, FieldValue::Null) {
                             return Ok(FieldValue::Boolean(false));
                         }
@@ -1366,7 +1415,11 @@ impl SelectProcessor {
                                 }
                                 Ok(FieldValue::Boolean(true))
                             }
-                            _ => Ok(FieldValue::Boolean(true)),
+                            _ => Err(SqlError::ExecutionError {
+                                message: "NOT IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
                         }
                     }
                     _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
@@ -1378,8 +1431,11 @@ impl SelectProcessor {
                 else_clause,
             } => {
                 for (condition, result) in when_clauses {
-                    let cond_value =
-                        Self::evaluate_group_expression_with_accumulator(condition, accumulator, record)?;
+                    let cond_value = Self::evaluate_group_expression_with_accumulator(
+                        condition,
+                        accumulator,
+                        record,
+                    )?;
                     let cond_bool = match cond_value {
                         FieldValue::Boolean(b) => b,
                         FieldValue::Integer(i) => i != 0,
@@ -1481,11 +1537,13 @@ impl SelectProcessor {
         for group_expr in group_exprs.iter() {
             if let Expr::Column(col_name) = group_expr {
                 if !accumulator.first_values.contains_key(col_name) {
-                    // Validate that the GROUP BY column exists in the record
-                    if let Some(value) = record.fields.get(col_name) {
-                        accumulator
-                            .first_values
-                            .insert(col_name.clone(), value.clone());
+                    // Resolve column value (handles system columns and qualified names)
+                    let value = record.resolve_column(col_name);
+                    if !matches!(value, FieldValue::Null)
+                        || record.fields.contains_key(col_name)
+                        || system_columns::normalize_if_system_column(col_name).is_some()
+                    {
+                        accumulator.first_values.insert(col_name.clone(), value);
                     } else {
                         // GROUP BY column not found in record - this is an error
                         return Err(SqlError::ExecutionError {
@@ -1515,11 +1573,30 @@ impl SelectProcessor {
             }
         }
 
+        // Extract SELECT aliases - these are computed fields that should not be validated
+        // as input fields (e.g., "spike_classification" defined as a CASE alias)
+        let mut select_aliases = std::collections::HashSet::new();
+        for field in fields {
+            match field {
+                SelectField::Expression {
+                    alias: Some(alias_name),
+                    ..
+                } => {
+                    select_aliases.insert(alias_name.clone());
+                }
+                SelectField::AliasedColumn { alias, .. } => {
+                    select_aliases.insert(alias.clone());
+                }
+                _ => {}
+            }
+        }
+
         // Delegate to AccumulatorManager for proper accumulation
         AccumulatorManager::process_record_into_accumulator(
             accumulator,
             record,
             &aggregate_expressions,
+            &select_aliases,
         )?;
 
         // FR-079 Phase 7: Ensure numeric_values are populated for all columns used in non-function expressions
@@ -1683,6 +1760,22 @@ impl SelectProcessor {
             }
         }
 
+        // FR-081: Compute event_time from _EVENT_TIME in result_fields or preserve from input
+        // Try direct lookup first (uppercase), then scan for case-insensitive match
+        // This handles both `AS _EVENT_TIME` and `AS _event_time` aliases
+        let event_time_field_value = result_fields.get(system_columns::EVENT_TIME).or_else(|| {
+            result_fields.iter().find_map(|(k, v)| {
+                if system_columns::normalize_if_system_column(k) == Some(system_columns::EVENT_TIME)
+                {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+        });
+        let computed_event_time =
+            Self::compute_output_event_time(event_time_field_value, record.event_time);
+
         // Apply dual-mode aggregation behavior based on emit mode
         use crate::velostream::sql::ast::EmitMode;
         let default_mode = EmitMode::Changes;
@@ -1706,7 +1799,7 @@ impl SelectProcessor {
                     offset: record.offset,
                     partition: record.partition,
                     headers: record.headers.clone(),
-                    event_time: None,
+                    event_time: computed_event_time,
                     topic: None,
                     key: None,
                 };
@@ -1727,11 +1820,8 @@ impl SelectProcessor {
     ) -> Result<String, SqlError> {
         match expr {
             Expr::Column(col_name) => {
-                if let Some(value) = record.fields.get(col_name) {
-                    Ok(GroupByStateManager::field_value_to_group_key(value))
-                } else {
-                    Ok("NULL".to_string()) // NULL values group together
-                }
+                let value = record.resolve_column(col_name);
+                Ok(GroupByStateManager::field_value_to_group_key(&value))
             }
             Expr::Literal(literal) => Ok(Self::literal_to_group_key(literal)),
             Expr::Function { name: _, args: _ } => {
@@ -1814,12 +1904,10 @@ impl SelectProcessor {
             "AVG" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "avg");
-                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                        if !values.is_empty() {
-                            let avg = values.iter().sum::<f64>() / values.len() as f64;
-                            Ok(Some(FieldValue::Float(avg)))
-                        } else {
-                            Ok(Some(FieldValue::Null))
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                            Some(avg) => Ok(Some(FieldValue::Float(avg))),
+                            None => Ok(Some(FieldValue::Null)),
                         }
                     } else {
                         Ok(Some(FieldValue::Null))
@@ -1854,7 +1942,7 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "STRING_AGG" | "GROUP_CONCAT" => {
+            "STRING_AGG" | "GROUP_CONCAT" | "LISTAGG" | "COLLECT" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "string_agg");
                     if let Some(string_values) = accumulator.string_values.get(&key) {
@@ -1877,15 +1965,14 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "VARIANCE" | "VAR" => {
+            "VARIANCE" | "VAR" | "VAR_SAMP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "variance");
-                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                        if values.len() > 1 {
-                            let variance = Self::calculate_variance(values);
-                            Ok(Some(FieldValue::Float(variance)))
-                        } else {
-                            Ok(Some(FieldValue::Null))
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_variance_from_welford(state, true) {
+                            Some(var) => Ok(Some(FieldValue::Float(var))),
+                            None => Ok(Some(FieldValue::Null)),
                         }
                     } else {
                         Ok(Some(FieldValue::Null))
@@ -1894,16 +1981,14 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "STDDEV" => {
+            "STDDEV" | "STDDEV_SAMP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "stddev");
-                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                        if values.len() > 1 {
-                            let variance = Self::calculate_variance(values);
-                            let stddev = variance.sqrt();
-                            Ok(Some(FieldValue::Float(stddev)))
-                        } else {
-                            Ok(Some(FieldValue::Null))
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_stddev_from_welford(state, true) {
+                            Some(sd) => Ok(Some(FieldValue::Float(sd))),
+                            None => Ok(Some(FieldValue::Null)),
                         }
                     } else {
                         Ok(Some(FieldValue::Null))
@@ -1912,7 +1997,55 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "FIRST" => {
+            "STDDEV_POP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "stddev_pop");
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_stddev_from_welford(state, false) {
+                            Some(sd) => Ok(Some(FieldValue::Float(sd))),
+                            None => Ok(Some(FieldValue::Null)),
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "VAR_POP" => {
+                use crate::velostream::sql::execution::aggregation::compute;
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "var_pop");
+                    if let Some(state) = accumulator.welford_states.get(&key) {
+                        match compute::compute_variance_from_welford(state, false) {
+                            Some(var) => Ok(Some(FieldValue::Float(var))),
+                            None => Ok(Some(FieldValue::Null)),
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "MEDIAN" => {
+                use crate::velostream::sql::execution::aggregation::compute;
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "median");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        match compute::compute_median_from_values(values) {
+                            Some(median) => Ok(Some(FieldValue::Float(median))),
+                            None => Ok(Some(FieldValue::Null)),
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "FIRST" | "FIRST_VALUE" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "first");
                     let first_value = accumulator
@@ -1925,7 +2058,7 @@ impl SelectProcessor {
                     Ok(None)
                 }
             }
-            "LAST" => {
+            "LAST" | "LAST_VALUE" => {
                 if let Some(Expr::Column(col_name)) = args.first() {
                     let key = Self::resolve_aggregate_key(alias, col_name, "last");
                     let last_value = accumulator
@@ -1971,14 +2104,10 @@ impl SelectProcessor {
 
     /// Calculate variance for a set of numeric values (sample variance)
     fn calculate_variance(values: &[f64]) -> f64 {
-        if values.len() <= 1 {
-            return 0.0;
-        }
-
-        let mean = values.iter().sum::<f64>() / values.len() as f64;
-        // Sample variance uses n-1
-
-        values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
+        crate::velostream::sql::execution::aggregation::compute::compute_variance_from_values(
+            values, true,
+        )
+        .unwrap_or(0.0)
     }
 
     /// Evaluate expression with window and subquery support
@@ -1998,6 +2127,122 @@ impl SelectProcessor {
             &subquery_executor,
             context,
         )
+    }
+
+    /// Extract ROWS WINDOW configuration from SELECT fields containing window functions.
+    /// Scans for Expr::WindowFunction with OverClause containing WindowSpec::Rows.
+    /// Returns (max_buffer_size, partition_columns, emit_mode) if any ROWS WINDOW found.
+    pub fn extract_rows_window_config(
+        fields: &[SelectField],
+    ) -> Option<(u32, Vec<String>, RowsEmitMode)> {
+        let mut max_buffer: u32 = 0;
+        let mut partition_cols: Vec<String> = Vec::new();
+        let mut emit_mode = RowsEmitMode::EveryRecord;
+        let mut found = false;
+
+        for field in fields {
+            if let SelectField::Expression { expr, .. } = field {
+                Self::scan_expr_for_rows_window(
+                    expr,
+                    &mut max_buffer,
+                    &mut partition_cols,
+                    &mut emit_mode,
+                    &mut found,
+                );
+            }
+        }
+
+        if found {
+            Some((max_buffer, partition_cols, emit_mode))
+        } else {
+            None
+        }
+    }
+
+    /// Recursively scan an expression for WindowFunction nodes with ROWS WINDOW specs.
+    fn scan_expr_for_rows_window(
+        expr: &Expr,
+        max_buffer: &mut u32,
+        partition_cols: &mut Vec<String>,
+        emit_mode: &mut RowsEmitMode,
+        found: &mut bool,
+    ) {
+        match expr {
+            Expr::WindowFunction { over_clause, .. } => {
+                if let Some(spec) = &over_clause.window_spec {
+                    if let WindowSpec::Rows {
+                        buffer_size,
+                        partition_by,
+                        emit_mode: rows_emit,
+                        ..
+                    } = spec.as_ref()
+                    {
+                        *found = true;
+                        if *buffer_size > *max_buffer {
+                            *max_buffer = *buffer_size;
+                        }
+                        *emit_mode = rows_emit.clone();
+                        // Extract partition column names
+                        for part_expr in partition_by {
+                            if let Expr::Column(name) = part_expr {
+                                if !partition_cols.contains(name) {
+                                    partition_cols.push(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                Self::scan_expr_for_rows_window(left, max_buffer, partition_cols, emit_mode, found);
+                Self::scan_expr_for_rows_window(
+                    right,
+                    max_buffer,
+                    partition_cols,
+                    emit_mode,
+                    found,
+                );
+            }
+            Expr::UnaryOp { expr: inner, .. } => {
+                Self::scan_expr_for_rows_window(
+                    inner,
+                    max_buffer,
+                    partition_cols,
+                    emit_mode,
+                    found,
+                );
+            }
+            Expr::Function { args, .. } => {
+                for arg in args {
+                    Self::scan_expr_for_rows_window(
+                        arg,
+                        max_buffer,
+                        partition_cols,
+                        emit_mode,
+                        found,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Compute a partition key from a record's field values for the given partition columns.
+    fn compute_partition_key(record: &StreamRecord, partition_columns: &[String]) -> String {
+        if partition_columns.is_empty() {
+            return "__global__".to_string();
+        }
+        partition_columns
+            .iter()
+            .map(|col| {
+                record
+                    .fields
+                    .get(col)
+                    .map(|v| format!("{:?}", v))
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("\0")
     }
 
     /// Get expression name for result field
@@ -2701,12 +2946,10 @@ impl SelectProcessor {
                 Ok(FieldValue::Float(sum_value))
             }
             "AVG" => {
-                if let Some(values) = accumulator.numeric_values.get(&accumulator_key) {
-                    if !values.is_empty() {
-                        let avg = values.iter().sum::<f64>() / values.len() as f64;
-                        Ok(FieldValue::Float(avg))
-                    } else {
-                        Ok(FieldValue::Null)
+                if let Some(state) = accumulator.welford_states.get(&accumulator_key) {
+                    match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                        Some(avg) => Ok(FieldValue::Float(avg)),
+                        None => Ok(FieldValue::Null),
                     }
                 } else {
                     Ok(FieldValue::Null)
@@ -3017,6 +3260,53 @@ impl SelectProcessor {
         }
     }
 
+    /// Convert a FieldValue to DateTime<Utc> for event-time assignment
+    ///
+    /// FR-081: Enables derived event-time via SQL expressions like:
+    ///   SELECT trade_timestamp AS _EVENT_TIME, ...
+    ///   SELECT CAST(JSON_EXTRACT(payload, '$.ts') AS BIGINT) AS _EVENT_TIME, ...
+    ///
+    /// Returns:
+    /// - Some(DateTime) if value can be converted (Integer as millis, Timestamp)
+    /// - None if value cannot be converted (String, Boolean, etc.)
+    fn field_value_to_event_time(value: &FieldValue) -> Option<chrono::DateTime<chrono::Utc>> {
+        match value {
+            FieldValue::Integer(millis) => {
+                // Convert milliseconds since epoch to DateTime
+                chrono::DateTime::from_timestamp(
+                    millis / 1000,
+                    ((millis % 1000) * 1_000_000) as u32,
+                )
+            }
+            FieldValue::Timestamp(naive_dt) => {
+                // Convert NaiveDateTime to DateTime<Utc>
+                Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                    *naive_dt,
+                    chrono::Utc,
+                ))
+            }
+            _ => {
+                // Other types (String, Boolean, Float, etc.) cannot be converted
+                None
+            }
+        }
+    }
+
+    /// Compute event_time for output record from _EVENT_TIME alias or input record
+    ///
+    /// FR-081: Supports derived event-time via SQL aliasing.
+    /// Falls back to input record's event_time when:
+    /// - No _EVENT_TIME alias was used
+    /// - The aliased value couldn't be converted to DateTime
+    fn compute_output_event_time(
+        event_time_value: Option<&FieldValue>,
+        fallback: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        event_time_value
+            .and_then(Self::field_value_to_event_time)
+            .or(fallback)
+    }
+
     /// Compare two FieldValues using a comparison function for HAVING evaluation
     fn compare_having_values<F>(
         left: &FieldValue,
@@ -3292,6 +3582,65 @@ fn substitute_correlation_variables(
     processor.build_parameterized_query(&template, params)
 }
 
+/// Substitute correlation variables in an AST expression if a correlation context exists.
+///
+/// When there is no correlation context, returns the expression unchanged — no
+/// substitution is needed for non-correlated subqueries.
+fn substitute_correlation_expr(
+    expr: Expr,
+    current_record: &StreamRecord,
+    context: &ProcessorContext,
+) -> Expr {
+    if let Some(cc) = &context.correlation_context {
+        // Build an augmented fields map that includes system columns so that
+        // correlated references like `m._event_time` resolve correctly.
+        let mut fields = current_record.fields.clone();
+        // Resolve _EVENT_TIME as a Timestamp so that correlated date/time
+        // comparisons (e.g. `w.effective_date <= m._event_time`) work correctly.
+        // Insert under BOTH uppercase (_EVENT_TIME) and lowercase (_event_time) keys
+        // because the SQL parser preserves the original case from the query while
+        // system_columns constants are uppercase.
+        let event_time_val = match ExpressionEvaluator::get_event_time_value(current_record) {
+            FieldValue::Integer(ms) => chrono::DateTime::from_timestamp_millis(ms)
+                .map(|dt| FieldValue::Timestamp(dt.naive_utc()))
+                .unwrap_or(FieldValue::Integer(ms)),
+            other => other,
+        };
+        fields
+            .entry(system_columns::EVENT_TIME.to_string())
+            .or_insert(event_time_val.clone());
+        fields
+            .entry(system_columns::EVENT_TIME.to_lowercase())
+            .or_insert(event_time_val);
+        fields
+            .entry(system_columns::TIMESTAMP.to_string())
+            .or_insert(FieldValue::Integer(current_record.timestamp));
+        fields
+            .entry(system_columns::TIMESTAMP.to_lowercase())
+            .or_insert(FieldValue::Integer(current_record.timestamp));
+        fields
+            .entry(system_columns::OFFSET.to_string())
+            .or_insert(FieldValue::Integer(current_record.offset));
+        fields
+            .entry(system_columns::OFFSET.to_lowercase())
+            .or_insert(FieldValue::Integer(current_record.offset));
+        fields
+            .entry(system_columns::PARTITION.to_string())
+            .or_insert(FieldValue::Integer(current_record.partition as i64));
+        fields
+            .entry(system_columns::PARTITION.to_lowercase())
+            .or_insert(FieldValue::Integer(current_record.partition as i64));
+        query_parsing::substitute_correlation_variables_in_expr(
+            &expr,
+            &cc.name,
+            cc.alias.as_deref(),
+            &fields,
+        )
+    } else {
+        expr
+    }
+}
+
 impl SubqueryExecutor for SelectProcessor {
     fn execute_scalar_subquery(
         &self,
@@ -3306,18 +3655,23 @@ impl SubqueryExecutor for SelectProcessor {
             StreamingQuery::Select { .. } => {
                 // Extract query components
                 let table_name = query_parsing::extract_table_name(query)?;
-                let mut where_clause = query_parsing::extract_where_clause(query)?;
                 let select_expr = query_parsing::extract_select_expression(query)?;
-
-                // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause =
-                    substitute_correlation_variables(&where_clause, current_record, context)?;
+                let where_expr = query_parsing::extract_where_expr(query)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
 
-                // Execute scalar query using Table SQL interface
-                table.sql_scalar(&select_expr, &where_clause)
+                match where_expr {
+                    Some(expr) => {
+                        let substituted =
+                            substitute_correlation_expr(expr, current_record, context);
+                        table.sql_scalar_with_expr(&select_expr, &substituted)
+                    }
+                    None => {
+                        // No WHERE clause — use string path with empty where
+                        table.sql_scalar(&select_expr, "")
+                    }
+                }
             }
             _ => Err(SqlError::ExecutionError {
                 message: "[SUBQ-SCALAR-001] Scalar subquery must be a SELECT statement".to_string(),
@@ -3339,34 +3693,22 @@ impl SubqueryExecutor for SelectProcessor {
             StreamingQuery::Select { .. } => {
                 // Extract query components
                 let table_name = query_parsing::extract_table_name(query)?;
-                let mut where_clause = query_parsing::extract_where_clause(query)?;
-
-                println!(
-                    "🔍 EXISTS DEBUG: table_name='{}', original WHERE='{}'",
-                    table_name, where_clause
-                );
-
-                // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause =
-                    substitute_correlation_variables(&where_clause, current_record, context)?;
-
-                println!(
-                    "🔍 EXISTS DEBUG: After correlation: WHERE='{}'",
-                    where_clause
-                );
+                let where_expr = query_parsing::extract_where_expr(query)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
 
-                // Execute EXISTS query using Table SQL interface
-                let result = table.sql_exists(&where_clause)?;
-
-                println!(
-                    "🔍 EXISTS DEBUG: sql_exists('{}') returned: {}",
-                    where_clause, result
-                );
-
-                Ok(result)
+                match where_expr {
+                    Some(expr) => {
+                        let substituted =
+                            substitute_correlation_expr(expr, current_record, context);
+                        table.sql_exists_with_expr(&substituted)
+                    }
+                    None => {
+                        // No WHERE clause means check if table has any records
+                        Ok(!table.is_empty())
+                    }
+                }
             }
             _ => Err(SqlError::ExecutionError {
                 message: "[SUBQ-EXISTS-001] EXISTS subquery must be a SELECT statement".to_string(),
@@ -3389,18 +3731,23 @@ impl SubqueryExecutor for SelectProcessor {
             StreamingQuery::Select { .. } => {
                 // Extract query components
                 let table_name = query_parsing::extract_table_name(query)?;
-                let mut where_clause = query_parsing::extract_where_clause(query)?;
+                let where_expr = query_parsing::extract_where_expr(query)?;
                 let column = query_parsing::extract_select_column(query)?;
-
-                // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause =
-                    substitute_correlation_variables(&where_clause, current_record, context)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
 
-                // Execute IN query using Table SQL interface
-                let values = table.sql_column_values(&column, &where_clause)?;
+                let values = match where_expr {
+                    Some(expr) => {
+                        let substituted =
+                            substitute_correlation_expr(expr, current_record, context);
+                        table.sql_column_values_with_expr(&column, &substituted)?
+                    }
+                    None => {
+                        // No WHERE clause — get all values from the column
+                        table.sql_column_values(&column, "true")?
+                    }
+                };
 
                 // Check if the value exists in the result set
                 Ok(values.contains(value))

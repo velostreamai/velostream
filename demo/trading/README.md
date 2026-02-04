@@ -14,20 +14,35 @@ This demo showcases:
 
 ```
 demo/trading/
-├── apps/                        # SQL applications with @data.* hints
-│   └── app_market_data.sql         # Market data pipeline
+├── apps/                        # SOURCE: hand-written SQL with @data.* and @metric hints
+│   ├── app_market_data.sql
+│   ├── app_compliance.sql
+│   └── ...
+├── deploy/                      # GENERATED: output of velo-dashboard-generate.sh (.gitignored)
+│   ├── apps/                    #   Annotated SQL (deployed by start-demo.sh)
+│   └── monitoring/              #   Generated dashboards + prometheus.yml
+├── monitoring/                  # CURATED: hand-written monitoring configs
+│   ├── grafana/
+│   │   ├── provisioning/        #   Grafana provisioning (datasources, dashboard providers)
+│   │   └── dashboards/          #   Hand-curated dashboards (overview, ops, tracing, etc.)
+│   └── tempo/                   #   Distributed tracing config
 ├── schemas/                     # Schema definitions (optional, @data.* hints preferred)
 ├── configs/                     # Kafka source/sink configs
 ├── tests/                       # Test specifications
-├── monitoring/                  # Grafana + Prometheus config
 ├── *.sh                         # Demo scripts
 ├── Makefile                     # Build system
 └── README.md                    # This file
 
 # Uses main project binaries:
-../../target/release/velo-test          # Test harness (data generation, testing, debugging)
-../../target/release/velo-sql     # Multi-job SQL server
+../../target/release/velo-test   # Test harness (data generation, testing, debugging)
+../../target/release/velo-sql    # Multi-job SQL server
 ```
+
+**Source vs Generated:** `apps/` contains the hand-written SQL source files. Running
+`./velo-dashboard-generate.sh` produces `deploy/` which contains annotated SQL
+(with deployment/observability annotations injected) and generated monitoring
+configs (per-app Grafana dashboards, combined prometheus.yml). The `deploy/`
+directory is `.gitignored` — regenerate it after editing `apps/*.sql`.
 
 ## 🚀 Quick Start
 
@@ -46,8 +61,9 @@ cd demo/trading
 **That's it!** The script will automatically:
 - ✅ Validate all prerequisites (Rust, Docker, ports)
 - ✅ Build binaries if needed (first run takes ~5 minutes)
+- ✅ Generate `deploy/` artifacts if missing (dashboards, annotated SQL, prometheus config)
 - ✅ Start Kafka and create necessary topics
-- ✅ Deploy 8 streaming SQL queries
+- ✅ Deploy annotated SQL from `deploy/apps/`
 - ✅ Generate realistic trading data (default: 10 minutes)
 - ✅ Display monitoring dashboard URLs
 
@@ -120,11 +136,16 @@ The demo **automatically starts Grafana and Prometheus** as part of the Docker C
 ```
 
 **Available Dashboards:**
-- **Velostream Trading Demo** - Real-time trading analytics, alerts, and market data
-- **Velostream Overview** - System health, throughput, and resource usage
-- **Kafka Metrics** - Broker performance, topic statistics, and consumer lag
+
+Dashboards are organized into two Grafana folders:
+- **Velostream** (curated) — hand-written dashboards checked into `monitoring/grafana/dashboards/`:
+  - Velostream Overview, Velostream Ops, Kafka Metrics, Distributed Tracing, Error Tracking
+- **Velostream - Generated** — per-app dashboards produced by `./velo-dashboard-generate.sh`:
+  - One dashboard per SQL app (compliance, market data, price analytics, risk, trading signals)
 
 > **Note**: Grafana, Prometheus, and Kafka UI are always available when running the demo. All URLs and dashboard info are **automatically displayed** at the end of startup. Use the `-m` flag if you want to see this info early (before deployment starts).
+>
+> If generated dashboards are missing, run `./velo-dashboard-generate.sh` to populate `deploy/`.
 
 ## 📊 What You'll See
 
@@ -318,7 +339,7 @@ cd demo/trading
 docker ps | grep kafka
 
 # Restart Kafka infrastructure
-docker-compose -f kafka-compose.yml restart
+docker-compose -f docker-compose.yml restart
 ```
 
 #### ❌ "0 records processed" - Jobs not processing data
@@ -352,7 +373,7 @@ cargo clean
 ```bash
 tail -f /tmp/velo_deployment.log      # SQL job logs
 tail -f /tmp/velo_stress.log          # Data generator logs (velo-test stress)
-docker-compose -f kafka-compose.yml logs kafka  # Kafka logs
+docker-compose -f docker-compose.yml logs kafka  # Kafka logs
 ```
 
 **Health check:**
@@ -363,7 +384,7 @@ docker-compose -f kafka-compose.yml logs kafka  # Kafka logs
 **Complete reset:**
 ```bash
 ./stop-demo.sh
-docker-compose -f kafka-compose.yml down -v
+docker-compose -f docker-compose.yml down -v
 ./start-demo.sh
 ```
 
@@ -461,13 +482,13 @@ ln -sf ../../target/debug/velo-cli velo-cli
 ### Kafka Topic Monitoring
 ```bash
 # List all topics  
-docker exec $(docker-compose -f kafka-compose.yml ps -q kafka) kafka-topics --list --bootstrap-server localhost:9092
+docker exec $(docker-compose -f docker-compose.yml ps -q kafka) kafka-topics --list --bootstrap-server localhost:9092
 
 # Check topic details
-docker exec $(docker-compose -f kafka-compose.yml ps -q kafka) kafka-topics --describe --topic market_data --bootstrap-server localhost:9092
+docker exec $(docker-compose -f docker-compose.yml ps -q kafka) kafka-topics --describe --topic market_data --bootstrap-server localhost:9092
 
 # Monitor message flow
-docker exec $(docker-compose -f kafka-compose.yml ps -q kafka) kafka-consumer-groups --bootstrap-server localhost:9092 --describe --all-groups
+docker exec $(docker-compose -f docker-compose.yml ps -q kafka) kafka-consumer-groups --bootstrap-server localhost:9092 --describe --all-groups
 ```
 
 ### SQL Job Monitoring
@@ -529,7 +550,8 @@ curl -X POST "http://localhost:8080/sql" \
 For production use, see:
 - `DEPLOYMENT_SUMMARY.md` - Docker deployment guide
 - `k8s/` directory - Kubernetes configurations
-- `monitoring/` directory - Prometheus and Grafana setup
+- `monitoring/` directory - Hand-curated Prometheus, Grafana, and Tempo configs
+- `deploy/` directory - Generated artifacts (run `./velo-dashboard-generate.sh` first)
 
 ## 🎲 Data Generation Options
 

@@ -1,0 +1,65 @@
+# =============================================================================
+# Test: Compliance Pipeline
+# =============================================================================
+# Tests regulatory compliance filtering and market hours enforcement
+#
+# Pipeline: market_data_ts → compliant_market_data
+#                          → active_hours_market_data
+
+application: compliance
+description: |
+  Tests compliance filtering including regulatory watchlist checks
+  and market hours enforcement using EXISTS and IN subqueries.
+
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  # Test regulatory compliance filtering
+  - name: compliant_market_data
+    description: Test compliance filtering with NOT EXISTS subquery
+    inputs:
+      - source: market_data_ts
+        records: 100
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 50
+    outputs:
+      - sink: compliant_market_data
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          - type: no_nulls
+            fields: [symbol, compliance_status]
+
+          - type: field_values
+            field: compliance_status
+            operator: equals
+            value: "COMPLIANT"
+
+          # Data accuracy: price must be positive
+          - type: field_values
+            field: price
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: volume must be positive
+          - type: field_values
+            field: volume
+            operator: greater_than
+            value: 0
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) now support @metric emission
+    metric_assertions:
+      - type: metric_exists
+        name: velo_compliant_market_data_records_total
+        expected_type: counter
+
+      - type: metric_counter
+        name: velo_compliant_market_data_records_total
+        operator: greater_than
+        value: 0

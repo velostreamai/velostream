@@ -28,11 +28,11 @@ use crate::velostream::sql::ast::{
     BinaryOperator, Expr, JoinClause, JoinType as AstJoinType, SelectField,
 };
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::join::{
     JoinConfig, JoinCoordinator, JoinCoordinatorStats, JoinSide, JoinType,
 };
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Configuration parsed from SQL JOIN clause for interval joins
 #[derive(Debug, Clone)]
@@ -239,14 +239,12 @@ impl IntervalJoinProcessor {
 
     /// Set the projection to apply after join
     ///
-    /// **Note**: Projection is currently not implemented. The processor will
-    /// log a warning and pass through all fields. Use SELECT clause at the
-    /// query level for field projection.
+    /// Applies SQL SELECT projection to joined records, supporting:
+    /// - `Column(name)` - extract field with original name
+    /// - `AliasedColumn { column, alias }` - extract field and rename to alias
+    /// - `Wildcard` - pass all fields through
+    /// - `Expression { expr, alias }` - evaluate expression and apply alias
     pub fn with_projection(mut self, projection: Vec<SelectField>) -> Self {
-        log::warn!(
-            "IntervalJoinProcessor: Projection is not yet implemented; {} fields will be ignored. Use SELECT clause for projection.",
-            projection.len()
-        );
         self.projection = Some(projection);
         self
     }
@@ -316,12 +314,159 @@ impl IntervalJoinProcessor {
                 }
             }
 
-            // Apply projection if present (simplified - full projection would need more context)
-            // For now, just pass through the record
-            results.push(record);
+            // Apply projection if present
+            let projected_record = if let Some(projection) = &self.projection {
+                self.apply_projection(&record, projection)?
+            } else {
+                record
+            };
+            results.push(projected_record);
         }
 
         Ok(results)
+    }
+
+    /// Apply SQL SELECT projection to a joined record
+    ///
+    /// Handles:
+    /// - `SelectField::Column(name)` - extract field with original name
+    /// - `SelectField::AliasedColumn { column, alias }` - extract field and rename to alias
+    /// - `SelectField::Wildcard` - pass all fields through
+    /// - `SelectField::Expression { expr, alias }` - evaluate expression and apply alias
+    fn apply_projection(
+        &self,
+        record: &StreamRecord,
+        projection: &[SelectField],
+    ) -> Result<StreamRecord, SqlError> {
+        // Check for wildcard first - if present, return all fields
+        for field in projection {
+            if matches!(field, SelectField::Wildcard) {
+                return Ok(record.clone());
+            }
+        }
+
+        let mut projected_fields = std::collections::HashMap::with_capacity(projection.len());
+
+        for select_field in projection {
+            match select_field {
+                SelectField::Column(name) => {
+                    // Resolve the field, inserting NULL if not found (proper SQL semantics)
+                    let value = self.resolve_field(record, name).unwrap_or(FieldValue::Null);
+                    projected_fields.insert(name.clone(), value);
+                }
+                SelectField::AliasedColumn { column, alias } => {
+                    // Resolve the column, inserting NULL with alias if not found
+                    let value = self
+                        .resolve_field(record, column)
+                        .unwrap_or(FieldValue::Null);
+                    projected_fields.insert(alias.clone(), value);
+                }
+                SelectField::Expression { expr, alias } => {
+                    // Evaluate the expression and insert with alias (or generated name)
+                    let value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
+                    let field_name = alias
+                        .clone()
+                        .unwrap_or_else(|| format!("expr_{}", projected_fields.len()));
+                    projected_fields.insert(field_name, value);
+                }
+                SelectField::Wildcard => {
+                    // Already handled above
+                    unreachable!("Wildcard should be handled earlier");
+                }
+            }
+        }
+
+        let mut projected_record = StreamRecord::new(projected_fields);
+        // Preserve all record metadata
+        projected_record.timestamp = record.timestamp;
+        projected_record.key = record.key.clone();
+        projected_record.event_time = record.event_time;
+        projected_record.offset = record.offset;
+        projected_record.partition = record.partition;
+        Ok(projected_record)
+    }
+
+    /// Resolve a field name from a record, handling qualified and unqualified names
+    ///
+    /// For example:
+    /// - "orders.customer" looks for "orders.customer" directly
+    /// - "customer" looks for "customer" or any qualified variant like "orders.customer"
+    ///
+    /// If an unqualified name matches multiple qualified fields (e.g., "order_id" matches
+    /// both "orders.order_id" and "shipments.order_id"), a warning is logged and the
+    /// first match is returned. Users should use qualified names to avoid ambiguity.
+    pub fn resolve_field(&self, record: &StreamRecord, field_name: &str) -> Option<FieldValue> {
+        // First try exact match
+        if let Some(value) = record.fields.get(field_name) {
+            return Some(value.clone());
+        }
+
+        // Handle qualified names (e.g., "o.customer" or "orders.customer")
+        if field_name.contains('.') {
+            // Extract just the column name (e.g., "o.customer" → "customer")
+            let column_name = field_name.split('.').next_back().unwrap_or(field_name);
+
+            // Search for any qualified version of this column name
+            if let Some(value) = self.find_by_column_suffix(record, column_name, field_name, true) {
+                return Some(value);
+            }
+
+            // Also try unqualified match as last resort
+            return record.fields.get(column_name).cloned();
+        }
+
+        // Handle unqualified names - search for any qualified version
+        self.find_by_column_suffix(record, field_name, field_name, false)
+    }
+
+    /// Search for a field by column name suffix (e.g., ".customer" matches "orders.customer")
+    ///
+    /// Returns the value if exactly one match is found, or the first match with a warning
+    /// if multiple matches exist. Returns None if no matches found.
+    fn find_by_column_suffix(
+        &self,
+        record: &StreamRecord,
+        column_name: &str,
+        original_ref: &str,
+        is_qualified: bool,
+    ) -> Option<FieldValue> {
+        let suffix = format!(".{}", column_name);
+
+        // Collect matches sorted by key for deterministic resolution
+        let mut matches: Vec<(&String, &FieldValue)> = record
+            .fields
+            .iter()
+            .filter(|(key, _)| key.ends_with(&suffix))
+            .collect();
+        matches.sort_by_key(|(k, _)| k.as_str());
+
+        match matches.len() {
+            0 => None,
+            1 => Some(matches[0].1.clone()),
+            _ => {
+                // Multiple matches - log warning about ambiguity
+                let matching_keys: Vec<&str> = matches.iter().map(|(k, _)| k.as_str()).collect();
+                if is_qualified {
+                    log::warn!(
+                        "Qualified field reference '{}' (column '{}') matches multiple fields: {:?}. \
+                         Using first match '{}'. Ensure table aliases match stream names.",
+                        original_ref,
+                        column_name,
+                        matching_keys,
+                        matching_keys[0]
+                    );
+                } else {
+                    log::warn!(
+                        "Ambiguous field reference '{}' matches multiple qualified fields: {:?}. \
+                         Using first match '{}'. Use qualified name to avoid ambiguity.",
+                        original_ref,
+                        matching_keys,
+                        matching_keys[0]
+                    );
+                }
+                Some(matches[0].1.clone())
+            }
+        }
     }
 
     /// Advance watermark and expire old state
@@ -352,181 +497,5 @@ impl IntervalJoinProcessor {
     /// Get total buffered record count
     pub fn buffered_count(&self) -> usize {
         self.coordinator.total_records()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::velostream::sql::execution::FieldValue;
-    use std::collections::HashMap;
-
-    fn make_record(fields: Vec<(&str, FieldValue)>, timestamp: i64) -> StreamRecord {
-        let field_map: HashMap<String, FieldValue> = fields
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
-        let mut record = StreamRecord::new(field_map);
-        record.timestamp = timestamp;
-        record
-    }
-
-    #[test]
-    fn test_interval_join_config() {
-        let config = IntervalJoinConfig::new("orders", "shipments")
-            .with_key("order_id", "order_id")
-            .with_bounds(Duration::ZERO, Duration::from_secs(3600))
-            .with_retention(Duration::from_secs(7200))
-            .with_join_type(JoinType::Inner);
-
-        assert_eq!(config.left_source, "orders");
-        assert_eq!(config.right_source, "shipments");
-        assert_eq!(config.key_columns.len(), 1);
-        assert_eq!(config.upper_bound, Duration::from_secs(3600));
-    }
-
-    #[test]
-    fn test_processor_basic_join() {
-        let config = IntervalJoinConfig::new("orders", "shipments")
-            .with_key("order_id", "order_id")
-            .with_bounds(Duration::ZERO, Duration::from_secs(3600));
-
-        let mut processor = IntervalJoinProcessor::new(config);
-
-        // Process order
-        let order = make_record(
-            vec![
-                ("order_id", FieldValue::Integer(100)),
-                ("customer", FieldValue::String("Alice".to_string())),
-                ("event_time", FieldValue::Integer(1000)),
-            ],
-            1000,
-        );
-        let results = processor.process_left(order).unwrap();
-        assert!(results.is_empty()); // No shipments yet
-
-        // Process matching shipment
-        let shipment = make_record(
-            vec![
-                ("order_id", FieldValue::Integer(100)),
-                ("carrier", FieldValue::String("FedEx".to_string())),
-                ("event_time", FieldValue::Integer(2000)),
-            ],
-            2000,
-        );
-        let results = processor.process_right(shipment).unwrap();
-        assert_eq!(results.len(), 1);
-
-        // Verify joined record has fields from both
-        let joined = &results[0];
-        assert!(joined.fields.contains_key("orders.customer"));
-        assert!(joined.fields.contains_key("shipments.carrier"));
-    }
-
-    #[test]
-    fn test_processor_batch_processing() {
-        let config = IntervalJoinConfig::new("left", "right")
-            .with_key("key", "key")
-            .with_bounds(Duration::ZERO, Duration::from_secs(3600));
-
-        let mut processor = IntervalJoinProcessor::new(config);
-
-        // Process batch of left records
-        let left_batch: Vec<StreamRecord> = (0..5)
-            .map(|i| {
-                make_record(
-                    vec![
-                        ("key", FieldValue::Integer(i)),
-                        ("left_val", FieldValue::String(format!("L{}", i))),
-                    ],
-                    1000 + i,
-                )
-            })
-            .collect();
-
-        let results = processor.process_batch(JoinSide::Left, left_batch).unwrap();
-        assert!(results.is_empty()); // No right records yet
-
-        // Process batch of right records
-        let right_batch: Vec<StreamRecord> = (0..3)
-            .map(|i| {
-                make_record(
-                    vec![
-                        ("key", FieldValue::Integer(i)),
-                        ("right_val", FieldValue::String(format!("R{}", i))),
-                    ],
-                    2000 + i,
-                )
-            })
-            .collect();
-
-        let results = processor
-            .process_batch(JoinSide::Right, right_batch)
-            .unwrap();
-        assert_eq!(results.len(), 3); // Keys 0, 1, 2 match
-    }
-
-    #[test]
-    fn test_stats_tracking() {
-        let config = IntervalJoinConfig::new("left", "right")
-            .with_key("id", "id")
-            .with_bounds(Duration::ZERO, Duration::from_secs(3600));
-
-        let mut processor = IntervalJoinProcessor::new(config);
-
-        // Process some records
-        for i in 0..5 {
-            processor
-                .process_left(make_record(vec![("id", FieldValue::Integer(i))], 1000 + i))
-                .unwrap();
-        }
-
-        for i in 0..3 {
-            processor
-                .process_right(make_record(vec![("id", FieldValue::Integer(i))], 2000 + i))
-                .unwrap();
-        }
-
-        let stats = processor.stats();
-        assert_eq!(stats.left_records_processed, 5);
-        assert_eq!(stats.right_records_processed, 3);
-        assert_eq!(stats.matches_emitted, 3);
-    }
-
-    #[test]
-    fn test_watermark_expiration() {
-        let config = IntervalJoinConfig::new("left", "right")
-            .with_key("id", "id")
-            .with_retention(Duration::from_millis(1000));
-
-        let mut processor = IntervalJoinProcessor::new(config);
-
-        // Add a record
-        processor
-            .process_left(make_record(
-                vec![
-                    ("id", FieldValue::Integer(1)),
-                    ("event_time", FieldValue::Integer(1000)),
-                ],
-                1000,
-            ))
-            .unwrap();
-
-        assert_eq!(processor.buffered_count(), 1);
-
-        // Advance watermark past expiration
-        processor.advance_watermark(JoinSide::Left, 2500);
-
-        assert_eq!(processor.buffered_count(), 0);
-    }
-
-    #[test]
-    fn test_empty_processor() {
-        let config = IntervalJoinConfig::new("left", "right").with_key("id", "id");
-
-        let processor = IntervalJoinProcessor::new(config);
-
-        assert!(processor.is_empty());
-        assert_eq!(processor.buffered_count(), 0);
     }
 }

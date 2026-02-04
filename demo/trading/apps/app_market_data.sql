@@ -1,5 +1,5 @@
 -- =============================================================================
--- APPLICATION: market_data_pipeline
+-- SQL Application: market_data_pipeline
 -- =============================================================================
 -- @app: market_data_pipeline
 -- @version: 1.0.0
@@ -64,7 +64,7 @@
 -- @data.time_end: "now"
 --
 -- @data.symbol.type: string
--- @data.symbol: enum ["AAPL", "GOOG", "MSFT", "AMZN", "META"], weights: [0.25, 0.25, 0.2, 0.15, 0.15]
+-- @data.symbol: enum ["AAPL", "GOOGL", "MSFT", "AMZN", "META"], weights: [0.25, 0.25, 0.2, 0.15, 0.15]
 --
 -- @data.exchange.type: string
 -- @data.exchange: enum ["NASDAQ", "NYSE"], weights: [0.6, 0.4]
@@ -104,6 +104,15 @@
 -- @name: market_data_ts
 -- @description: Ingests raw market data with event-time watermarks
 -- -----------------------------------------------------------------------------
+-- @metric: velo_market_data_ts_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by market_data_ts"
+--
+-- @metric: velo_market_data_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current price value"
+-- @metric_field: price
+-- @metric_labels: symbol
 
 CREATE STREAM market_data_ts AS
 SELECT
@@ -131,7 +140,7 @@ WITH (
 
     -- Source configuration
     'in_market_data_stream.type' = 'kafka_source',
-    'in_market_data_stream.topic.name' = 'in_market_data',
+    'in_market_data_stream.topic.name' = 'in_market_data_stream',
     'in_market_data_stream.config_file' = '../configs/kafka_source.yaml',
 
     -- Sink configuration
@@ -144,6 +153,22 @@ WITH (
 -- @name: tick_buckets
 -- @description: Aggregates market data into 1-second OHLCV candles
 -- -----------------------------------------------------------------------------
+-- @metric: velo_tick_buckets_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by tick_buckets"
+-- @metric_labels: symbol
+--
+-- @metric: velo_tick_buckets_avg_price
+-- @metric_type: gauge
+-- @metric_help: "Average price in bucket"
+-- @metric_labels: symbol
+-- @metric_field: avg_price
+--
+-- @metric: velo_tick_buckets_trade_count
+-- @metric_type: gauge
+-- @metric_help: "Trade count in bucket"
+-- @metric_labels: symbol
+-- @metric_field: trade_count
 
 CREATE STREAM tick_buckets AS
 SELECT
@@ -166,6 +191,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Sink configuration
     'tick_buckets.type' = 'kafka_sink',
@@ -177,6 +203,14 @@ WITH (
 -- @name: enriched_market_data
 -- @description: Enriches market data with instrument metadata via stream-table join
 -- -----------------------------------------------------------------------------
+-- @metric: velo_enriched_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by enriched_market_data"
+--
+-- @metric: velo_enriched_market_data_latency_seconds
+-- @metric_type: histogram
+-- @metric_help: "Enrichment latency in seconds"
+-- @metric_field: enrichment_latency_seconds
 
 CREATE STREAM enriched_market_data AS
 SELECT
@@ -186,7 +220,7 @@ SELECT
     m.bid_price,
     m.ask_price,
     m.volume,
-    m.event_time,
+    m._event_time,
     m.timestamp,
 
     -- Enrichment from reference table
@@ -205,7 +239,9 @@ SELECT
     m.volume / r.lot_size as lot_count,
 
     NOW() as enrichment_time,
-    EXTRACT(EPOCH FROM (NOW() - m.event_time)) as enrichment_latency_seconds
+    -- Direct integer arithmetic: both NOW() and _event_time are epoch_millis
+    -- Use COALESCE to handle potential NULL or missing values gracefully
+    COALESCE((NOW() - m._event_time) / 1000.0, 0.0) as enrichment_latency_seconds
 
 FROM market_data_ts m
 LEFT JOIN instrument_reference r ON m.symbol = r.symbol
@@ -216,6 +252,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Reference table
     'instrument_reference.type' = 'file_source',

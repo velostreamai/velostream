@@ -25,13 +25,15 @@ queries:
         operator: greater_than
         value: 0
       - type: no_nulls
-        fields: [sensor_id, reading_count, avg_temperature]
+        fields: [sensor_id, reading_count]
+        # Note: avg_temperature can be null when all temperature readings in a window are null
+        # (schema has 10% null probability for temperature field)
     timeout_ms: 90000
 
   - name: lateness_tracking
     description: Verify passthrough handles out-of-order events
     inputs:
-      - source: sensor_events
+      - source: sensor_events_2
         schema: sensor_readings
         records: 500
         time_simulation:

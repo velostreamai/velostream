@@ -30,11 +30,20 @@ impl AggregateFunctions {
                     "AVG" => Self::compute_avg_aggregate(field_name, accumulator),
                     "MIN" => Self::compute_min_aggregate(field_name, accumulator),
                     "MAX" => Self::compute_max_aggregate(field_name, accumulator),
-                    "STDDEV" => Self::compute_stddev_aggregate(field_name, accumulator),
-                    "VARIANCE" => Self::compute_variance_aggregate(field_name, accumulator),
-                    "FIRST" => Self::compute_first_aggregate(field_name, accumulator),
-                    "LAST" => Self::compute_last_aggregate(field_name, accumulator),
-                    "STRING_AGG" | "GROUP_CONCAT" => {
+                    "STDDEV" | "STDDEV_SAMP" => {
+                        Self::compute_stddev_aggregate(field_name, accumulator)
+                    }
+                    "STDDEV_POP" => Self::compute_stddev_pop_aggregate(field_name, accumulator),
+                    "VARIANCE" | "VAR_SAMP" => {
+                        Self::compute_variance_aggregate(field_name, accumulator)
+                    }
+                    "VAR_POP" => Self::compute_var_pop_aggregate(field_name, accumulator),
+                    "MEDIAN" => Self::compute_median_aggregate(field_name, accumulator),
+                    "FIRST" | "FIRST_VALUE" => {
+                        Self::compute_first_aggregate(field_name, accumulator)
+                    }
+                    "LAST" | "LAST_VALUE" => Self::compute_last_aggregate(field_name, accumulator),
+                    "STRING_AGG" | "GROUP_CONCAT" | "LISTAGG" | "COLLECT" => {
                         Self::compute_string_agg_aggregate(field_name, expr, accumulator)
                     }
                     "COUNT_DISTINCT" => {
@@ -95,22 +104,33 @@ impl AggregateFunctions {
         field_name: &str,
         accumulator: &GroupAccumulator,
     ) -> Result<FieldValue, SqlError> {
-        Ok(FieldValue::Float(
-            accumulator.sums.get(field_name).copied().unwrap_or(0.0),
+        let has_values = accumulator
+            .sum_has_values
+            .get(field_name)
+            .copied()
+            .unwrap_or(false);
+        let sum = accumulator.sums.get(field_name).copied().unwrap_or(0.0);
+        let all_integer = accumulator
+            .sum_all_integer
+            .get(field_name)
+            .copied()
+            .unwrap_or(false);
+        Ok(super::compute::compute_sum_result(
+            sum,
+            all_integer,
+            has_values,
         ))
     }
 
-    /// Compute AVG aggregate value
+    /// Compute AVG aggregate value using Welford state
     fn compute_avg_aggregate(
         field_name: &str,
         accumulator: &GroupAccumulator,
     ) -> Result<FieldValue, SqlError> {
-        if let Some(values) = accumulator.numeric_values.get(field_name) {
-            if values.is_empty() {
-                Ok(FieldValue::Null)
-            } else {
-                let avg = values.iter().sum::<f64>() / values.len() as f64;
-                Ok(FieldValue::Float(avg))
+        if let Some(state) = accumulator.welford_states.get(field_name) {
+            match super::compute::compute_avg_from_welford(state) {
+                Some(avg) => Ok(FieldValue::Float(avg)),
+                None => Ok(FieldValue::Null),
             }
         } else {
             Ok(FieldValue::Null)
@@ -141,38 +161,75 @@ impl AggregateFunctions {
             .unwrap_or(FieldValue::Null))
     }
 
-    /// Compute STDDEV aggregate value (sample standard deviation)
+    /// Compute STDDEV aggregate value (sample standard deviation, N-1) using Welford
     fn compute_stddev_aggregate(
         field_name: &str,
         accumulator: &GroupAccumulator,
     ) -> Result<FieldValue, SqlError> {
-        if let Some(values) = accumulator.numeric_values.get(field_name) {
-            if values.len() < 2 {
-                Ok(FieldValue::Float(0.0))
-            } else {
-                let mean = values.iter().sum::<f64>() / values.len() as f64;
-                let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
-                    / (values.len() - 1) as f64; // Sample standard deviation
-                Ok(FieldValue::Float(variance.sqrt()))
+        if let Some(state) = accumulator.welford_states.get(field_name) {
+            match super::compute::compute_stddev_from_welford(state, true) {
+                Some(stddev) => Ok(FieldValue::Float(stddev)),
+                None => Ok(FieldValue::Null),
             }
         } else {
             Ok(FieldValue::Null)
         }
     }
 
-    /// Compute VARIANCE aggregate value (sample variance)
+    /// Compute STDDEV_POP aggregate value (population standard deviation, N) using Welford
+    fn compute_stddev_pop_aggregate(
+        field_name: &str,
+        accumulator: &GroupAccumulator,
+    ) -> Result<FieldValue, SqlError> {
+        if let Some(state) = accumulator.welford_states.get(field_name) {
+            match super::compute::compute_stddev_from_welford(state, false) {
+                Some(stddev) => Ok(FieldValue::Float(stddev)),
+                None => Ok(FieldValue::Null),
+            }
+        } else {
+            Ok(FieldValue::Null)
+        }
+    }
+
+    /// Compute VARIANCE aggregate value (sample variance, N-1) using Welford
     fn compute_variance_aggregate(
         field_name: &str,
         accumulator: &GroupAccumulator,
     ) -> Result<FieldValue, SqlError> {
+        if let Some(state) = accumulator.welford_states.get(field_name) {
+            match super::compute::compute_variance_from_welford(state, true) {
+                Some(var) => Ok(FieldValue::Float(var)),
+                None => Ok(FieldValue::Null),
+            }
+        } else {
+            Ok(FieldValue::Null)
+        }
+    }
+
+    /// Compute VAR_POP aggregate value (population variance, N) using Welford
+    fn compute_var_pop_aggregate(
+        field_name: &str,
+        accumulator: &GroupAccumulator,
+    ) -> Result<FieldValue, SqlError> {
+        if let Some(state) = accumulator.welford_states.get(field_name) {
+            match super::compute::compute_variance_from_welford(state, false) {
+                Some(var) => Ok(FieldValue::Float(var)),
+                None => Ok(FieldValue::Null),
+            }
+        } else {
+            Ok(FieldValue::Null)
+        }
+    }
+
+    /// Compute MEDIAN aggregate value
+    fn compute_median_aggregate(
+        field_name: &str,
+        accumulator: &GroupAccumulator,
+    ) -> Result<FieldValue, SqlError> {
         if let Some(values) = accumulator.numeric_values.get(field_name) {
-            if values.len() < 2 {
-                Ok(FieldValue::Float(0.0))
-            } else {
-                let mean = values.iter().sum::<f64>() / values.len() as f64;
-                let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
-                    / (values.len() - 1) as f64; // Sample variance
-                Ok(FieldValue::Float(variance))
+            match super::compute::compute_median_from_values(values) {
+                Some(median) => Ok(FieldValue::Float(median)),
+                None => Ok(FieldValue::Null),
             }
         } else {
             Ok(FieldValue::Null)
@@ -258,49 +315,27 @@ impl AggregateFunctions {
         }
     }
 
-    /// Check if an expression is a valid aggregate function
+    /// Check if an expression is a valid aggregate function.
+    ///
+    /// Delegates to the centralized function catalog.
     #[doc(hidden)]
     pub fn is_aggregate_function(expr: &Expr) -> bool {
         match expr {
             Expr::Function { name, .. } => {
-                matches!(
-                    name.to_uppercase().as_str(),
-                    "COUNT"
-                        | "SUM"
-                        | "AVG"
-                        | "MIN"
-                        | "MAX"
-                        | "STDDEV"
-                        | "VARIANCE"
-                        | "COUNT_DISTINCT"
-                        | "APPROX_COUNT_DISTINCT"
-                        | "FIRST"
-                        | "LAST"
-                        | "STRING_AGG"
-                        | "GROUP_CONCAT"
-                )
+                crate::velostream::sql::execution::expression::is_aggregate_function(name)
             }
             _ => false,
         }
     }
 
-    /// Get the list of supported aggregate function names
+    /// Get the list of supported aggregate function names.
+    ///
+    /// Delegates to the centralized function catalog.
     #[doc(hidden)]
-    pub fn supported_functions() -> &'static [&'static str] {
-        &[
-            "COUNT",
-            "SUM",
-            "AVG",
-            "MIN",
-            "MAX",
-            "STDDEV",
-            "VARIANCE",
-            "COUNT_DISTINCT",
-            "APPROX_COUNT_DISTINCT",
-            "FIRST",
-            "LAST",
-            "STRING_AGG",
-            "GROUP_CONCAT",
-        ]
+    pub fn supported_functions() -> Vec<String> {
+        crate::velostream::sql::execution::expression::function_metadata::all_aggregate_functions()
+            .into_iter()
+            .map(|f| f.name.to_uppercase())
+            .collect()
     }
 }

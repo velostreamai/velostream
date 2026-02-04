@@ -41,7 +41,11 @@ mod rows_window_sql_tests {
         let results = SqlExecutor::execute_query(sql, records).await;
 
         // Verify results exist and have all expected fields
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Check required fields exist
                 assert!(
@@ -124,7 +128,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             // Group results by symbol to verify partition isolation
             let mut aapl_count = 0;
             let mut msft_count = 0;
@@ -184,7 +192,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify max_price exists and is positive
                 if let Some(max_field) = result.fields.get("max_price") {
@@ -242,7 +254,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify min_price exists and is positive
                 if let Some(min_field) = result.fields.get("min_price") {
@@ -300,7 +316,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify total_quantity exists and is positive
                 if let Some(total_field) = result.fields.get("total_quantity") {
@@ -355,7 +375,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify price_rank exists
                 if let Some(FieldValue::Integer(rank)) = result.fields.get("price_rank") {
@@ -405,7 +429,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify dense_rank exists and is positive
                 if let Some(FieldValue::Integer(dense_rank)) = result.fields.get("dense_rank") {
@@ -448,7 +476,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify row_num exists and is sequential
                 if let Some(FieldValue::Integer(row_num)) = result.fields.get("row_num") {
@@ -493,7 +525,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             // First record should have NULL prev_price (no previous row)
             let first_result = &results[0];
             if let Some(prev_field) = first_result.fields.get("prev_price") {
@@ -557,7 +593,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for result in results.iter() {
                 if let Some(next_field) = result.fields.get("next_price") {
                     match next_field {
@@ -609,7 +649,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify all expected fields exist
                 assert!(
@@ -683,7 +727,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify trader_id field
                 assert!(
@@ -740,7 +788,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify moving_avg_10 exists and is reasonable
                 if let Some(avg_field) = result.fields.get("moving_avg_10") {
@@ -807,7 +859,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify all aggregation fields exist
                 assert!(
@@ -894,7 +950,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify global_avg exists
                 if let Some(avg_field) = result.fields.get("global_avg") {
@@ -945,7 +1005,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify compound_avg exists
                 if let Some(avg_field) = result.fields.get("compound_avg") {
@@ -995,7 +1059,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 if let Some(first_field) = result.fields.get("first_price") {
                     match first_field {
@@ -1041,7 +1109,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 if let Some(last_field) = result.fields.get("last_price") {
                     match last_field {
@@ -1087,7 +1159,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             println!(
                 "✓ ROWS WINDOW NTH_VALUE function successful with {} results",
                 results.len()
@@ -1119,7 +1195,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 if let Some(pct_field) = result.fields.get("pct_rank") {
                     match pct_field {
@@ -1166,7 +1246,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 if let Some(dist_field) = result.fields.get("cum_dist") {
                     match dist_field {
@@ -1213,7 +1297,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 if let Some(FieldValue::Integer(quartile)) = result.fields.get("quartile") {
                     assert!(
@@ -1257,7 +1345,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 if let Some(stddev_field) = result.fields.get("price_stddev") {
                     match stddev_field {
@@ -1304,7 +1396,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 if let Some(var_field) = result.fields.get("price_variance") {
                     match var_field {
@@ -1359,7 +1455,11 @@ mod rows_window_sql_tests {
 
         // EMIT EVERY RECORD should produce results for all input records
         // We should have multiple results, one per input (or at least from most)
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             // Verify each result has the expected fields
             for (idx, result) in results.iter().enumerate() {
                 assert!(
@@ -1441,7 +1541,11 @@ mod rows_window_sql_tests {
 
         // EMIT ON BUFFER_FULL should produce fewer results than input records
         // Only when buffer (size 3) reaches capacity should emission occur
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             // Verify each result has the expected fields
             for (idx, result) in results.iter().enumerate() {
                 assert!(
@@ -1481,9 +1585,6 @@ mod rows_window_sql_tests {
                 results.len(),
                 records_len
             );
-        } else {
-            // Empty results are acceptable - depends on implementation
-            println!("⚠️  No results from EMIT ON BUFFER_FULL mode (buffer may not have filled)");
         }
     }
 
@@ -1602,7 +1703,11 @@ mod rows_window_sql_tests {
         let results = SqlExecutor::execute_query(sql, records).await;
 
         // EMIT EVERY RECORD should produce results for each input
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Check that all aggregation fields exist
                 assert!(
@@ -1711,7 +1816,11 @@ mod rows_window_sql_tests {
         let results = SqlExecutor::execute_query(sql, records).await;
 
         // Verify gap detection behavior through result analysis
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             // We should see different aggregation values when gap detection triggers
             // Later sessions should have fresh aggregations reflecting only recent records
             let mut count_values: Vec<i64> = Vec::new();
@@ -1770,7 +1879,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             // Separate results by partition
             let mut aapl_results = Vec::new();
             let mut msft_results = Vec::new();
@@ -1838,7 +1951,11 @@ mod rows_window_sql_tests {
         // With EMIT EVERY RECORD and gap detection, we should see:
         // - Results emitted for each input record
         // - Gap detection may cause count to reset after gap
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             let mut counts: Vec<i64> = Vec::new();
             for result in &results {
                 if let Some(FieldValue::Integer(count)) = result.fields.get("window_count") {
@@ -1889,7 +2006,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 // Verify default timeout scenario works
                 assert!(
@@ -1930,7 +2051,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 assert!(
                     result.fields.contains_key("moving_avg_30s"),
@@ -1970,7 +2095,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 assert!(
                     result.fields.contains_key("moving_avg_5min"),
@@ -2010,7 +2139,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 assert!(
                     result.fields.contains_key("moving_avg_no_expire"),
@@ -2047,7 +2180,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 assert!(
                     result.fields.contains_key("moving_avg_with_expire"),
@@ -2103,7 +2240,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             // Verify results with compound partition keys and gap eviction
             let mut partition_combinations = std::collections::HashSet::new();
             for result in &results {
@@ -2158,7 +2299,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 assert!(
                     result.fields.contains_key("prev_price"),
@@ -2211,7 +2356,11 @@ mod rows_window_sql_tests {
 
         let results = SqlExecutor::execute_query(sql, records).await;
 
-        if !results.is_empty() {
+        assert!(
+            !results.is_empty(),
+            "Expected non-empty results from ROWS WINDOW query"
+        );
+        {
             for (idx, result) in results.iter().enumerate() {
                 assert!(
                     result.fields.contains_key("price_rank"),

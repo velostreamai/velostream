@@ -6,7 +6,7 @@
 //! - StreamJobServer for execution
 
 /// Default version used when deploying jobs via test harness
-const DEFAULT_JOB_VERSION: &str = "1.0.0";
+pub const DEFAULT_JOB_VERSION: &str = "1.0.0";
 
 use super::capture::{CaptureConfig, CaptureFormat, SinkCapture};
 use super::config_override::ConfigOverrides;
@@ -20,12 +20,14 @@ use super::spec::{
 };
 use super::stress::MemoryTracker;
 use crate::velostream::kafka::kafka_fast_producer::PolledProducer;
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
+use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use rdkafka::producer::BaseRecord;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Type alias for source/sink extraction results: (name, optional_topic)
@@ -68,6 +70,9 @@ pub struct QueryExecutor {
 
     /// Track deployed dependencies to avoid re-deployment
     deployed_dependencies: HashSet<String>,
+
+    /// Directory containing the test spec file (for resolving relative paths)
+    spec_dir: Option<PathBuf>,
 }
 
 /// Captured output from a query execution
@@ -125,6 +130,9 @@ pub struct ExecutionResult {
 
     /// Execution time in milliseconds
     pub execution_time_ms: u64,
+
+    /// Metric assertion results (if metric_assertions were specified in test spec)
+    pub metric_assertion_results: Vec<super::assertions::AssertionResult>,
 }
 
 impl QueryExecutor {
@@ -142,7 +150,17 @@ impl QueryExecutor {
             parsed_queries_ordered: Vec::new(),
             source_topics: HashMap::new(),
             deployed_dependencies: HashSet::new(),
+            spec_dir: None,
         }
+    }
+
+    /// Set the spec directory for resolving relative file paths
+    ///
+    /// When a test spec contains relative paths (e.g., `data_file: data/reference.csv`),
+    /// they will be resolved relative to this directory.
+    pub fn with_spec_dir(mut self, dir: impl AsRef<Path>) -> Self {
+        self.spec_dir = Some(dir.as_ref().to_path_buf());
+        self
     }
 
     /// Initialize StreamJobServer for actual SQL execution
@@ -154,9 +172,22 @@ impl QueryExecutor {
     /// * `base_dir` - Optional base directory for resolving relative config file paths in SQL
     ///   (e.g., `../../configs/common_kafka_source.yaml`). Pass the parent directory
     ///   of the SQL file being executed.
-    pub async fn with_server(
+    pub async fn with_server(self, base_dir: Option<impl AsRef<Path>>) -> TestHarnessResult<Self> {
+        self.with_server_and_observability(base_dir, false).await
+    }
+
+    /// Initialize StreamJobServer with observability for metric verification
+    ///
+    /// Same as `with_server` but enables Prometheus metrics collection so that
+    /// metric assertions can verify @metric annotations are working correctly.
+    ///
+    /// # Arguments
+    /// * `base_dir` - Optional base directory for resolving relative config file paths in SQL
+    /// * `enable_metrics` - If true, enables metrics collection for test verification
+    pub async fn with_server_and_observability(
         mut self,
         base_dir: Option<impl AsRef<Path>>,
+        enable_metrics: bool,
     ) -> TestHarnessResult<Self> {
         let bootstrap_servers =
             self.infra
@@ -192,7 +223,17 @@ impl QueryExecutor {
             config = config.with_base_dir(dir.as_ref());
         }
 
-        self.server = Some(StreamJobServer::with_config(config));
+        // Create server with or without observability
+        let server = if enable_metrics {
+            // Enable metrics collection for test harness verification
+            let streaming_config = StreamingConfig::default().with_prometheus_metrics();
+            log::info!("StreamJobServer initialized with metrics enabled for test verification");
+            StreamJobServer::with_config_and_observability(config, streaming_config).await
+        } else {
+            StreamJobServer::with_config(config)
+        };
+
+        self.server = Some(server);
         log::info!(
             "StreamJobServer initialized with bootstrap servers: {}",
             bootstrap_servers
@@ -239,6 +280,287 @@ impl QueryExecutor {
         }
     }
 
+    /// Get the shared observability manager for metric verification
+    ///
+    /// Returns the observability manager if the server was initialized with metrics enabled.
+    /// Use this to access the `MetricsProvider` for asserting on @metric annotations.
+    ///
+    /// # Example
+    /// ```ignore
+    /// if let Some(obs) = executor.observability() {
+    ///     let obs_read = obs.read().await;
+    ///     if let Some(metrics) = obs_read.metrics() {
+    ///         let count = metrics.get_counter_total("velo_records_total");
+    ///         assert!(count.unwrap_or(0) > 0);
+    ///     }
+    /// }
+    /// ```
+    pub fn observability(&self) -> Option<&SharedObservabilityManager> {
+        self.server.as_ref().and_then(|s| s.observability())
+    }
+
+    /// Check if a counter metric has been recorded
+    ///
+    /// Returns the total count for the given metric name across all labels.
+    /// Returns None if observability is not enabled or the metric is not found.
+    pub async fn get_metric_counter_total(&self, name: &str) -> Option<u64> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.get_counter_total(name);
+            }
+        }
+        None
+    }
+
+    /// Check if a gauge metric has any recorded value
+    ///
+    /// Returns the most recent gauge value for the given metric name.
+    /// Returns None if observability is not enabled or the metric is not found.
+    pub async fn get_metric_gauge_any(&self, name: &str) -> Option<f64> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.get_gauge_any(name);
+            }
+        }
+        None
+    }
+
+    /// Check if a metric is registered (exists)
+    ///
+    /// Returns the kind of metric (Counter, Gauge, Histogram) if found.
+    /// Returns None if observability is not enabled or the metric is not registered.
+    pub async fn is_metric_registered(
+        &self,
+        name: &str,
+    ) -> Option<crate::velostream::observability::metrics::MetricKind> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.is_metric_registered(name);
+            }
+        }
+        None
+    }
+
+    /// List all registered dynamic metrics
+    ///
+    /// Returns a list of (name, kind) tuples for all registered metrics.
+    /// Returns empty list if observability is not enabled.
+    pub async fn list_registered_metrics(
+        &self,
+    ) -> Vec<(
+        String,
+        crate::velostream::observability::metrics::MetricKind,
+    )> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.list_registered_metrics();
+            }
+        }
+        Vec::new()
+    }
+
+    /// Run metric assertions against the observability manager
+    ///
+    /// This method validates @metric annotations by checking actual metric values
+    /// against the assertion configuration. Must be called after jobs have processed
+    /// some records so metrics are populated.
+    ///
+    /// Returns a vector of assertion results (one per assertion).
+    pub async fn run_metric_assertions(
+        &self,
+        assertions: &[super::spec::AssertionConfig],
+    ) -> Vec<super::assertions::AssertionResult> {
+        use super::assertions::AssertionResult;
+        use super::spec::{AssertionConfig, MetricOperator};
+        use crate::velostream::observability::metrics::MetricKind;
+
+        let mut results = Vec::new();
+
+        for assertion in assertions {
+            let result = match assertion {
+                AssertionConfig::MetricCounter(config) => {
+                    let actual = self.get_metric_counter_total(&config.name).await;
+                    match actual {
+                        None => AssertionResult::fail(
+                            "metric_counter",
+                            &format!("Counter '{}' not found or not registered", config.name),
+                            "metric to be registered",
+                            "metric not found",
+                        ),
+                        Some(value) => {
+                            let expected_desc =
+                                match (&config.operator, config.value, &config.between) {
+                                    (MetricOperator::Equals, Some(v), _) => format!("== {}", v),
+                                    (MetricOperator::GreaterThan, Some(v), _) => format!("> {}", v),
+                                    (MetricOperator::GreaterThanOrEqual, Some(v), _) => {
+                                        format!(">= {}", v)
+                                    }
+                                    (MetricOperator::LessThan, Some(v), _) => format!("< {}", v),
+                                    (MetricOperator::LessThanOrEqual, Some(v), _) => {
+                                        format!("<= {}", v)
+                                    }
+                                    (MetricOperator::Between, _, Some((min, max))) => {
+                                        format!("between {} and {}", min, max)
+                                    }
+                                    _ => "valid value".to_string(),
+                                };
+
+                            let passed = match (&config.operator, config.value, &config.between) {
+                                (MetricOperator::Equals, Some(v), _) => value == v,
+                                (MetricOperator::GreaterThan, Some(v), _) => value > v,
+                                (MetricOperator::GreaterThanOrEqual, Some(v), _) => value >= v,
+                                (MetricOperator::LessThan, Some(v), _) => value < v,
+                                (MetricOperator::LessThanOrEqual, Some(v), _) => value <= v,
+                                (MetricOperator::Between, _, Some((min, max))) => {
+                                    value >= *min && value <= *max
+                                }
+                                _ => true, // No constraint specified
+                            };
+
+                            if passed {
+                                AssertionResult::pass(
+                                    "metric_counter",
+                                    &format!(
+                                        "Counter '{}' = {} (expected {})",
+                                        config.name, value, expected_desc
+                                    ),
+                                )
+                            } else {
+                                AssertionResult::fail(
+                                    "metric_counter",
+                                    &format!("Counter '{}' assertion failed", config.name),
+                                    &expected_desc,
+                                    &value.to_string(),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AssertionConfig::MetricGauge(config) => {
+                    let actual = self.get_metric_gauge_any(&config.name).await;
+                    match actual {
+                        None => AssertionResult::fail(
+                            "metric_gauge",
+                            &format!("Gauge '{}' not found or not registered", config.name),
+                            "metric to be registered",
+                            "metric not found",
+                        ),
+                        Some(value) => {
+                            let tolerance = config.tolerance.unwrap_or(0.0001);
+                            let expected_desc =
+                                match (&config.operator, config.value, &config.between) {
+                                    (MetricOperator::Equals, Some(v), _) => {
+                                        format!("== {} (±{})", v, tolerance)
+                                    }
+                                    (MetricOperator::GreaterThan, Some(v), _) => format!("> {}", v),
+                                    (MetricOperator::GreaterThanOrEqual, Some(v), _) => {
+                                        format!(">= {}", v)
+                                    }
+                                    (MetricOperator::LessThan, Some(v), _) => format!("< {}", v),
+                                    (MetricOperator::LessThanOrEqual, Some(v), _) => {
+                                        format!("<= {}", v)
+                                    }
+                                    (MetricOperator::Between, _, Some((min, max))) => {
+                                        format!("between {} and {}", min, max)
+                                    }
+                                    _ => "valid value".to_string(),
+                                };
+
+                            let passed = match (&config.operator, config.value, &config.between) {
+                                (MetricOperator::Equals, Some(v), _) => {
+                                    (value - v).abs() < tolerance
+                                }
+                                (MetricOperator::GreaterThan, Some(v), _) => value > v,
+                                (MetricOperator::GreaterThanOrEqual, Some(v), _) => value >= v,
+                                (MetricOperator::LessThan, Some(v), _) => value < v,
+                                (MetricOperator::LessThanOrEqual, Some(v), _) => value <= v,
+                                (MetricOperator::Between, _, Some((min, max))) => {
+                                    value >= *min && value <= *max
+                                }
+                                _ => true, // No constraint specified
+                            };
+
+                            if passed {
+                                AssertionResult::pass(
+                                    "metric_gauge",
+                                    &format!(
+                                        "Gauge '{}' = {} (expected {})",
+                                        config.name, value, expected_desc
+                                    ),
+                                )
+                            } else {
+                                AssertionResult::fail(
+                                    "metric_gauge",
+                                    &format!("Gauge '{}' assertion failed", config.name),
+                                    &expected_desc,
+                                    &value.to_string(),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AssertionConfig::MetricExists(config) => {
+                    let actual = self.is_metric_registered(&config.name).await;
+                    match actual {
+                        None => AssertionResult::fail(
+                            "metric_exists",
+                            &format!("Metric '{}' not registered", config.name),
+                            "metric to be registered",
+                            "not found",
+                        ),
+                        Some(kind) => {
+                            // If metric_type is specified, also verify the type matches
+                            if let Some(ref expected_type) = config.metric_type {
+                                use super::spec::MetricTypeExpected;
+                                let type_matches = match (expected_type, &kind) {
+                                    (MetricTypeExpected::Counter, MetricKind::Counter) => true,
+                                    (MetricTypeExpected::Gauge, MetricKind::Gauge) => true,
+                                    (MetricTypeExpected::Histogram, MetricKind::Histogram) => true,
+                                    _ => false,
+                                };
+
+                                if type_matches {
+                                    AssertionResult::pass(
+                                        "metric_exists",
+                                        &format!(
+                                            "Metric '{}' exists with type {:?}",
+                                            config.name, kind
+                                        ),
+                                    )
+                                } else {
+                                    AssertionResult::fail(
+                                        "metric_exists",
+                                        &format!("Metric '{}' type mismatch", config.name),
+                                        &format!("{:?}", expected_type),
+                                        &format!("{:?}", kind),
+                                    )
+                                }
+                            } else {
+                                AssertionResult::pass(
+                                    "metric_exists",
+                                    &format!("Metric '{}' exists (type: {:?})", config.name, kind),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Non-metric assertions - skip
+                _ => continue,
+            };
+
+            results.push(result);
+        }
+
+        results
+    }
+
     /// Stop the executor and cleanup infrastructure
     ///
     /// This method MUST be called before program exit to ensure proper cleanup
@@ -254,6 +576,26 @@ impl QueryExecutor {
         self.infra.stop().await?;
 
         log::info!("QueryExecutor stopped and infrastructure cleaned up");
+        Ok(())
+    }
+
+    /// Stop the executor with optional container preservation for reuse
+    ///
+    /// When `keep_for_reuse` is true, the container is kept running for
+    /// subsequent test runs. Only topics are cleaned up.
+    pub async fn stop_with_reuse(&mut self, keep_for_reuse: bool) -> TestHarnessResult<()> {
+        log::info!("Stopping QueryExecutor (reuse: {})...", keep_for_reuse);
+
+        // Drop the server (jobs will stop naturally)
+        self.server = None;
+
+        // Stop infrastructure with reuse option
+        self.infra.stop_with_reuse(keep_for_reuse).await?;
+
+        log::info!(
+            "QueryExecutor stopped (container preserved: {})",
+            keep_for_reuse
+        );
         Ok(())
     }
 
@@ -550,12 +892,22 @@ impl QueryExecutor {
                     || schema_ref.contains('/')
                     || schema_ref.contains('\\')
                 {
-                    // Load schema from file
-                    match std::fs::read_to_string(schema_ref) {
+                    // Load schema from file, resolving relative paths from spec_dir
+                    let schema_path = {
+                        let p = std::path::Path::new(schema_ref);
+                        if p.is_absolute() {
+                            p.to_path_buf()
+                        } else if let Some(ref spec_dir) = self.spec_dir {
+                            spec_dir.join(p)
+                        } else {
+                            p.to_path_buf()
+                        }
+                    };
+                    match std::fs::read_to_string(&schema_path) {
                         Ok(content) => {
                             log::info!(
                                 "QueryExecutor: Loaded capture schema from file '{}' ({} bytes)",
-                                schema_ref,
+                                schema_path.display(),
                                 content.len()
                             );
                             Some(content)
@@ -563,7 +915,7 @@ impl QueryExecutor {
                         Err(e) => {
                             log::error!(
                                 "QueryExecutor: Failed to load capture schema from '{}': {}",
-                                schema_ref,
+                                schema_path.display(),
                                 e
                             );
                             // Fall back to treating it as inline schema
@@ -582,7 +934,7 @@ impl QueryExecutor {
                 timeout: self.timeout,
                 min_records: 0,
                 max_records: 100_000,
-                idle_timeout: Duration::from_secs(3),
+                idle_timeout: Duration::from_secs(5),
                 format: query.capture_format.clone(),
                 schema_json: resolved_schema,
             });
@@ -606,7 +958,19 @@ impl QueryExecutor {
             }
         }
 
-        // Step 4: Cleanup - stop the job
+        // Step 4: Run metric assertions (if specified) - before stopping job
+        let metric_assertion_results = if !query.metric_assertions.is_empty() {
+            log::info!(
+                "Running {} metric assertion(s) for query '{}'",
+                query.metric_assertions.len(),
+                query.name
+            );
+            self.run_metric_assertions(&query.metric_assertions).await
+        } else {
+            Vec::new()
+        };
+
+        // Step 5: Cleanup - stop the job
         if let Some(ref server) = self.server {
             if let Err(e) = server.stop_job(&query.name).await {
                 log::warn!("Failed to stop job '{}': {}", query.name, e);
@@ -626,6 +990,7 @@ impl QueryExecutor {
             error: None,
             outputs: captured_outputs,
             execution_time_ms,
+            metric_assertion_results,
         })
     }
 
@@ -645,47 +1010,130 @@ impl QueryExecutor {
         );
 
         while start.elapsed() < timeout {
-            if let Some(ref server) = self.server {
-                if let Some(status) = server.get_job_status(job_name).await {
-                    match status.status {
-                        JobStatus::Failed(ref msg) => {
-                            return Err(TestHarnessError::ExecutionError {
-                                message: format!("Job failed: {}", msg),
-                                query_name: job_name.to_string(),
-                                source: None,
-                            });
-                        }
-                        JobStatus::Stopped => {
-                            log::debug!("Job '{}' stopped", job_name);
+            let server = match self.server.as_ref() {
+                Some(s) => s,
+                None => {
+                    tokio::time::sleep(poll_interval).await;
+                    continue;
+                }
+            };
+            if let Some(status) = server.get_job_status(job_name).await {
+                match status.status {
+                    JobStatus::Failed(ref msg) => {
+                        return Err(TestHarnessError::ExecutionError {
+                            message: format!("Job failed: {}", msg),
+                            query_name: job_name.to_string(),
+                            source: None,
+                        });
+                    }
+                    JobStatus::Stopped => {
+                        log::debug!("Job '{}' stopped", job_name);
+                        return Ok(());
+                    }
+                    JobStatus::Running => {
+                        // Check if we've processed enough records (heuristic).
+                        // Wait until records_processed stabilizes (all input consumed),
+                        // then allow extra time for output to be flushed to Kafka.
+                        // This is critical for join queries where input is read quickly
+                        // but output is batched and flushed asynchronously.
+                        if status.stats.records_processed > 0 {
+                            let mut prev_count = status.stats.records_processed;
+                            // Poll until records_processed stops growing
+                            loop {
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                                if start.elapsed() >= timeout {
+                                    break;
+                                }
+                                let current = server
+                                    .get_job_status(job_name)
+                                    .await
+                                    .map(|st| st.stats.records_processed)
+                                    .unwrap_or(prev_count);
+                                if current <= prev_count {
+                                    break; // Stabilized
+                                }
+                                log::debug!(
+                                    "Job '{}' still processing ({} -> {} records), waiting...",
+                                    job_name,
+                                    prev_count,
+                                    current
+                                );
+                                prev_count = current;
+                            }
+                            log::debug!(
+                                "Job '{}' processed {} records, proceeding to capture",
+                                job_name,
+                                prev_count
+                            );
                             return Ok(());
                         }
-                        JobStatus::Running => {
-                            // Check if we've processed enough records (heuristic)
-                            if status.stats.records_processed > 0 {
-                                // Give it a bit more time to finish processing
-                                tokio::time::sleep(Duration::from_millis(500)).await;
-                                log::debug!(
-                                    "Job '{}' processed {} records",
-                                    job_name,
-                                    status.stats.records_processed
-                                );
-                                return Ok(());
-                            }
-                        }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
             tokio::time::sleep(poll_interval).await;
         }
 
-        // Timeout reached - return success but log warning
-        log::warn!(
-            "Job '{}' did not complete within timeout ({:?}), proceeding with capture",
+        // Timeout reached - check if any records were processed
+        let final_status = match self.server.as_ref() {
+            Some(s) => s.get_job_status(job_name).await,
+            None => None,
+        };
+        if final_status
+            .as_ref()
+            .is_some_and(|s| s.stats.records_processed > 0)
+        {
+            let processed = final_status.unwrap().stats.records_processed;
+            log::warn!(
+                "Job '{}' did not complete within timeout ({:?}), but processed {} records - proceeding with capture",
+                job_name,
+                timeout,
+                processed
+            );
+            return Ok(());
+        }
+
+        // No records processed - this is a failure
+        log::error!(
+            "Job '{}' timed out after {:?} with 0 records processed",
             job_name,
             timeout
         );
-        Ok(())
+        Err(TestHarnessError::ExecutionError {
+            message: format!(
+                "Job '{}' timed out after {:?} with no records processed. \
+                This usually indicates the input topic is empty or doesn't exist.",
+                job_name, timeout
+            ),
+            query_name: job_name.to_string(),
+            source: None,
+        })
+    }
+
+    /// Publish input data for a query without executing SQL (data-only mode)
+    ///
+    /// Use this when SQL jobs are deployed separately (e.g., via velo-sql deploy-app)
+    /// and you only need to generate test data to Kafka input topics.
+    pub async fn publish_query_inputs(&mut self, query: &QueryTest) -> TestHarnessResult<usize> {
+        log::info!(
+            "Publishing inputs for query '{}' (data-only mode)",
+            query.name
+        );
+
+        let mut total_records = 0;
+        for input in &query.inputs {
+            let records_before = self.estimate_input_records(input);
+            self.publish_input_data(input).await?;
+            total_records += records_before;
+        }
+
+        Ok(total_records)
+    }
+
+    /// Estimate number of records that will be published for an input
+    fn estimate_input_records(&self, input: &InputConfig) -> usize {
+        // Use records field if specified, otherwise default
+        input.records.unwrap_or(100)
     }
 
     /// Publish input data for a query
@@ -862,10 +1310,14 @@ impl QueryExecutor {
             format
         );
 
-        // Resolve the file path (relative to current directory)
+        // Resolve the file path
+        // If spec_dir is set, resolve relative paths from there
+        // Otherwise, fall back to current working directory
         let file_path = Path::new(path);
         let full_path = if file_path.is_absolute() {
             file_path.to_path_buf()
+        } else if let Some(ref spec_dir) = self.spec_dir {
+            spec_dir.join(file_path)
         } else {
             std::env::current_dir().unwrap_or_default().join(file_path)
         };
@@ -1094,6 +1546,8 @@ impl QueryExecutor {
                 }
                 if let Some(ts) = Self::extract_event_time_ms(record) {
                     sr.timestamp = ts;
+                    // Also set event_time for proper event-time semantics in windows and metrics
+                    sr.event_time = chrono::DateTime::from_timestamp_millis(ts);
                 }
                 sr
             })
@@ -1535,7 +1989,7 @@ pub fn extract_sources_and_sinks(props: &HashMap<String, String>) -> SourcesAndS
 }
 
 /// Convert FieldValue map to JSON value
-fn field_values_to_json(record: &HashMap<String, FieldValue>) -> serde_json::Value {
+pub fn field_values_to_json(record: &HashMap<String, FieldValue>) -> serde_json::Value {
     let mut map = serde_json::Map::new();
 
     for (key, value) in record {
@@ -1588,7 +2042,7 @@ fn field_value_to_json(value: &FieldValue) -> serde_json::Value {
 }
 
 /// Infer file format from file extension
-fn infer_file_format(path: &str) -> FileFormat {
+pub fn infer_file_format(path: &str) -> FileFormat {
     let lower = path.to_lowercase();
     if lower.ends_with(".csv") {
         FileFormat::Csv
@@ -1603,322 +2057,5 @@ fn infer_file_format(path: &str) -> FileFormat {
             path
         );
         FileFormat::JsonLines
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_infer_file_format_csv() {
-        assert!(matches!(infer_file_format("data.csv"), FileFormat::Csv));
-        assert!(matches!(infer_file_format("data.CSV"), FileFormat::Csv));
-        assert!(matches!(
-            infer_file_format("/path/to/data.csv"),
-            FileFormat::Csv
-        ));
-    }
-
-    #[test]
-    fn test_infer_file_format_json() {
-        assert!(matches!(infer_file_format("data.json"), FileFormat::Json));
-        assert!(matches!(infer_file_format("data.JSON"), FileFormat::Json));
-    }
-
-    #[test]
-    fn test_infer_file_format_jsonl() {
-        assert!(matches!(
-            infer_file_format("data.jsonl"),
-            FileFormat::JsonLines
-        ));
-        assert!(matches!(
-            infer_file_format("data.ndjson"),
-            FileFormat::JsonLines
-        ));
-        assert!(matches!(
-            infer_file_format("data.NDJSON"),
-            FileFormat::JsonLines
-        ));
-    }
-
-    #[test]
-    fn test_infer_file_format_unknown() {
-        // Unknown extensions default to JSON Lines
-        assert!(matches!(
-            infer_file_format("data.txt"),
-            FileFormat::JsonLines
-        ));
-        assert!(matches!(
-            infer_file_format("data.parquet"),
-            FileFormat::JsonLines
-        ));
-    }
-
-    #[test]
-    fn test_extract_stream_name() {
-        assert_eq!(
-            extract_stream_name("CREATE STREAM my_stream AS SELECT * FROM source"),
-            Some("my_stream".to_string())
-        );
-
-        assert_eq!(
-            extract_stream_name("CREATE STREAM enriched_data AS SELECT a, b FROM source"),
-            Some("enriched_data".to_string())
-        );
-
-        assert_eq!(extract_stream_name("SELECT * FROM source"), None);
-    }
-
-    #[test]
-    fn test_field_values_to_json() {
-        let mut record = HashMap::new();
-        record.insert("id".to_string(), FieldValue::Integer(42));
-        record.insert("name".to_string(), FieldValue::String("test".to_string()));
-        record.insert("active".to_string(), FieldValue::Boolean(true));
-
-        let json = field_values_to_json(&record);
-
-        assert!(json.is_object());
-        assert_eq!(json["id"], 42);
-        assert_eq!(json["name"], "test");
-        assert_eq!(json["active"], true);
-    }
-
-    #[test]
-    fn test_default_job_version_constant() {
-        // Verify the constant is defined and has expected format
-        assert_eq!(DEFAULT_JOB_VERSION, "1.0.0");
-        assert!(DEFAULT_JOB_VERSION.contains('.'));
-    }
-
-    #[test]
-    fn test_parse_with_properties_basic() {
-        let sql = "CREATE STREAM test AS SELECT * FROM source WITH ('topic' = 'my_topic')";
-        let props = parse_with_properties(sql);
-        assert_eq!(props.get("topic"), Some(&"my_topic".to_string()));
-    }
-
-    #[test]
-    fn test_parse_with_properties_multiple() {
-        let sql = r#"CREATE STREAM test AS SELECT * FROM source
-            WITH ('topic' = 'my_topic', 'format' = 'json', 'key' = 'id')"#;
-        let props = parse_with_properties(sql);
-        assert_eq!(props.get("topic"), Some(&"my_topic".to_string()));
-        assert_eq!(props.get("format"), Some(&"json".to_string()));
-        assert_eq!(props.get("key"), Some(&"id".to_string()));
-    }
-
-    #[test]
-    fn test_parse_with_properties_empty() {
-        let sql = "SELECT * FROM source";
-        let props = parse_with_properties(sql);
-        assert!(props.is_empty());
-    }
-
-    #[test]
-    fn test_extract_sources_and_sinks_kafka_source() {
-        let mut props = HashMap::new();
-        props.insert("input.type".to_string(), "kafka_source".to_string());
-        props.insert("input.topic".to_string(), "input_topic".to_string());
-
-        let (sources, sinks) = extract_sources_and_sinks(&props);
-
-        assert_eq!(sources.len(), 1);
-        assert_eq!(sources[0].0, "input");
-        assert_eq!(sources[0].1, Some("input_topic".to_string()));
-        assert!(sinks.is_empty());
-    }
-
-    #[test]
-    fn test_extract_sources_and_sinks_kafka_sink() {
-        let mut props = HashMap::new();
-        props.insert("output.type".to_string(), "kafka_sink".to_string());
-        props.insert("output.topic".to_string(), "output_topic".to_string());
-
-        let (sources, sinks) = extract_sources_and_sinks(&props);
-
-        assert!(sources.is_empty());
-        assert_eq!(sinks.len(), 1);
-        assert_eq!(sinks[0].0, "output");
-        assert_eq!(sinks[0].1, Some("output_topic".to_string()));
-    }
-
-    #[test]
-    fn test_extract_table_name_ctas() {
-        assert_eq!(
-            extract_stream_name("CREATE TABLE my_table AS SELECT * FROM source"),
-            Some("my_table".to_string())
-        );
-
-        assert_eq!(
-            extract_stream_name("CREATE TABLE reference_data AS SELECT id, name FROM source"),
-            Some("reference_data".to_string())
-        );
-    }
-
-    #[test]
-    fn test_captured_output_location_with_topic() {
-        let output = CapturedOutput {
-            query_name: "test".to_string(),
-            sink_name: "sink".to_string(),
-            topic: Some("my_topic".to_string()),
-            records: Vec::new(),
-            execution_time_ms: 100,
-            warnings: Vec::new(),
-            memory_peak_bytes: None,
-            memory_growth_bytes: None,
-        };
-        assert_eq!(output.location(), "topic 'my_topic'");
-    }
-
-    #[test]
-    fn test_captured_output_location_without_topic() {
-        let output = CapturedOutput {
-            query_name: "test".to_string(),
-            sink_name: "file_sink".to_string(),
-            topic: None,
-            records: Vec::new(),
-            execution_time_ms: 100,
-            warnings: Vec::new(),
-            memory_peak_bytes: None,
-            memory_growth_bytes: None,
-        };
-        assert_eq!(output.location(), "sink 'file_sink'");
-    }
-
-    // ==========================================================================
-    // Dependency Error Path Tests
-    // ==========================================================================
-
-    use super::super::spec::QueryTest;
-
-    fn create_test_query_with_deps(name: &str, deps: Vec<&str>) -> QueryTest {
-        QueryTest {
-            name: name.to_string(),
-            description: None,
-            skip: false,
-            dependencies: deps.iter().map(|s| s.to_string()).collect(),
-            inputs: Vec::new(),
-            output: None,
-            outputs: Vec::new(),
-            assertions: Vec::new(),
-            timeout_ms: None,
-            capture_format: Default::default(),
-            capture_schema: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn test_execute_query_no_server_with_dependencies_error() {
-        // Create executor without server (simulating no with_server() call)
-        let infra = TestHarnessInfra::new();
-        let mut executor = QueryExecutor::new(infra);
-
-        // Add a parsed query that the dependency refers to
-        executor.parsed_queries.insert(
-            "ref_table".to_string(),
-            ParsedQuery {
-                name: "ref_table".to_string(),
-                query_text: "CREATE TABLE ref_table AS SELECT 1".to_string(),
-                sources: Vec::new(),
-                sinks: Vec::new(),
-                sink_topic: None,
-                source_topics: HashMap::new(),
-            },
-        );
-
-        // Create query with a dependency but no server configured
-        let query = create_test_query_with_deps("main_query", vec!["ref_table"]);
-
-        // Execute should fail with ConfigError
-        let result = executor.execute_query(&query).await;
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        match err {
-            TestHarnessError::ConfigError { message } => {
-                assert!(
-                    message.contains("no StreamJobServer configured"),
-                    "Expected 'no StreamJobServer configured' in error: {}",
-                    message
-                );
-                assert!(
-                    message.contains("main_query"),
-                    "Expected query name in error: {}",
-                    message
-                );
-            }
-            other => panic!("Expected ConfigError, got {:?}", other),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_execute_query_dependency_not_found_error() {
-        // Create executor without server
-        let infra = TestHarnessInfra::new();
-        let mut executor = QueryExecutor::new(infra);
-
-        // Do NOT add the dependency to parsed_queries - this simulates a missing dependency
-        // Add a different query so parsed_queries isn't empty
-        executor.parsed_queries.insert(
-            "other_table".to_string(),
-            ParsedQuery {
-                name: "other_table".to_string(),
-                query_text: "CREATE TABLE other_table AS SELECT 1".to_string(),
-                sources: Vec::new(),
-                sinks: Vec::new(),
-                sink_topic: None,
-                source_topics: HashMap::new(),
-            },
-        );
-
-        // Create query with a dependency that doesn't exist
-        let query = create_test_query_with_deps("main_query", vec!["nonexistent_dep"]);
-
-        // This test checks that if no server is configured, we get a ConfigError
-        // about the server, not about the missing dependency (server check comes first)
-        let result = executor.execute_query(&query).await;
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        match err {
-            TestHarnessError::ConfigError { message } => {
-                // Server not configured error comes first
-                assert!(
-                    message.contains("no StreamJobServer configured"),
-                    "Expected server error first: {}",
-                    message
-                );
-            }
-            other => panic!("Expected ConfigError, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_deployed_dependencies_tracking() {
-        // Verify HashSet behavior for duplicate prevention
-        let mut deployed = HashSet::new();
-
-        // First insert returns true (newly inserted)
-        assert!(deployed.insert("dep_a".to_string()));
-
-        // Second insert returns false (already exists)
-        assert!(!deployed.insert("dep_a".to_string()));
-
-        // Different dependency returns true
-        assert!(deployed.insert("dep_b".to_string()));
-
-        // Contains works correctly
-        assert!(deployed.contains("dep_a"));
-        assert!(deployed.contains("dep_b"));
-        assert!(!deployed.contains("dep_c"));
-    }
-
-    #[test]
-    fn test_query_with_empty_dependencies_no_error() {
-        // Verify that queries without dependencies don't trigger dependency logic
-        let query = create_test_query_with_deps("simple_query", vec![]);
-        assert!(query.dependencies.is_empty());
     }
 }

@@ -1,5 +1,5 @@
 -- =============================================================================
--- APPLICATION: price_analytics
+-- SQL Application: price_analytics
 -- =============================================================================
 -- @app: price_analytics
 -- @version: 1.0.0
@@ -57,26 +57,36 @@
 -- @name: price_movement_alerts
 -- @description: Detects price movements using LAG/LEAD/RANK window functions
 -- -----------------------------------------------------------------------------
+-- @metric: velo_price_movement_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Total price movement alerts generated"
+-- @metric_labels: symbol
+--
+-- @metric: velo_price_change_pct
+-- @metric_type: gauge
+-- @metric_help: "Price change percentage"
+-- @metric_labels: symbol
+-- @metric_field: price_change_pct
 
 CREATE STREAM price_movement_alerts AS
 SELECT
     symbol PRIMARY KEY,
     price,
     volume,
-    event_time,
+    _event_time,
 
     -- Previous and next prices
     LAG(price, 1) OVER (
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     ) as prev_price,
     LEAD(price, 1) OVER (
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     ) as next_price,
 
     -- Price change percentage
@@ -84,13 +94,13 @@ SELECT
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     )) /
      LAG(price, 1) OVER (
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     ) * 100 as price_change_pct,
 
     -- Ranking functions
@@ -117,7 +127,7 @@ SELECT
     STDDEV(price) OVER (
         ROWS WINDOW BUFFER 10 ROWS
         PARTITION BY symbol
-        ORDER BY event_time
+        ORDER BY _event_time
     ) as price_volatility_10_periods,
 
     -- Movement severity classification
@@ -126,37 +136,39 @@ SELECT
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) /
                  LAG(price, 1) OVER (
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) * 100 > 5.0 THEN 'SIGNIFICANT'
         WHEN ABS((price - LAG(price, 1) OVER (
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) /
                  LAG(price, 1) OVER (
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) * 100 > 2.0 THEN 'MODERATE'
         ELSE 'NORMAL'
     END as movement_severity,
 
     NOW() as detection_time
 FROM market_data_ts
+EMIT CHANGES
 
 WITH (
     -- Source configuration (external dependency)
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Sink configuration
     'price_movement_alerts.type' = 'kafka_sink',
@@ -205,7 +217,7 @@ SELECT
 
 FROM market_data_ts
 GROUP BY symbol
-  WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+  WINDOW TUMBLING(_event_time, INTERVAL '1' MINUTE)
   HAVING COUNT(*) > 0
   EMIT CHANGES
 WITH (
@@ -213,6 +225,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Sink configuration
     'price_movement_debug.type' = 'kafka_sink',
@@ -243,6 +256,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Sink configuration
     'price_stats.type' = 'kafka_sink',

@@ -8,13 +8,15 @@ queries:
     description: Join orders with shipments within 24-hour window
     inputs:
       - source: orders
-        data_file: "demo/test_harness_examples/data/orders_join_test.csv"
+        data_file: "../data/orders_join_test.csv"
       - source: shipments
-        data_file: "demo/test_harness_examples/data/shipments_join_test.csv"
+        data_file: "../data/shipments_join_test.csv"
     assertions:
       - type: record_count
         greater_than: 0
       - type: schema_contains
+        # Fields match SQL SELECT clause with aliases applied:
+        # o.total_amount AS order_total, o.event_time AS order_time, s.event_time AS shipment_time
         fields: [order_id, customer_id, order_total, shipment_id, carrier, tracking_number]
       - type: no_nulls
         fields: [order_id, shipment_id, carrier]

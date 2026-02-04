@@ -35,15 +35,15 @@ use crate::velostream::sql::ast::{
 };
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
-use crate::velostream::sql::execution::expression::{ExpressionEvaluator, SelectAliasContext};
-use crate::velostream::sql::execution::utils::FieldValueComparator;
-use crate::velostream::sql::execution::validation::AggregationValidator;
+use crate::velostream::sql::execution::expression::{
+    ExpressionEvaluator, SelectAliasContext, is_aggregate_function,
+};
 use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState, GroupKey};
 use crate::velostream::sql::execution::processors::OrderProcessor;
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
+use crate::velostream::sql::execution::utils::FieldValueComparator;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
-use log::warn;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::Vacant;
 
@@ -216,8 +216,16 @@ impl WindowAdapter {
         window_spec: &WindowSpec,
         query: &StreamingQuery,
     ) -> Result<(), SqlError> {
-        // Create window strategy based on spec
-        let strategy = Self::create_strategy(window_spec)?;
+        // Get allowed_lateness_ms from streaming config (if set)
+        let allowed_lateness_ms = context.get_streaming_config().allowed_lateness_ms;
+        log::debug!(
+            "initialize_v2_state: allowed_lateness_ms = {:?} for state_key: {}",
+            allowed_lateness_ms,
+            state_key
+        );
+
+        // Create window strategy based on spec (with allowed_lateness if configured)
+        let strategy = Self::create_strategy_with_lateness(window_spec, allowed_lateness_ms)?;
 
         // Create emission strategy based on query
         let emission_strategy = Self::create_emission_strategy(query)?;
@@ -308,13 +316,17 @@ impl WindowAdapter {
                     // This can happen when:
                     // 1. Timestamp field is missing from records (extract_timestamp fails)
                     // 2. Window bounds not initialized
-                    // 3. Records filtered out by timestamp range check
+                    // 3. Records filtered out by timestamp range check (common with small test timestamps)
+                    // 4. Window advanced beyond the timestamp range of buffered records
+                    //
+                    // This is often expected behavior, especially in test scenarios with
+                    // small sequential timestamps and EMIT CHANGES mode which advances windows
+                    // aggressively. Use debug level to avoid log spam.
                     let stats = v2_state.strategy.get_stats();
-                    warn!(
+                    log::debug!(
                         "EMIT CHANGES: window_records empty after EmitDecision::{:?}. \
                         Window stats: record_count={}, window_start={:?}, window_end={:?}, \
-                        buffer_size_bytes={}. This usually means timestamp extraction failed \
-                        in get_window_records() - check that records have the expected timestamp field.",
+                        buffer_size_bytes={}. Records may be outside window bounds.",
                         emit_decision,
                         stats.record_count,
                         stats.window_start_time,
@@ -326,7 +338,7 @@ impl WindowAdapter {
                     // The buffer has records (stats.record_count > 0) but get_window_records()
                     // couldn't extract timestamps to filter them. Use the input record directly.
                     if stats.record_count > 0 {
-                        warn!(
+                        log::debug!(
                             "EMIT CHANGES: Buffer has {} records but filtering returned 0. \
                             Using input record as fallback for aggregation.",
                             stats.record_count
@@ -395,15 +407,33 @@ impl WindowAdapter {
 
     /// Create a window strategy based on the window specification
     pub fn create_strategy(window_spec: &WindowSpec) -> Result<Box<dyn WindowStrategy>, SqlError> {
+        Self::create_strategy_with_lateness(window_spec, None)
+    }
+
+    /// Create a window strategy with optional allowed lateness configuration.
+    ///
+    /// # Arguments
+    /// * `window_spec` - The window specification (tumbling, sliding, session, rows)
+    /// * `allowed_lateness_ms` - Optional allowed lateness in milliseconds. If None, uses
+    ///   the strategy's default (typically 50% of window size for time-based windows).
+    ///   For partition-batched scenarios, set this to the total timestamp span of your data.
+    pub fn create_strategy_with_lateness(
+        window_spec: &WindowSpec,
+        allowed_lateness_ms: Option<i64>,
+    ) -> Result<Box<dyn WindowStrategy>, SqlError> {
         match window_spec {
             WindowSpec::Tumbling { size, time_column } => {
                 let window_size_ms = size.as_millis() as i64;
-                Ok(Box::new(TumblingWindowStrategy::new(
+                let mut strategy = TumblingWindowStrategy::new(
                     window_size_ms,
                     time_column
                         .clone()
                         .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
-                )))
+                );
+                if let Some(lateness) = allowed_lateness_ms {
+                    strategy.set_allowed_lateness_ms(lateness);
+                }
+                Ok(Box::new(strategy))
             }
             WindowSpec::Sliding {
                 size,
@@ -412,24 +442,32 @@ impl WindowAdapter {
             } => {
                 let window_size_ms = size.as_millis() as i64;
                 let advance_ms = advance.as_millis() as i64;
-                Ok(Box::new(SlidingWindowStrategy::new(
+                let mut strategy = SlidingWindowStrategy::new(
                     window_size_ms,
                     advance_ms,
                     time_column
                         .clone()
                         .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
-                )))
+                );
+                if let Some(lateness) = allowed_lateness_ms {
+                    strategy.set_allowed_lateness_ms(lateness);
+                }
+                Ok(Box::new(strategy))
             }
             WindowSpec::Session {
                 gap, time_column, ..
             } => {
                 let gap_ms = gap.as_millis() as i64;
-                Ok(Box::new(SessionWindowStrategy::new(
+                let mut strategy = SessionWindowStrategy::new(
                     gap_ms,
                     time_column
                         .clone()
                         .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
-                )))
+                );
+                if let Some(lateness) = allowed_lateness_ms {
+                    strategy.set_allowed_lateness_ms(lateness);
+                }
+                Ok(Box::new(strategy))
             }
             WindowSpec::Rows {
                 buffer_size,
@@ -437,6 +475,7 @@ impl WindowAdapter {
                 ..
             } => {
                 let emit_per_record = matches!(emit_mode, RowsEmitMode::EveryRecord);
+                // ROWS windows don't have time-based lateness
                 Ok(Box::new(RowsWindowStrategy::new(
                     *buffer_size as usize,
                     emit_per_record,
@@ -534,7 +573,11 @@ impl WindowAdapter {
 
     /// Extract GROUP BY columns from query
     pub fn get_group_by_columns(query: &StreamingQuery) -> Option<Vec<String>> {
-        let StreamingQuery::Select { group_by: Some(group_exprs), .. } = query else {
+        let StreamingQuery::Select {
+            group_by: Some(group_exprs),
+            ..
+        } = query
+        else {
             return None;
         };
 
@@ -609,6 +652,11 @@ impl WindowAdapter {
             return Ok(Vec::new());
         }
 
+        // Extract SELECT aliases - these are field names defined in SELECT that should not
+        // be validated as input fields (e.g., "spike_classification" defined as a CASE alias
+        // and referenced in another expression like "spike_classification IN (...)")
+        let select_aliases = Self::extract_select_aliases(fields);
+
         // FR-081 PERFORMANCE FIX: Use Arc references directly instead of deep cloning
         // Zero-copy semantics: SharedRecord = Arc<StreamRecord>, so we can work with references
         if window_records.is_empty() {
@@ -626,6 +674,7 @@ impl WindowAdapter {
                     &mut accumulator,
                     record,
                     &aggregate_expressions,
+                    &select_aliases,
                 )?;
             }
 
@@ -674,6 +723,7 @@ impl WindowAdapter {
                 accumulator,
                 record,
                 &aggregate_expressions,
+                &select_aliases,
             )?;
         }
 
@@ -710,23 +760,63 @@ impl WindowAdapter {
         Ok(results)
     }
 
+    /// Extract SELECT aliases from SELECT fields
+    ///
+    /// Returns a set of field names that are defined as aliases in the SELECT clause.
+    /// These are computed fields (like CASE expressions with AS) that should not be
+    /// validated as input fields when processing aggregate expressions.
+    fn extract_select_aliases(fields: &[SelectField]) -> std::collections::HashSet<String> {
+        let mut aliases = std::collections::HashSet::new();
+
+        for field in fields {
+            match field {
+                SelectField::Expression { alias, .. } => {
+                    // If there's an alias, add it to the set
+                    if let Some(alias_name) = alias {
+                        aliases.insert(alias_name.clone());
+                    }
+                }
+                SelectField::AliasedColumn { alias, .. } => {
+                    // Aliased columns also define an alias
+                    aliases.insert(alias.clone());
+                }
+                SelectField::Column(_) | SelectField::Wildcard => {
+                    // Simple columns and wildcards don't define aliases
+                }
+            }
+        }
+
+        aliases
+    }
+
     /// Extract aggregate expressions from SELECT fields
     ///
-    /// Returns vector of (field_name, expression) pairs for aggregate functions
+    /// Returns vector of (field_name, expression) pairs for aggregate functions.
+    ///
+    /// This extracts top-level aggregate expressions AND nested aggregate functions
+    /// from within CASE and other complex expressions. Duplicates are removed to avoid
+    /// redundant accumulation.
     fn extract_aggregate_expressions(
         fields: &[SelectField],
     ) -> Result<Vec<(String, Expr)>, SqlError> {
+        use std::collections::HashSet;
         let mut aggregates = Vec::new();
+        let mut seen_names = HashSet::new();
 
         for field in fields {
             match field {
                 SelectField::Expression { expr, alias } => {
-                    // Check if expression is an aggregate function
+                    // For top-level aggregate functions, use the alias
                     if Self::is_aggregate_expression(expr) {
                         let field_name = alias
                             .clone()
                             .unwrap_or_else(|| format!("{:?}", expr).replace(' ', "_"));
-                        aggregates.push((field_name, expr.clone()));
+                        if seen_names.insert(field_name.clone()) {
+                            aggregates.push((field_name, expr.clone()));
+                        }
+                    } else {
+                        // For non-aggregate expressions, extract nested aggregates
+                        Self::extract_nested_aggregates(expr, &mut aggregates, &mut seen_names);
                     }
                 }
                 SelectField::Column(_) => {
@@ -744,12 +834,97 @@ impl WindowAdapter {
         Ok(aggregates)
     }
 
-    /// Check if an expression contains an aggregate function (recursively).
+    /// Recursively extract nested aggregate functions from an expression.
     ///
-    /// Delegates to the centralized `AggregationValidator::contains_aggregate`
-    /// which handles all expression types including CASE, BinaryOp, etc.
+    /// This is called for CASE and other complex expressions to ensure their
+    /// nested aggregates (like MAX, AVG inside CASE conditions) get accumulated.
+    fn extract_nested_aggregates(
+        expr: &Expr,
+        aggregates: &mut Vec<(String, Expr)>,
+        seen_names: &mut std::collections::HashSet<String>,
+    ) {
+        match expr {
+            Expr::Function { name, args } => {
+                if is_aggregate_function(name) {
+                    // Generate a unique name for this aggregate
+                    let field_name = Self::generate_aggregate_name(name, args);
+                    if seen_names.insert(field_name.clone()) {
+                        aggregates.push((field_name, expr.clone()));
+                    }
+                }
+                // Also check arguments for nested aggregates
+                for arg in args {
+                    Self::extract_nested_aggregates(arg, aggregates, seen_names);
+                }
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                for (condition, result) in when_clauses {
+                    Self::extract_nested_aggregates(condition, aggregates, seen_names);
+                    Self::extract_nested_aggregates(result, aggregates, seen_names);
+                }
+                if let Some(else_expr) = else_clause {
+                    Self::extract_nested_aggregates(else_expr, aggregates, seen_names);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                Self::extract_nested_aggregates(left, aggregates, seen_names);
+                Self::extract_nested_aggregates(right, aggregates, seen_names);
+            }
+            Expr::UnaryOp { expr: inner, .. } => {
+                Self::extract_nested_aggregates(inner, aggregates, seen_names);
+            }
+            Expr::Between {
+                expr, low, high, ..
+            } => {
+                Self::extract_nested_aggregates(expr, aggregates, seen_names);
+                Self::extract_nested_aggregates(low, aggregates, seen_names);
+                Self::extract_nested_aggregates(high, aggregates, seen_names);
+            }
+            Expr::List(items) => {
+                for item in items {
+                    Self::extract_nested_aggregates(item, aggregates, seen_names);
+                }
+            }
+            Expr::WindowFunction { args, .. } => {
+                for arg in args {
+                    Self::extract_nested_aggregates(arg, aggregates, seen_names);
+                }
+            }
+            // Leaf nodes and subqueries - no aggregates to extract
+            Expr::Column(_) | Expr::Literal(_) | Expr::Subquery { .. } => {}
+        }
+    }
+
+    /// Generate a unique name for an aggregate function
+    fn generate_aggregate_name(name: &str, args: &[Expr]) -> String {
+        if args.is_empty() {
+            format!("{}(*)", name)
+        } else {
+            let arg_str = match &args[0] {
+                Expr::Column(col) => col.clone(),
+                Expr::Literal(lit) => format!("{:?}", lit),
+                _ => "expr".to_string(),
+            };
+            format!("{}({})", name, arg_str)
+        }
+    }
+
+    /// Check if an expression IS a top-level aggregate function.
+    ///
+    /// Returns true only for expressions like `COUNT(*)`, `SUM(x)`, `AVG(x)`, etc.
+    /// Returns false for expressions that CONTAIN aggregates but are not themselves
+    /// aggregate functions (like CASE expressions with aggregates inside).
+    ///
+    /// This distinction is important because:
+    /// - Top-level aggregates can be computed directly from accumulator via `compute_field_aggregate_value`
+    /// - Expressions that contain aggregates need full expression evaluation via
+    ///   `evaluate_expression_with_accumulator_and_alias` to handle nested structures
     fn is_aggregate_expression(expr: &Expr) -> bool {
-        AggregationValidator::contains_aggregate(expr)
+        // Only return true for top-level Expr::Function that is an aggregate
+        matches!(expr, Expr::Function { name, .. } if is_aggregate_function(name))
     }
 
     /// Build a result StreamRecord from computed aggregate values
@@ -916,6 +1091,14 @@ impl WindowAdapter {
                 result.key = Some(FieldValue::String(key_str));
             }
         }
+
+        // Preserve event_time on output record for downstream operations (metrics, joins, etc.)
+        // Use window_end_time as the canonical event_time for aggregation results.
+        // This matches stream processing semantics where aggregation results are "complete"
+        // at the end of the window.
+        result.event_time = window_stats
+            .window_end_time
+            .and_then(chrono::DateTime::from_timestamp_millis);
 
         Ok(result)
     }
@@ -1323,7 +1506,11 @@ impl WindowAdapter {
                         system_columns::OFFSET => FieldValue::Integer(record.offset),
                         system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
                         // Window columns from record fields (injected by build_result_record)
-                        _ => record.fields.get(sys_col).cloned().unwrap_or(FieldValue::Null),
+                        _ => record
+                            .fields
+                            .get(sys_col)
+                            .cloned()
+                            .unwrap_or(FieldValue::Null),
                     });
                 }
                 // Fall back to record fields
@@ -1359,88 +1546,58 @@ impl WindowAdapter {
                         Ok(FieldValue::Integer(accumulator.count as i64))
                     }
                     "SUM" => {
-                        if let Some(Expr::Column(col_name)) = args.first() {
-                            let sum = accumulator.sums.get(col_name).copied().unwrap_or(0.0);
-                            Ok(FieldValue::Float(sum))
-                        } else {
-                            Ok(FieldValue::Null)
-                        }
+                        // Generate the same key used by extract_nested_aggregates: "SUM(column)"
+                        let key = Self::generate_aggregate_name(&name_upper, args);
+                        let sum = accumulator.sums.get(&key).copied().unwrap_or(0.0);
+                        Ok(FieldValue::Float(sum))
                     }
                     "AVG" => {
-                        if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if !values.is_empty() {
-                                    let avg = values.iter().sum::<f64>() / values.len() as f64;
-                                    Ok(FieldValue::Float(avg))
-                                } else {
-                                    Ok(FieldValue::Null)
-                                }
-                            } else {
-                                Ok(FieldValue::Null)
+                        // Generate the same key used by extract_nested_aggregates: "AVG(column)"
+                        let key = Self::generate_aggregate_name(&name_upper, args);
+                        if let Some(state) = accumulator.welford_states.get(&key) {
+                            match crate::velostream::sql::execution::aggregation::compute::compute_avg_from_welford(state) {
+                                Some(avg) => Ok(FieldValue::Float(avg)),
+                                None => Ok(FieldValue::Null),
                             }
                         } else {
                             Ok(FieldValue::Null)
                         }
                     }
                     "MIN" => {
-                        if let Some(Expr::Column(col_name)) = args.first() {
-                            Ok(accumulator
-                                .mins
-                                .get(col_name)
-                                .cloned()
-                                .unwrap_or(FieldValue::Null))
-                        } else {
-                            Ok(FieldValue::Null)
-                        }
+                        // Generate the same key used by extract_nested_aggregates: "MIN(column)"
+                        let key = Self::generate_aggregate_name(&name_upper, args);
+                        Ok(accumulator
+                            .mins
+                            .get(&key)
+                            .cloned()
+                            .unwrap_or(FieldValue::Null))
                     }
                     "MAX" => {
-                        if let Some(Expr::Column(col_name)) = args.first() {
-                            Ok(accumulator
-                                .maxs
-                                .get(col_name)
-                                .cloned()
-                                .unwrap_or(FieldValue::Null))
-                        } else {
-                            Ok(FieldValue::Null)
-                        }
+                        // Generate the same key used by extract_nested_aggregates: "MAX(column)"
+                        let key = Self::generate_aggregate_name(&name_upper, args);
+                        Ok(accumulator
+                            .maxs
+                            .get(&key)
+                            .cloned()
+                            .unwrap_or(FieldValue::Null))
                     }
                     "STDDEV" | "STDDEV_SAMP" => {
-                        if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if values.len() > 1 {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance = values
-                                        .iter()
-                                        .map(|v| (v - mean).powi(2))
-                                        .sum::<f64>()
-                                        / (values.len() - 1) as f64;
-                                    Ok(FieldValue::Float(variance.sqrt()))
-                                } else {
-                                    Ok(FieldValue::Null)
-                                }
-                            } else {
-                                Ok(FieldValue::Null)
+                        let key = Self::generate_aggregate_name(&name_upper, args);
+                        if let Some(state) = accumulator.welford_states.get(&key) {
+                            match crate::velostream::sql::execution::aggregation::compute::compute_stddev_from_welford(state, true) {
+                                Some(sd) => Ok(FieldValue::Float(sd)),
+                                None => Ok(FieldValue::Null),
                             }
                         } else {
                             Ok(FieldValue::Null)
                         }
                     }
                     "STDDEV_POP" => {
-                        if let Some(Expr::Column(col_name)) = args.first() {
-                            if let Some(values) = accumulator.numeric_values.get(col_name) {
-                                if !values.is_empty() {
-                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                    let variance = values
-                                        .iter()
-                                        .map(|v| (v - mean).powi(2))
-                                        .sum::<f64>()
-                                        / values.len() as f64;
-                                    Ok(FieldValue::Float(variance.sqrt()))
-                                } else {
-                                    Ok(FieldValue::Null)
-                                }
-                            } else {
-                                Ok(FieldValue::Null)
+                        let key = Self::generate_aggregate_name(&name_upper, args);
+                        if let Some(state) = accumulator.welford_states.get(&key) {
+                            match crate::velostream::sql::execution::aggregation::compute::compute_stddev_from_welford(state, false) {
+                                Some(sd) => Ok(FieldValue::Float(sd)),
+                                None => Ok(FieldValue::Null),
                             }
                         } else {
                             Ok(FieldValue::Null)
@@ -1499,14 +1656,17 @@ impl WindowAdapter {
                                             record,
                                             alias_context,
                                         )?;
-                                    if FieldValueComparator::values_equal_with_coercion(&left_val, &value) {
+                                    if FieldValueComparator::values_equal_with_coercion(
+                                        &left_val, &value,
+                                    ) {
                                         return Ok(FieldValue::Boolean(true));
                                     }
                                 }
                                 Ok(FieldValue::Boolean(false))
                             }
                             _ => Err(SqlError::ExecutionError {
-                                message: "IN operator requires a list on the right side".to_string(),
+                                message: "IN operator requires a list on the right side"
+                                    .to_string(),
                                 query: None,
                             }),
                         }
@@ -1535,7 +1695,9 @@ impl WindowAdapter {
                                             record,
                                             alias_context,
                                         )?;
-                                    if FieldValueComparator::values_equal_with_coercion(&left_val, &value) {
+                                    if FieldValueComparator::values_equal_with_coercion(
+                                        &left_val, &value,
+                                    ) {
                                         return Ok(FieldValue::Boolean(false));
                                     }
                                 }
@@ -1564,9 +1726,15 @@ impl WindowAdapter {
                         )?;
 
                         match op {
-                            BinaryOperator::Add => Self::apply_arithmetic(&left_val, &right_val, |l, r| l + r),
-                            BinaryOperator::Subtract => Self::apply_arithmetic(&left_val, &right_val, |l, r| l - r),
-                            BinaryOperator::Multiply => Self::apply_arithmetic(&left_val, &right_val, |l, r| l * r),
+                            BinaryOperator::Add => {
+                                Self::apply_arithmetic(&left_val, &right_val, |l, r| l + r)
+                            }
+                            BinaryOperator::Subtract => {
+                                Self::apply_arithmetic(&left_val, &right_val, |l, r| l - r)
+                            }
+                            BinaryOperator::Multiply => {
+                                Self::apply_arithmetic(&left_val, &right_val, |l, r| l * r)
+                            }
                             BinaryOperator::Divide => {
                                 if Self::is_zero(&right_val) {
                                     Ok(FieldValue::Null)
@@ -1582,7 +1750,9 @@ impl WindowAdapter {
                             | BinaryOperator::NotEqual => {
                                 // Use FieldValueComparator for all comparisons - handles ScaledInteger, Decimal, etc.
                                 Ok(FieldValue::Boolean(
-                                    FieldValueComparator::compare_values_for_boolean(&left_val, &right_val, op)?
+                                    FieldValueComparator::compare_values_for_boolean(
+                                        &left_val, &right_val, op,
+                                    )?,
                                 ))
                             }
                             BinaryOperator::And => {
@@ -1653,8 +1823,12 @@ impl WindowAdapter {
                         _ => Ok(FieldValue::Null),
                     },
                     UnaryOperator::Plus => Ok(inner_val), // No-op for numeric types
-                    UnaryOperator::IsNull => Ok(FieldValue::Boolean(matches!(inner_val, FieldValue::Null))),
-                    UnaryOperator::IsNotNull => Ok(FieldValue::Boolean(!matches!(inner_val, FieldValue::Null))),
+                    UnaryOperator::IsNull => {
+                        Ok(FieldValue::Boolean(matches!(inner_val, FieldValue::Null)))
+                    }
+                    UnaryOperator::IsNotNull => {
+                        Ok(FieldValue::Boolean(!matches!(inner_val, FieldValue::Null)))
+                    }
                 }
             }
 
@@ -1685,7 +1859,11 @@ impl WindowAdapter {
     }
 
     /// Helper to apply arithmetic operation
-    fn apply_arithmetic<F>(left: &FieldValue, right: &FieldValue, op: F) -> Result<FieldValue, SqlError>
+    fn apply_arithmetic<F>(
+        left: &FieldValue,
+        right: &FieldValue,
+        op: F,
+    ) -> Result<FieldValue, SqlError>
     where
         F: Fn(f64, f64) -> f64,
     {
@@ -1694,8 +1872,12 @@ impl WindowAdapter {
                 Ok(FieldValue::Float(op(*l as f64, *r as f64)))
             }
             (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(op(*l, *r))),
-            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(op(*l as f64, *r))),
-            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(op(*l, *r as f64))),
+            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                Ok(FieldValue::Float(op(*l as f64, *r)))
+            }
+            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                Ok(FieldValue::Float(op(*l, *r as f64)))
+            }
             _ => Ok(FieldValue::Null),
         }
     }

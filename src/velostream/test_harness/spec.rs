@@ -310,6 +310,11 @@ pub struct QueryTest {
     /// Can be inline JSON or a path to schema file (relative to test spec)
     #[serde(default)]
     pub capture_schema: Option<String>,
+
+    /// Metric assertions to verify @metric annotations are working
+    /// These are run against the observability metrics collected during execution
+    #[serde(default)]
+    pub metric_assertions: Vec<AssertionConfig>,
 }
 
 /// Output configuration with per-sink assertions
@@ -676,6 +681,19 @@ pub enum AssertionConfig {
     /// Event time ordering assertion - verifies ordering within time windows
     #[serde(rename = "event_ordering")]
     EventOrdering(EventOrderingAssertion),
+
+    // ==================== Metric assertions (observability verification) ====================
+    /// Metric counter assertion - verifies counter metrics were incremented
+    #[serde(rename = "metric_counter")]
+    MetricCounter(MetricCounterAssertion),
+
+    /// Metric gauge assertion - verifies gauge metrics have expected values
+    #[serde(rename = "metric_gauge")]
+    MetricGauge(MetricGaugeAssertion),
+
+    /// Metric exists assertion - verifies a metric was registered
+    #[serde(rename = "metric_exists")]
+    MetricExists(MetricExistsAssertion),
 }
 
 /// Record count assertion
@@ -1461,6 +1479,130 @@ fn default_allow_gaps() -> bool {
     true
 }
 
+// =============================================================================
+// Metric Assertions (Observability Verification)
+// =============================================================================
+
+/// Metric counter assertion - verifies counter metrics were incremented
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: metric_counter
+///     name: velo_market_data_ts_records_total
+///     operator: greater_than
+///     value: 0
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricCounterAssertion {
+    /// Name of the counter metric to check
+    pub name: String,
+
+    /// Comparison operator: equals, greater_than, less_than, between
+    #[serde(default = "default_metric_operator")]
+    pub operator: MetricOperator,
+
+    /// Expected value (for equals, greater_than, less_than)
+    #[serde(default)]
+    pub value: Option<u64>,
+
+    /// Range (min, max) for between operator
+    #[serde(default)]
+    pub between: Option<(u64, u64)>,
+
+    /// Optional label filter (e.g., {"symbol": "AAPL"})
+    /// If not specified, checks total across all labels
+    #[serde(default)]
+    pub labels: Option<std::collections::HashMap<String, String>>,
+}
+
+fn default_metric_operator() -> MetricOperator {
+    MetricOperator::GreaterThan
+}
+
+/// Metric gauge assertion - verifies gauge metrics have expected values
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: metric_gauge
+///     name: velo_avg_volume
+///     operator: greater_than
+///     value: 0.0
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricGaugeAssertion {
+    /// Name of the gauge metric to check
+    pub name: String,
+
+    /// Comparison operator: equals, greater_than, less_than, between
+    #[serde(default = "default_metric_operator")]
+    pub operator: MetricOperator,
+
+    /// Expected value (for equals, greater_than, less_than)
+    #[serde(default)]
+    pub value: Option<f64>,
+
+    /// Range (min, max) for between operator
+    #[serde(default)]
+    pub between: Option<(f64, f64)>,
+
+    /// Optional label filter (e.g., {"symbol": "AAPL"})
+    #[serde(default)]
+    pub labels: Option<std::collections::HashMap<String, String>>,
+
+    /// Tolerance for floating-point comparison (for equals)
+    #[serde(default)]
+    pub tolerance: Option<f64>,
+}
+
+/// Metric exists assertion - verifies a metric was registered
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: metric_exists
+///     name: velo_market_data_ts_records_total
+///     metric_type: counter  # optional
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricExistsAssertion {
+    /// Name of the metric to check
+    pub name: String,
+
+    /// Expected metric type (optional - if specified, also verifies the type)
+    #[serde(default)]
+    pub metric_type: Option<MetricTypeExpected>,
+}
+
+/// Comparison operator for metric assertions
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetricOperator {
+    /// Value must equal expected
+    Equals,
+    /// Value must be greater than expected
+    #[default]
+    GreaterThan,
+    /// Value must be greater than or equal to expected
+    GreaterThanOrEqual,
+    /// Value must be less than expected
+    LessThan,
+    /// Value must be less than or equal to expected
+    LessThanOrEqual,
+    /// Value must be within range
+    Between,
+}
+
+/// Expected metric type for verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetricTypeExpected {
+    Counter,
+    Gauge,
+    Histogram,
+}
+
 impl TestSpec {
     /// Load test spec from YAML file
     pub fn from_file(path: impl AsRef<Path>) -> TestHarnessResult<Self> {
@@ -1665,6 +1807,7 @@ mod tests {
             timeout_ms: None,
             capture_format: Default::default(),
             capture_schema: None,
+            metric_assertions: Vec::new(),
         }
     }
 
@@ -1693,6 +1836,7 @@ mod tests {
             timeout_ms: None,
             capture_format: Default::default(),
             capture_schema: None,
+            metric_assertions: Vec::new(),
         }
     }
 

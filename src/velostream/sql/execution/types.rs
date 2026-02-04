@@ -1168,8 +1168,12 @@ impl FieldValue {
 
             _ => Err(SqlError::TypeError {
                 expected: "numeric or interval/timestamp".to_string(),
-                actual: "incompatible types".to_string(),
-                value: None,
+                actual: format!(
+                    "incompatible types: {:?} - {:?}",
+                    std::mem::discriminant(self),
+                    std::mem::discriminant(other)
+                ),
+                value: Some(format!("left={:?}, right={:?}", self, other)),
             }),
         }
     }
@@ -1729,6 +1733,57 @@ impl StreamRecord {
     /// Check if this record has explicit event-time set
     pub fn has_event_time(&self) -> bool {
         self.event_time.is_some()
+    }
+
+    /// Resolve a column name (possibly table-qualified) to a FieldValue.
+    ///
+    /// Handles system columns (`_event_time`, `_timestamp`, `_offset`, `_partition`,
+    /// `_window_start`, `_window_end`) which are NOT stored in `self.fields` but are
+    /// computed from struct metadata. Also handles qualified names like `m._event_time`
+    /// by stripping the table prefix before resolution.
+    ///
+    /// Returns `FieldValue::Null` when the column is not found.
+    pub fn resolve_column(&self, name: &str) -> FieldValue {
+        // Strip table qualifier if present (e.g. "m._event_time" → "_event_time")
+        let column_name = if name.contains('.') {
+            name.split('.').next_back().unwrap_or(name)
+        } else {
+            name
+        };
+
+        // Check system columns first
+        if let Some(sys_col) = system_columns::normalize_if_system_column(column_name) {
+            return match sys_col {
+                system_columns::TIMESTAMP => FieldValue::Integer(self.timestamp),
+                system_columns::OFFSET => FieldValue::Integer(self.offset),
+                system_columns::PARTITION => FieldValue::Integer(self.partition as i64),
+                system_columns::EVENT_TIME => match self.event_time {
+                    Some(et) => FieldValue::Integer(et.timestamp_millis()),
+                    None => FieldValue::Integer(self.timestamp),
+                },
+                system_columns::WINDOW_START | system_columns::WINDOW_END => self
+                    .fields
+                    .get(sys_col)
+                    .cloned()
+                    .unwrap_or(FieldValue::Null),
+                _ => FieldValue::Null,
+            };
+        }
+
+        // Regular field lookup: try qualified name, then "right_" prefix, then bare name
+        if name.contains('.') {
+            if let Some(value) = self.fields.get(name) {
+                return value.clone();
+            }
+            let prefixed = format!("right_{}", column_name);
+            if let Some(value) = self.fields.get(&prefixed) {
+                return value.clone();
+            }
+        }
+        self.fields
+            .get(column_name)
+            .cloned()
+            .unwrap_or(FieldValue::Null)
     }
 
     /// Set partition based on a hash of the provided key (fluent API)

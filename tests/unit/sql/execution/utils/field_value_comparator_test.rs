@@ -438,3 +438,71 @@ fn test_all_comparison_operators() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// Test NULL comparison behavior (SQL three-valued logic)
+/// NULL compared with anything returns false in boolean context
+#[test]
+fn test_null_comparison_behavior() -> Result<(), Box<dyn std::error::Error>> {
+    let null_val = FieldValue::Null;
+    let int_val = FieldValue::Integer(100);
+    let float_val = FieldValue::Float(100.0);
+    let scaled_val = FieldValue::ScaledInteger(10000, 2); // 100.00
+
+    // NULL > anything should return false (not error)
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &null_val,
+        &int_val,
+        &BinaryOperator::GreaterThan
+    )?);
+
+    // anything > NULL should return false
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &int_val,
+        &null_val,
+        &BinaryOperator::GreaterThan
+    )?);
+
+    // NULL < anything should return false
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &null_val,
+        &float_val,
+        &BinaryOperator::LessThan
+    )?);
+
+    // NULL = anything should return false
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &null_val,
+        &scaled_val,
+        &BinaryOperator::Equal
+    )?);
+
+    // NULL >= anything should return false
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &null_val,
+        &int_val,
+        &BinaryOperator::GreaterThanOrEqual
+    )?);
+
+    // NULL <= anything should return false
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &null_val,
+        &int_val,
+        &BinaryOperator::LessThanOrEqual
+    )?);
+
+    // NULL != anything - in SQL this is actually NULL, which we treat as false
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &null_val,
+        &int_val,
+        &BinaryOperator::NotEqual
+    )?);
+
+    // NULL compared with NULL should also return false (NULL is not equal to NULL in SQL)
+    assert!(!FieldValueComparator::compare_values_for_boolean(
+        &null_val,
+        &null_val,
+        &BinaryOperator::Equal
+    )?);
+
+    Ok(())
+}

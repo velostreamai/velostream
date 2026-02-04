@@ -1,6 +1,7 @@
 // === PHASE 4: PROMETHEUS METRICS COLLECTION ===
 
 use crate::velostream::observability::error_tracker::ErrorMessageBuffer;
+use crate::velostream::observability::remote_write::RemoteWriteClient;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::PrometheusConfig;
 use prometheus::{
@@ -140,6 +141,8 @@ pub struct MetricsProvider {
     job_metrics: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     // Error message tracking with rolling buffer (last 10 messages + counts)
     error_tracker: Arc<Mutex<ErrorMessageBuffer>>,
+    // Remote-write client for pushing metrics with event timestamps
+    remote_write_client: Option<Arc<Mutex<RemoteWriteClient>>>,
 }
 
 impl MetricsProvider {
@@ -153,12 +156,43 @@ impl MetricsProvider {
         let system_metrics = SystemMetrics::new(&registry, &config)?;
         let join_metrics = JoinMetrics::new(&registry)?;
 
+        // Initialize remote-write client if configured
+        let remote_write_client = if config.remote_write_enabled {
+            if let Some(endpoint) = &config.remote_write_endpoint {
+                match RemoteWriteClient::new(
+                    endpoint,
+                    config.remote_write_batch_size,
+                    config.remote_write_flush_interval_ms,
+                ) {
+                    Ok(client) => {
+                        log::info!(
+                            "📤 Remote-write enabled: endpoint={}, batch_size={}, flush_interval_ms={}",
+                            endpoint,
+                            config.remote_write_batch_size,
+                            config.remote_write_flush_interval_ms
+                        );
+                        Some(Arc::new(Mutex::new(client)))
+                    }
+                    Err(e) => {
+                        log::warn!("📤 Failed to initialize remote-write client: {}", e);
+                        None
+                    }
+                }
+            } else {
+                log::warn!("📤 Remote-write enabled but no endpoint configured");
+                None
+            }
+        } else {
+            None
+        };
+
         log::info!("📊 Phase 4: Prometheus metrics initialized");
         log::info!(
-            "📊 Metrics configuration: histograms={}, port={}, path={}",
+            "📊 Metrics configuration: histograms={}, port={}, path={}, remote_write={}",
             config.enable_histograms,
             config.port,
-            config.metrics_path
+            config.metrics_path,
+            remote_write_client.is_some()
         );
 
         Ok(Self {
@@ -172,6 +206,7 @@ impl MetricsProvider {
             dynamic_metrics: Arc::new(Mutex::new(DynamicMetrics::new())),
             job_metrics: Arc::new(Mutex::new(HashMap::new())),
             error_tracker: Arc::new(Mutex::new(ErrorMessageBuffer::new())),
+            remote_write_client,
         })
     }
 
@@ -976,6 +1011,118 @@ impl MetricsProvider {
     }
 
     // =========================================================================
+    // Remote-Write: Event-Time Metrics Push
+    // =========================================================================
+
+    /// Check if remote-write is enabled and configured
+    pub fn has_remote_write(&self) -> bool {
+        self.remote_write_client.is_some()
+    }
+
+    /// Push a gauge metric with an explicit event timestamp via remote-write
+    ///
+    /// This method pushes a metric with its actual event timestamp, allowing
+    /// Grafana to display the metric at the correct point in time rather than
+    /// at the scrape time.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Metric name
+    /// * `label_names` - Label names for this metric
+    /// * `label_values` - Label values (must match label_names length)
+    /// * `value` - The gauge value
+    /// * `timestamp_ms` - Event timestamp in milliseconds since Unix epoch
+    pub fn push_gauge_with_timestamp(
+        &self,
+        name: &str,
+        label_names: &[String],
+        label_values: &[String],
+        value: f64,
+        timestamp_ms: i64,
+    ) {
+        if let Some(client) = &self.remote_write_client {
+            if let Ok(client) = client.lock() {
+                client.push_gauge(name, label_names, label_values, value, timestamp_ms);
+            }
+        }
+    }
+
+    /// Push a counter metric with an explicit event timestamp via remote-write
+    pub fn push_counter_with_timestamp(
+        &self,
+        name: &str,
+        label_names: &[String],
+        label_values: &[String],
+        value: f64,
+        timestamp_ms: i64,
+    ) {
+        if let Some(client) = &self.remote_write_client {
+            if let Ok(client) = client.lock() {
+                client.push_counter(name, label_names, label_values, value, timestamp_ms);
+            }
+        }
+    }
+
+    /// Push a histogram observation with an explicit event timestamp via remote-write
+    pub fn push_histogram_with_timestamp(
+        &self,
+        name: &str,
+        label_names: &[String],
+        label_values: &[String],
+        value: f64,
+        timestamp_ms: i64,
+    ) {
+        if let Some(client) = &self.remote_write_client {
+            if let Ok(client) = client.lock() {
+                client.push_histogram_observation(
+                    name,
+                    label_names,
+                    label_values,
+                    value,
+                    timestamp_ms,
+                );
+            }
+        }
+    }
+
+    /// Flush buffered remote-write metrics to Prometheus
+    ///
+    /// This method should be called periodically or when a batch completes
+    /// to ensure metrics are pushed to the remote-write endpoint.
+    pub async fn flush_remote_write(&self) -> Result<usize, SqlError> {
+        if let Some(client_arc) = &self.remote_write_client {
+            // Clone the client under the lock, then release lock before async I/O
+            // This is safe because RemoteWriteClient::clone() shares the internal buffer (Arc<Mutex>)
+            let client = {
+                let guard = client_arc
+                    .lock()
+                    .map_err(|e| SqlError::ConfigurationError {
+                        message: format!("Failed to acquire lock on remote-write client: {}", e),
+                    })?;
+                guard.clone()
+            }; // Lock released here, before async operation
+
+            client
+                .flush()
+                .await
+                .map_err(|e| SqlError::ConfigurationError {
+                    message: format!("Failed to flush remote-write metrics: {}", e),
+                })
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Get the number of buffered remote-write samples
+    pub fn remote_write_buffered_count(&self) -> usize {
+        self.remote_write_client
+            .as_ref()
+            .and_then(|c| c.lock().ok())
+            .map(|c| c.buffered_count())
+            .unwrap_or(0)
+    }
+
+    // =========================================================================
     // Phase 5: Metrics Lifecycle Management
     // =========================================================================
 
@@ -1235,6 +1382,183 @@ impl MetricsProvider {
             );
         }
     }
+
+    // =========================================================================
+    // Metric Query Methods (for Test Harness Verification)
+    // =========================================================================
+
+    /// Get the current value of a counter metric
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    /// * `label_values` - Label values in registration order (empty for total across all labels)
+    ///
+    /// # Returns
+    /// * `Some(u64)` - Current counter value
+    /// * `None` - Metric not found or label mismatch
+    pub fn get_counter_value(&self, name: &str, label_values: &[&str]) -> Option<u64> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+        let counter = metrics.counters.get(name)?;
+
+        if label_values.is_empty() {
+            // Sum across all label combinations
+            // Note: prometheus crate doesn't expose iteration over label combinations
+            // So we return the value with empty labels if no labels specified
+            let empty: &[&str] = &[];
+            Some(counter.with_label_values(empty).get())
+        } else {
+            Some(counter.with_label_values(label_values).get())
+        }
+    }
+
+    /// Get the current value of a gauge metric
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    /// * `label_values` - Label values in registration order
+    ///
+    /// # Returns
+    /// * `Some(f64)` - Current gauge value
+    /// * `None` - Metric not found or label mismatch
+    pub fn get_gauge_value(&self, name: &str, label_values: &[&str]) -> Option<f64> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+        let gauge = metrics.gauges.get(name)?;
+        Some(gauge.with_label_values(label_values).get())
+    }
+
+    /// Get histogram statistics
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    /// * `label_values` - Label values in registration order
+    ///
+    /// # Returns
+    /// * `Some((sample_count, sample_sum))` - Histogram statistics
+    /// * `None` - Metric not found or label mismatch
+    pub fn get_histogram_stats(&self, name: &str, label_values: &[&str]) -> Option<(u64, f64)> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+        let histogram = metrics.histograms.get(name)?;
+        let h = histogram.with_label_values(label_values);
+        Some((h.get_sample_count(), h.get_sample_sum()))
+    }
+
+    /// Check if a metric is registered
+    ///
+    /// # Arguments
+    /// * `name` - Metric name to check
+    ///
+    /// # Returns
+    /// * `Some(MetricKind)` - The type of metric if registered
+    /// * `None` - Metric not found
+    pub fn is_metric_registered(&self, name: &str) -> Option<MetricKind> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+
+        if metrics.counters.contains_key(name) {
+            Some(MetricKind::Counter)
+        } else if metrics.gauges.contains_key(name) {
+            Some(MetricKind::Gauge)
+        } else if metrics.histograms.contains_key(name) {
+            Some(MetricKind::Histogram)
+        } else {
+            None
+        }
+    }
+
+    /// List all registered dynamic metric names
+    ///
+    /// # Returns
+    /// * `Vec<(String, MetricKind)>` - List of (metric_name, metric_type) tuples
+    pub fn list_registered_metrics(&self) -> Vec<(String, MetricKind)> {
+        let metrics = match self.dynamic_metrics.lock() {
+            Ok(m) => m,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut result = Vec::new();
+
+        for name in metrics.counters.keys() {
+            result.push((name.clone(), MetricKind::Counter));
+        }
+        for name in metrics.gauges.keys() {
+            result.push((name.clone(), MetricKind::Gauge));
+        }
+        for name in metrics.histograms.keys() {
+            result.push((name.clone(), MetricKind::Histogram));
+        }
+
+        result
+    }
+
+    /// Get all counter values for a metric (across all label combinations)
+    ///
+    /// Note: Due to prometheus crate limitations, this collects from the registry text output.
+    /// For simple verification, use `get_counter_value` with specific labels.
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    ///
+    /// # Returns
+    /// * Total count across all label combinations (parsed from text output)
+    pub fn get_counter_total(&self, name: &str) -> Option<u64> {
+        // Get the metrics text and parse out the counter values
+        let text = self.get_metrics_text().ok()?;
+        let mut total = 0u64;
+
+        for line in text.lines() {
+            // Skip comments and empty lines
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+
+            // Match lines starting with the metric name
+            if line.starts_with(name) {
+                // Parse the value at the end of the line
+                if let Some(value_str) = line.split_whitespace().last() {
+                    if let Ok(value) = value_str.parse::<u64>() {
+                        total += value;
+                    }
+                }
+            }
+        }
+
+        if total > 0 { Some(total) } else { None }
+    }
+
+    /// Get all gauge values for a metric (returns the last/most recent value)
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    ///
+    /// # Returns
+    /// * Most recent gauge value (parsed from text output)
+    pub fn get_gauge_any(&self, name: &str) -> Option<f64> {
+        let text = self.get_metrics_text().ok()?;
+        let mut last_value = None;
+
+        for line in text.lines() {
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+
+            if line.starts_with(name) {
+                if let Some(value_str) = line.split_whitespace().last() {
+                    if let Ok(value) = value_str.parse::<f64>() {
+                        last_value = Some(value);
+                    }
+                }
+            }
+        }
+
+        last_value
+    }
+}
+
+/// Kind of metric for verification
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetricKind {
+    Counter,
+    Gauge,
+    Histogram,
 }
 
 impl std::fmt::Debug for MetricsProvider {
@@ -2273,9 +2597,7 @@ impl JoinMetrics {
 
         // Get last values for delta calculation
         let mut last_values = self.last_values.lock().unwrap_or_else(|e| e.into_inner());
-        let last = last_values
-            .entry(join_name.to_string())
-            .or_insert_with(JoinMetricsSnapshot::default);
+        let last = last_values.entry(join_name.to_string()).or_default();
 
         // Update counters (increment by delta)
         let left_delta = stats

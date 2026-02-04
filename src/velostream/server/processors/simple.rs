@@ -403,9 +403,27 @@ impl SimpleJobProcessor {
         log_job_configuration(&job_name, &self.config);
 
         // FR-073: Register SQL-native metrics from @metric annotations
+        // Log exactly which annotations the parsed query carries
+        let annotation_count = match &query {
+            crate::velostream::sql::ast::StreamingQuery::CreateStream {
+                metric_annotations,
+                ..
+            } => {
+                for ann in metric_annotations {
+                    info!(
+                        "Job '{}': 📊 @metric annotation: name={}, type={:?}, field={:?}, labels={:?}",
+                        job_name, ann.name, ann.metric_type, ann.field, ann.labels
+                    );
+                }
+                metric_annotations.len()
+            }
+            _ => 0,
+        };
         info!(
-            "Job '{}': ⚡ About to register SQL-native metrics from @metric annotations",
-            job_name
+            "Job '{}': ⚡ Registering {} @metric annotations (has_observability={})",
+            job_name,
+            annotation_count,
+            self.observability_wrapper.observability().is_some()
         );
 
         // Register all metrics (counter, gauge, histogram) from SQL annotations in a single pass

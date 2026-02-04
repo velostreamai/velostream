@@ -504,6 +504,7 @@ impl StreamExecutionEngine {
                     buffer: window_state.buffer.clone(),
                     last_emit: window_state.last_emit,
                     should_emit: false,
+                    buffer_includes_current: false,
                 });
             }
         }
@@ -513,6 +514,7 @@ impl StreamExecutionEngine {
             buffer: Vec::new(),
             last_emit: 0,
             should_emit: false,
+            buffer_includes_current: false,
         })
     }
 
@@ -1724,6 +1726,10 @@ impl StreamExecutionEngine {
         window_state: Option<WindowState>,
     ) -> QueryExecution {
         let mut context = ProcessorContext::new(query_id);
+
+        // Pass engine's StreamingConfig to context
+        // CRITICAL: This enables allowed_lateness_ms for window strategies
+        context.streaming_config = Some(self.config.clone());
 
         // Apply any context customization (mainly for tests)
         if let Some(customizer) = &self.context_customizer {

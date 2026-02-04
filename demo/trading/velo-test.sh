@@ -9,6 +9,7 @@
 #   ./velo-test.sh app_market_data    # Run market data pipeline tests
 #   ./velo-test.sh validate           # Validate all SQL syntax only
 #   ./velo-test.sh all                # Run all app tests
+#   ./velo-test.sh health             # Check infrastructure health
 #
 # Debug/Step-Through:
 #   ./velo-test.sh app_market_data --step           # Step through each query
@@ -21,6 +22,7 @@
 #   --keep                Keep testcontainers running after test (for debugging)
 #   -v, --verbose         Enable verbose output
 #   --kafka <servers>     Use external Kafka instead of testcontainers
+#   --data-only           Only publish test data, don't run SQL (use with --kafka)
 #   --timeout <ms>        Timeout per query in milliseconds (default: 90000)
 #   --query <name>        Run only a specific query
 #
@@ -32,6 +34,8 @@
 set -e
 
 # Use Redpanda by default (faster startup: ~3s vs ~10s for Confluent Kafka)
+# Note: Single-broker testcontainers don't support Kafka transactions reliably,
+# so SQL files should use @job_mode: simple or adaptive for testing
 export VELOSTREAM_TEST_CONTAINER="${VELOSTREAM_TEST_CONTAINER:-redpanda}"
 
 # Colors for output
@@ -71,6 +75,7 @@ QUERY_FILTER=""
 STEP_MODE=""
 KEEP_CONTAINERS=""
 VERBOSE=""
+DATA_ONLY=""
 
 # Show help
 show_help() {
@@ -80,7 +85,8 @@ show_help() {
     echo "  ./velo-test.sh                    List available apps"
     echo "  ./velo-test.sh <app_name>         Run specific app tests"
     echo "  ./velo-test.sh validate           Validate all SQL syntax"
-    echo "  ./velo-test.sh all                Run all app tests"
+    echo "  ./velo-test.sh all, --all         Run all app tests"
+    echo "  ./velo-test.sh health             Check infrastructure health"
     echo ""
     echo -e "${YELLOW}Available Apps:${NC}"
     for sql in apps/*.sql; do
@@ -91,11 +97,13 @@ show_help() {
     echo -e "${YELLOW}Debug Options:${NC}"
     echo "  --step              Step through queries one at a time"
     echo "  --keep              Keep Kafka container running after test"
+    echo "  --reuse             Reuse existing Kafka container (faster for repeated runs)"
     echo "  -v, --verbose       Enable verbose output"
     echo "  --query <name>      Run only a specific query"
     echo ""
     echo -e "${YELLOW}Other Options:${NC}"
     echo "  --kafka <servers>   Use external Kafka instead of testcontainers"
+    echo "  --data-only         Only publish test data (no SQL execution)"
     echo "  --timeout <ms>      Timeout per query (default: 90000)"
     echo "  -h, --help          Show this help"
 }
@@ -107,6 +115,10 @@ while [[ $# -gt 0 ]]; do
         -h|--help|help)
             show_help
             exit 0
+            ;;
+        --all|-all)
+            COMMAND="all"
+            shift
             ;;
         --kafka)
             KAFKA_SERVERS="$2"
@@ -128,8 +140,16 @@ while [[ $# -gt 0 ]]; do
             KEEP_CONTAINERS="--keep-containers"
             shift
             ;;
+        --reuse)
+            REUSE_CONTAINERS="--reuse-containers"
+            shift
+            ;;
         -v|--verbose)
             VERBOSE="--verbose"
+            shift
+            ;;
+        --data-only)
+            DATA_ONLY="--data-only"
             shift
             ;;
         *)
@@ -205,8 +225,16 @@ run_app() {
         cmd="$cmd $KEEP_CONTAINERS"
     fi
 
+    if [[ -n "$REUSE_CONTAINERS" ]]; then
+        cmd="$cmd $REUSE_CONTAINERS"
+    fi
+
     if [[ -n "$VERBOSE" ]]; then
         cmd="$cmd $VERBOSE"
+    fi
+
+    if [[ -n "$DATA_ONLY" ]]; then
+        cmd="$cmd $DATA_ONLY"
     fi
 
     echo -e "${BLUE}$cmd${NC}"
@@ -220,31 +248,57 @@ run_app() {
     fi
 }
 
-# Run all app tests
+# Run all app tests using velo-test run-all (handles aggregation in Rust)
 run_all() {
     echo -e "${CYAN}Running all trading demo apps...${NC}"
     echo ""
 
-    local passed=0
-    local failed=0
+    # Build command - velo-test run-all handles aggregation, summary tables, etc.
+    # Note: Use array to avoid glob expansion issues with patterns
+    local -a cmd_args=("$VELO_TEST" run-all . --pattern "apps/*.sql" --skip "*.annotated.sql" --timeout-ms "$TIMEOUT_MS")
 
-    for sql in apps/*.sql; do
-        name=$(basename "$sql" .sql)
-        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        if run_app "$name"; then
-            ((passed++))
-        else
-            ((failed++))
-        fi
-        echo ""
-    done
-
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}Summary: $passed passed, $failed failed${NC}"
-
-    if [[ $failed -gt 0 ]]; then
-        exit 1
+    if [[ -n "$KAFKA_SERVERS" ]]; then
+        cmd_args+=(--kafka "$KAFKA_SERVERS")
+    else
+        cmd_args+=(--use-testcontainers)
     fi
+
+    if [[ -n "$KEEP_CONTAINERS" ]]; then
+        cmd_args+=($KEEP_CONTAINERS)
+    fi
+
+    if [[ -n "$REUSE_CONTAINERS" ]]; then
+        cmd_args+=($REUSE_CONTAINERS)
+    fi
+
+    if [[ -n "$VERBOSE" ]]; then
+        cmd_args+=($VERBOSE)
+    fi
+
+    echo -e "${BLUE}${cmd_args[*]}${NC}"
+    echo ""
+
+    # Run with RUST_LOG=info for readable output
+    if [[ -n "$VERBOSE" ]]; then
+        RUST_LOG=debug "${cmd_args[@]}"
+    else
+        RUST_LOG=info "${cmd_args[@]}"
+    fi
+}
+
+# Run health check
+run_health() {
+    local broker="${KAFKA_SERVERS:-localhost:9092}"
+    local output="text"
+
+    if [[ -n "$VERBOSE" ]]; then
+        output="text"
+    fi
+
+    echo -e "${CYAN}Running infrastructure health check...${NC}"
+    echo ""
+
+    $VELO_TEST health --broker "$broker" --output "$output"
 }
 
 # Main
@@ -257,6 +311,9 @@ case "$COMMAND" in
         ;;
     all)
         run_all
+        ;;
+    health)
+        run_health
         ;;
     app_*)
         run_app "$COMMAND"

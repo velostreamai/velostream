@@ -45,7 +45,7 @@ queries:
   - name: symbol_only_key
     description: Verify single PRIMARY KEY with compound GROUP BY
     inputs:
-      - source: trades
+      - source: trades_3
         schema: market_data
         records: 500
         time_simulation:

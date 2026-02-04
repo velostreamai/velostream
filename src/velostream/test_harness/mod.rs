@@ -91,6 +91,7 @@ pub mod executor;
 pub mod fault_injection;
 pub mod file_io;
 pub mod generator;
+pub mod health;
 pub mod inference;
 pub mod infra;
 pub mod log_capture;
@@ -118,6 +119,10 @@ pub use error::TestHarnessError;
 pub use fault_injection::{FaultInjectionConfig, FaultInjector, MalformationType};
 pub use file_io::{FileSinkFactory, FileSourceFactory};
 pub use generator::{SchemaDataGenerator, parse_time_spec};
+pub use health::{
+    CheckResult, CheckStatus, ConsumerGroupInfo, ContainerInfo, HealthCheckType, HealthChecker,
+    HealthConfig, HealthReport, HealthSummary, ProcessInfo, TopicHealthInfo,
+};
 pub use inference::SchemaInferencer;
 pub use infra::{SharedTestInfra, TestHarnessInfra, create_kafka_config};
 pub use log_capture::{

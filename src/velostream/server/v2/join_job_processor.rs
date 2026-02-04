@@ -12,14 +12,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use log::{debug, error, info, warn};
+use log::{debug, info};
 use tokio::sync::Mutex;
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::server::processors::SharedJobStats;
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::v2::source_coordinator::{
     SourceCoordinator, SourceCoordinatorConfig,
 };
+use crate::velostream::sql::ast::SelectField;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::join::{JoinCoordinatorStats, JoinSide};
@@ -36,6 +38,9 @@ pub struct JoinJobConfig {
     pub output_batch_size: usize,
     /// Maximum time to run (0 = unlimited)
     pub timeout: Duration,
+    /// SQL SELECT projection to apply after join (optional)
+    /// When set, only the specified fields will be output with aliases applied
+    pub projection: Option<Vec<SelectField>>,
 }
 
 impl Default for JoinJobConfig {
@@ -45,6 +50,7 @@ impl Default for JoinJobConfig {
             source_config: SourceCoordinatorConfig::default(),
             output_batch_size: 1000,
             timeout: Duration::ZERO,
+            projection: None,
         }
     }
 }
@@ -159,6 +165,7 @@ impl JoinJobProcessor {
     /// * `left_reader` - Reader for the left source
     /// * `right_reader` - Reader for the right source
     /// * `writer` - Writer for join output (optional)
+    /// * `shared_stats` - Shared stats for real-time monitoring (optional)
     ///
     /// # Returns
     /// Statistics about the join execution
@@ -169,9 +176,11 @@ impl JoinJobProcessor {
         right_name: String,
         right_reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JoinJobStats, SqlError> {
         let start_time = Instant::now();
         let mut stats = JoinJobStats::default();
+        let mut last_stats_update = Instant::now();
 
         info!(
             "JoinJobProcessor: Starting join between '{}' and '{}'",
@@ -180,6 +189,11 @@ impl JoinJobProcessor {
 
         // Create the interval join processor
         let mut join_processor = IntervalJoinProcessor::new(self.config.join_config.clone());
+
+        // Apply projection if specified
+        if let Some(projection) = &self.config.projection {
+            join_processor = join_processor.with_projection(projection.clone());
+        }
 
         // Create the source coordinator
         let (mut coordinator, mut rx) = SourceCoordinator::new(self.config.source_config.clone());
@@ -234,6 +248,17 @@ impl JoinJobProcessor {
                         JoinSide::Right => stats.right_records_read += 1,
                     }
 
+                    // Periodically update shared_stats for real-time monitoring (every 500ms)
+                    if let Some(ref shared) = shared_stats {
+                        if last_stats_update.elapsed() > Duration::from_millis(500) {
+                            if let Ok(mut s) = shared.write() {
+                                s.records_processed =
+                                    stats.left_records_read + stats.right_records_read;
+                            }
+                            last_stats_update = Instant::now();
+                        }
+                    }
+
                     // Process through join
                     let joined = join_processor
                         .process(source_record.side, source_record.record)
@@ -272,7 +297,45 @@ impl JoinJobProcessor {
                     break;
                 }
                 Err(_) => {
-                    // Timeout - continue polling (channel will close when sources finish)
+                    // Timeout - flush any pending output then continue polling
+                    // This ensures data is written even when batch size isn't reached
+                    if !output_buffer.is_empty() {
+                        if let Some(ref writer) = writer {
+                            let mut w = writer.lock().await;
+                            debug!(
+                                "JoinJobProcessor: Flushing {} buffered records on idle",
+                                output_buffer.len()
+                            );
+                            for rec in output_buffer.drain(..) {
+                                w.write(rec).await.map_err(|e| SqlError::ExecutionError {
+                                    message: format!("Write error: {}", e),
+                                    query: None,
+                                })?;
+                                stats.records_written += 1;
+                            }
+                            w.flush().await.map_err(|e| SqlError::ExecutionError {
+                                message: format!("Flush error: {}", e),
+                                query: None,
+                            })?;
+                        } else {
+                            stats.records_written += output_buffer.len() as u64;
+                            output_buffer.clear();
+                        }
+                    }
+
+                    // Update shared_stats on idle too, so the test harness can detect
+                    // that records have been processed even when new records arrive
+                    // faster than the 500ms periodic update interval.
+                    let total = stats.left_records_read + stats.right_records_read;
+                    if total > 0 {
+                        if let Some(ref shared) = shared_stats {
+                            if let Ok(mut s) = shared.write() {
+                                s.records_processed = total;
+                            }
+                            last_stats_update = Instant::now();
+                        }
+                    }
+
                     continue;
                 }
             }
@@ -302,6 +365,13 @@ impl JoinJobProcessor {
         coordinator.wait_for_completion().await;
 
         stats.processing_time_ms = start_time.elapsed().as_millis() as u64;
+
+        // Final update of shared_stats with complete totals
+        if let Some(ref shared) = shared_stats {
+            if let Ok(mut s) = shared.write() {
+                s.records_processed = stats.left_records_read + stats.right_records_read;
+            }
+        }
 
         // Copy coordinator stats (state store sizes, evictions, interning)
         // Caller can push these stats to MetricsProvider.update_join_metrics()
@@ -346,6 +416,7 @@ mod tests {
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::error::Error;
+    use std::sync::Arc;
 
     /// Mock reader for testing
     struct MockReader {
@@ -484,6 +555,10 @@ mod tests {
 
         let processor = JoinJobProcessor::with_join_config(join_config);
 
+        // Create shared stats like production code
+        let shared_stats: SharedJobStats =
+            Arc::new(std::sync::RwLock::new(JobExecutionStats::new()));
+
         let stats = processor
             .process_join(
                 "orders".to_string(),
@@ -491,6 +566,7 @@ mod tests {
                 "shipments".to_string(),
                 right_reader,
                 None,
+                Some(shared_stats.clone()),
             )
             .await
             .unwrap();
@@ -499,6 +575,10 @@ mod tests {
         assert_eq!(stats.right_records_read, 5);
         // Should have some joins (exact number depends on timing)
         assert!(stats.join_matches > 0);
+
+        // Verify shared_stats was updated
+        let final_shared = shared_stats.read().unwrap();
+        assert_eq!(final_shared.records_processed, 10); // 5 left + 5 right
     }
 
     #[tokio::test]
@@ -513,6 +593,10 @@ mod tests {
 
         let processor = JoinJobProcessor::with_join_config(join_config);
 
+        // Create shared stats like production code
+        let shared_stats: SharedJobStats =
+            Arc::new(std::sync::RwLock::new(JobExecutionStats::new()));
+
         let stats = processor
             .process_join(
                 "left".to_string(),
@@ -520,6 +604,7 @@ mod tests {
                 "right".to_string(),
                 right_reader,
                 Some(Box::new(writer)),
+                Some(shared_stats.clone()),
             )
             .await
             .unwrap();
@@ -527,6 +612,10 @@ mod tests {
         // Verify output was written
         let written = output.lock().await;
         assert_eq!(written.len(), stats.records_written as usize);
+
+        // Verify shared_stats was updated
+        let final_shared = shared_stats.read().unwrap();
+        assert_eq!(final_shared.records_processed, 6); // 3 left + 3 right
     }
 
     #[tokio::test]
@@ -541,6 +630,10 @@ mod tests {
 
         let processor = JoinJobProcessor::with_join_config(join_config);
 
+        // Create shared stats like production code
+        let shared_stats: SharedJobStats =
+            Arc::new(std::sync::RwLock::new(JobExecutionStats::new()));
+
         let stats = processor
             .process_join(
                 "left".to_string(),
@@ -548,6 +641,7 @@ mod tests {
                 "right".to_string(),
                 right_reader,
                 None,
+                Some(shared_stats.clone()),
             )
             .await
             .unwrap();
@@ -555,5 +649,133 @@ mod tests {
         assert_eq!(stats.left_records_read, 5);
         assert_eq!(stats.right_records_read, 5);
         assert_eq!(stats.join_matches, 0); // No matches
+
+        // Verify shared_stats was updated
+        let final_shared = shared_stats.read().unwrap();
+        assert_eq!(final_shared.records_processed, 10); // 5 left + 5 right
+    }
+
+    #[tokio::test]
+    async fn test_join_job_with_projection() {
+        // Create matching records with multiple fields
+        let left_records: Vec<StreamRecord> = (0..3)
+            .map(|i| {
+                let mut fields = HashMap::new();
+                fields.insert("order_id".to_string(), FieldValue::Integer(100 + i));
+                fields.insert(
+                    "customer".to_string(),
+                    FieldValue::String(format!("Customer{}", i)),
+                );
+                fields.insert("amount".to_string(), FieldValue::Integer(500 + i * 100));
+                fields.insert(
+                    "event_time".to_string(),
+                    FieldValue::Integer(1000 + i * 100),
+                );
+                StreamRecord::new(fields)
+            })
+            .collect();
+
+        let right_records: Vec<StreamRecord> = (0..3)
+            .map(|i| {
+                let mut fields = HashMap::new();
+                fields.insert("order_id".to_string(), FieldValue::Integer(100 + i));
+                fields.insert(
+                    "carrier".to_string(),
+                    FieldValue::String(format!("Carrier{}", i)),
+                );
+                fields.insert(
+                    "tracking".to_string(),
+                    FieldValue::String(format!("TRK{}", i)),
+                );
+                fields.insert(
+                    "event_time".to_string(),
+                    FieldValue::Integer(1100 + i * 100),
+                );
+                StreamRecord::new(fields)
+            })
+            .collect();
+
+        let left_reader = Box::new(MockReader::new(left_records));
+        let right_reader = Box::new(MockReader::new(right_records));
+        let (writer, output) = MockWriter::new();
+
+        let join_config = IntervalJoinConfig::new("orders", "shipments")
+            .with_key("order_id", "order_id")
+            .with_bounds(Duration::ZERO, Duration::from_secs(3600));
+
+        // Set projection: only customer (aliased) and carrier
+        let projection = vec![
+            SelectField::AliasedColumn {
+                column: "orders.customer".to_string(),
+                alias: "customer_name".to_string(),
+            },
+            SelectField::Column("shipments.carrier".to_string()),
+        ];
+
+        let config = JoinJobConfig {
+            join_config,
+            projection: Some(projection),
+            ..Default::default()
+        };
+
+        let processor = JoinJobProcessor::new(config);
+
+        // Create shared stats like production code
+        let shared_stats: SharedJobStats =
+            Arc::new(std::sync::RwLock::new(JobExecutionStats::new()));
+
+        let stats = processor
+            .process_join(
+                "orders".to_string(),
+                left_reader,
+                "shipments".to_string(),
+                right_reader,
+                Some(Box::new(writer)),
+                Some(shared_stats.clone()),
+            )
+            .await
+            .unwrap();
+
+        // Should have some join matches
+        assert!(stats.join_matches > 0, "Expected join matches");
+
+        // Verify shared_stats was updated
+        let final_shared = shared_stats.read().unwrap();
+        assert_eq!(final_shared.records_processed, 6); // 3 left + 3 right
+
+        // Check output records have only projected fields
+        let written = output.lock().await;
+        assert!(!written.is_empty(), "Expected some output records");
+
+        for record in written.iter() {
+            // Should have the aliased field
+            assert!(
+                record.fields.contains_key("customer_name"),
+                "Expected 'customer_name' alias, got fields: {:?}",
+                record.fields.keys().collect::<Vec<_>>()
+            );
+            // Should have the carrier field
+            assert!(
+                record.fields.contains_key("shipments.carrier"),
+                "Expected 'shipments.carrier', got fields: {:?}",
+                record.fields.keys().collect::<Vec<_>>()
+            );
+            // Should NOT have non-projected fields
+            assert!(
+                !record.fields.contains_key("orders.amount"),
+                "Should not have 'orders.amount' which wasn't projected"
+            );
+            assert!(
+                !record.fields.contains_key("shipments.tracking"),
+                "Should not have 'shipments.tracking' which wasn't projected"
+            );
+            // Should have exactly 2 fields
+            assert_eq!(
+                record.fields.len(),
+                2,
+                "Should have exactly 2 projected fields, got: {:?}",
+                record.fields.keys().collect::<Vec<_>>()
+            );
+        }
     }
 }

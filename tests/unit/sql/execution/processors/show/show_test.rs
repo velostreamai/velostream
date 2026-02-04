@@ -106,6 +106,7 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         streaming_config: None,
         // === SELECT DISTINCT STATE ===
         distinct_seen: HashMap::new(),
+        rows_window_config_cache: HashMap::new(),
     }
 }
 
@@ -464,6 +465,7 @@ async fn test_show_streams_empty_context() {
         streaming_config: None,
         // === SELECT DISTINCT STATE ===
         distinct_seen: HashMap::new(),
+        rows_window_config_cache: HashMap::new(),
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

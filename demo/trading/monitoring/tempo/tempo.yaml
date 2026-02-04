@@ -23,7 +23,7 @@ metrics_generator:
   registry:
     external_labels:
       source: tempo
-      cluster: velostream-app_compliance
+      cluster: velostream-trading-demo
   storage:
     path: /tmp/tempo/generator/wal
     remote_write:
@@ -53,6 +53,8 @@ storage:
       path: /tmp/tempo/blocks
 
 overrides:
-  metrics_generator_processors:
-    - service-graphs
-    - span-metrics
+  defaults:
+    metrics_generator:
+      processors:
+        - service-graphs
+        - span-metrics

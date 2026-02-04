@@ -328,12 +328,31 @@ impl KafkaDataSource {
             log::info!("    [consumer] {} = {}", k, v);
         }
 
+        // Parse event-time configuration from properties
+        let event_time_config =
+            crate::velostream::datasource::EventTimeConfig::from_properties(&merged_props);
+        if let Some(ref etc) = event_time_config {
+            log::info!(
+                "KafkaDataSource: Extracted event_time_config: field='{}', format={:?}",
+                etc.field_name,
+                etc.format
+            );
+        } else {
+            // Debug: Log if event.time.field is present but config wasn't created
+            if merged_props.contains_key("event.time.field") {
+                log::warn!(
+                    "KafkaDataSource: event.time.field='{}' present but EventTimeConfig failed to parse",
+                    merged_props.get("event.time.field").unwrap()
+                );
+            }
+        }
+
         Self {
             brokers,
             topic,
             group_id: Some(group_id),
             config: source_config,
-            event_time_config: None,
+            event_time_config,
         }
     }
 
@@ -445,6 +464,10 @@ impl KafkaDataSource {
 
     pub fn config(&self) -> &HashMap<String, String> {
         &self.config
+    }
+
+    pub fn event_time_config(&self) -> Option<&crate::velostream::datasource::EventTimeConfig> {
+        self.event_time_config.as_ref()
     }
 
     /// Self-initialize with current configuration

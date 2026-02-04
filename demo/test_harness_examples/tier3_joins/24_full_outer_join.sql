@@ -36,7 +36,7 @@ CREATE STREAM order_shipment_reconciliation AS
 SELECT
     COALESCE(o.order_id, s.order_id) AS order_id,   -- Use whichever exists
     o.customer_id AS customer_id,                    -- NULL if order missing
-    o.order_total AS order_total,                    -- NULL if order missing
+    o.total_amount AS order_total,                   -- NULL if order missing
     o.event_time AS order_time,
     s.shipment_id AS shipment_id,                    -- NULL if shipment missing
     s.carrier AS carrier,                            -- NULL if shipment missing

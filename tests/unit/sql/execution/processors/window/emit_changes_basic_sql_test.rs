@@ -452,3 +452,146 @@ async fn test_emit_changes_extreme_values() {
         }
     }
 }
+
+/// Test EMIT CHANGES with CASE expressions using alias + IN operator
+/// This tests the pattern used in trading signals: spike_classification IN ('HIGH', 'MEDIUM')
+#[tokio::test]
+async fn test_emit_changes_case_alias_with_in_operator() {
+    let sql = r#"
+        SELECT
+            symbol,
+            COUNT(*) AS trade_count,
+            AVG(volume) AS avg_volume,
+            MAX(volume) AS max_volume,
+            CASE
+                WHEN MAX(volume) > 2000 THEN 'EXTREME_SPIKE'
+                WHEN MAX(volume) > 1000 THEN 'HIGH_SPIKE'
+                WHEN MAX(volume) > 500 THEN 'STATISTICAL_ANOMALY'
+                ELSE 'NORMAL'
+            END AS spike_classification,
+            CASE
+                WHEN MAX(volume) > 3000 THEN 'TRIGGER_BREAKER'
+                WHEN spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY') THEN 'PAUSE_FEED'
+                WHEN spike_classification = 'HIGH_SPIKE' THEN 'SLOW_MODE'
+                ELSE 'ALLOW'
+            END AS circuit_state
+        FROM trades
+        GROUP BY symbol
+        WINDOW SLIDING(300s, 60s)
+        EMIT CHANGES
+    "#;
+
+    let records = vec![
+        TestDataBuilder::trade_record(1, "AAPL", 150.0, 800, 0), // volume > 500 -> STATISTICAL_ANOMALY
+        TestDataBuilder::trade_record(2, "AAPL", 151.0, 1200, 60000), // volume > 1000 -> HIGH_SPIKE
+        TestDataBuilder::trade_record(3, "GOOGL", 2800.0, 600, 120000), // volume > 500 -> STATISTICAL_ANOMALY
+        TestDataBuilder::trade_record(4, "AAPL", 152.0, 2500, 180000), // volume > 2000 -> EXTREME_SPIKE
+    ];
+
+    let results = SqlExecutor::execute_query(sql, records).await;
+
+    WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES CASE + alias + IN");
+    WindowTestAssertions::print_results(&results, "EMIT CHANGES CASE + alias + IN");
+
+    // Validate that spike_classification and circuit_state are computed correctly
+    // AND that they are properly correlated based on the CASE logic
+    for result in &results {
+        let spike_classification = result.fields.get("spike_classification");
+        let circuit_state = result.fields.get("circuit_state");
+        let max_volume = result.fields.get("max_volume");
+
+        // Ensure spike_classification exists and is one of the expected values
+        if let Some(FieldValue::String(classification)) = spike_classification {
+            assert!(
+                [
+                    "EXTREME_SPIKE",
+                    "HIGH_SPIKE",
+                    "STATISTICAL_ANOMALY",
+                    "NORMAL"
+                ]
+                .contains(&classification.as_str()),
+                "Unexpected spike_classification: {}",
+                classification
+            );
+
+            // Verify circuit_state is correctly correlated with spike_classification
+            // Based on the CASE logic in the query:
+            // - EXTREME_SPIKE or STATISTICAL_ANOMALY -> PAUSE_FEED (unless max_volume > 3000 -> TRIGGER_BREAKER)
+            // - HIGH_SPIKE -> SLOW_MODE
+            // - NORMAL -> ALLOW
+            if let Some(FieldValue::String(state)) = circuit_state {
+                match classification.as_str() {
+                    "EXTREME_SPIKE" | "STATISTICAL_ANOMALY" => {
+                        // Check if max_volume > 3000 (TRIGGER_BREAKER takes precedence)
+                        let is_trigger = match max_volume {
+                            Some(FieldValue::Integer(v)) => *v > 3000,
+                            Some(FieldValue::Float(v)) => *v > 3000.0,
+                            _ => false,
+                        };
+                        if is_trigger {
+                            assert_eq!(
+                                state, "TRIGGER_BREAKER",
+                                "max_volume > 3000 should trigger TRIGGER_BREAKER, got {}",
+                                state
+                            );
+                        } else {
+                            assert_eq!(
+                                state, "PAUSE_FEED",
+                                "{} should map to PAUSE_FEED, got {}",
+                                classification, state
+                            );
+                        }
+                    }
+                    "HIGH_SPIKE" => {
+                        // Check if max_volume > 3000 (TRIGGER_BREAKER takes precedence)
+                        let is_trigger = match max_volume {
+                            Some(FieldValue::Integer(v)) => *v > 3000,
+                            Some(FieldValue::Float(v)) => *v > 3000.0,
+                            _ => false,
+                        };
+                        if is_trigger {
+                            assert_eq!(
+                                state, "TRIGGER_BREAKER",
+                                "max_volume > 3000 should trigger TRIGGER_BREAKER, got {}",
+                                state
+                            );
+                        } else {
+                            assert_eq!(
+                                state, "SLOW_MODE",
+                                "HIGH_SPIKE should map to SLOW_MODE, got {}",
+                                state
+                            );
+                        }
+                    }
+                    "NORMAL" => {
+                        // Check if max_volume > 3000 (TRIGGER_BREAKER takes precedence)
+                        let is_trigger = match max_volume {
+                            Some(FieldValue::Integer(v)) => *v > 3000,
+                            Some(FieldValue::Float(v)) => *v > 3000.0,
+                            _ => false,
+                        };
+                        if is_trigger {
+                            assert_eq!(
+                                state, "TRIGGER_BREAKER",
+                                "max_volume > 3000 should trigger TRIGGER_BREAKER, got {}",
+                                state
+                            );
+                        } else {
+                            assert_eq!(state, "ALLOW", "NORMAL should map to ALLOW, got {}", state);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Ensure circuit_state exists and is one of the expected values
+        if let Some(FieldValue::String(state)) = circuit_state {
+            assert!(
+                ["TRIGGER_BREAKER", "PAUSE_FEED", "SLOW_MODE", "ALLOW"].contains(&state.as_str()),
+                "Unexpected circuit_state: {}",
+                state
+            );
+        }
+    }
+}

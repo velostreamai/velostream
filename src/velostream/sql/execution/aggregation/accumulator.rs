@@ -9,17 +9,26 @@ use super::super::validation::{FieldValidator, ValidationContext};
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, is_aggregate_function};
+use std::collections::HashSet;
 
 /// Utilities for GroupAccumulator management
 pub struct AccumulatorManager;
 
 impl AccumulatorManager {
     /// Process a record into an accumulator based on aggregate expressions
+    ///
+    /// # Arguments
+    /// * `accumulator` - The group accumulator to update
+    /// * `record` - The input record to process
+    /// * `aggregate_expressions` - (field_name, expression) pairs for aggregates
+    /// * `select_aliases` - Set of SELECT alias names that should not be validated
+    ///   as input fields (they are computed from other expressions, not from input)
     #[doc(hidden)]
     pub fn process_record_into_accumulator(
         accumulator: &mut GroupAccumulator,
         record: &StreamRecord,
-        aggregate_expressions: &[(String, Expr)], // (field_name, expression) pairs
+        aggregate_expressions: &[(String, Expr)],
+        select_aliases: &HashSet<String>,
     ) -> Result<(), SqlError> {
         // Phase 2: Validate all aggregate fields exist in record before processing
         // Extract all fields referenced in the expressions
@@ -30,14 +39,24 @@ impl AccumulatorManager {
         }
 
         if !all_fields.is_empty() {
-            // Validate all referenced fields exist in the record
-            let field_refs: Vec<&str> = all_fields.iter().map(|s| s.as_str()).collect();
-            FieldValidator::validate_fields_exist(
-                record,
-                &field_refs,
-                ValidationContext::Aggregation,
-            )
-            .map_err(|e| e.to_sql_error())?;
+            // Filter out SELECT aliases - these are computed fields, not input fields
+            // For example, if SELECT has "CASE ... END AS spike_classification"
+            // and another expression references "spike_classification IN (...)",
+            // we should not validate spike_classification as an input field
+            let fields_to_validate: Vec<&str> = all_fields
+                .iter()
+                .filter(|f| !select_aliases.contains(*f))
+                .map(|s| s.as_str())
+                .collect();
+
+            if !fields_to_validate.is_empty() {
+                FieldValidator::validate_fields_exist(
+                    record,
+                    &fields_to_validate,
+                    ValidationContext::Aggregation,
+                )
+                .map_err(|e| e.to_sql_error())?;
+            }
         }
 
         // Always increment the count for this group
@@ -84,13 +103,16 @@ impl AccumulatorManager {
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             match value {
-                                FieldValue::Integer(i) => accumulator.add_sum(field_name, i as f64),
-                                FieldValue::Float(f) => accumulator.add_sum(field_name, f),
+                                FieldValue::Integer(i) => {
+                                    accumulator.add_sum(field_name, i as f64, true);
+                                }
+                                FieldValue::Float(f) => {
+                                    accumulator.add_sum(field_name, f, false);
+                                }
                                 FieldValue::ScaledInteger(value, scale) => {
-                                    // Convert ScaledInteger to f64 for SUM aggregation
                                     let divisor = 10_i64.pow(scale as u32) as f64;
                                     let float_value = value as f64 / divisor;
-                                    accumulator.add_sum(field_name, float_value);
+                                    accumulator.add_sum(field_name, float_value, false);
                                 }
                                 FieldValue::Null => {
                                     // NULL values are ignored in SUM
@@ -120,39 +142,47 @@ impl AccumulatorManager {
                             }
                         }
                     }
-                    "AVG" | "STDDEV" | "VARIANCE" => {
+                    "AVG" | "STDDEV" | "STDDEV_SAMP" | "STDDEV_POP" | "VARIANCE" | "VAR_SAMP"
+                    | "VAR_POP" => {
+                        // Use Welford's online algorithm — O(1) memory instead of O(n)
                         if let Some(arg) = args.first() {
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;
-                            match value {
-                                FieldValue::Integer(i) => {
-                                    accumulator
-                                        .numeric_values
-                                        .entry(field_name.to_string())
-                                        .or_default()
-                                        .push(i as f64);
+                            match super::compute::field_value_to_f64(&value) {
+                                Some(f) => accumulator.update_welford(field_name, f),
+                                None if matches!(value, FieldValue::Null) => {
+                                    // NULL values are ignored
                                 }
-                                FieldValue::Float(f) => {
+                                None => {
+                                    return Err(SqlError::ExecutionError {
+                                        message: format!(
+                                            "Cannot compute {} on non-numeric value: {:?}",
+                                            name.to_uppercase(),
+                                            value
+                                        ),
+                                        query: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    "MEDIAN" | "PERCENTILE_CONT" => {
+                        // Need all values for sort-based computation
+                        if let Some(arg) = args.first() {
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            match super::compute::field_value_to_f64(&value) {
+                                Some(f) => {
                                     accumulator
                                         .numeric_values
                                         .entry(field_name.to_string())
                                         .or_default()
                                         .push(f);
                                 }
-                                FieldValue::ScaledInteger(value, scale) => {
-                                    // Convert ScaledInteger to f64 for aggregation
-                                    let divisor = 10_i64.pow(scale as u32) as f64;
-                                    let float_value = value as f64 / divisor;
-                                    accumulator
-                                        .numeric_values
-                                        .entry(field_name.to_string())
-                                        .or_default()
-                                        .push(float_value);
+                                None if matches!(value, FieldValue::Null) => {
+                                    // NULL values are ignored
                                 }
-                                FieldValue::Null => {
-                                    // NULL values are ignored in AVG/STDDEV/VARIANCE
-                                }
-                                _ => {
+                                None => {
                                     return Err(SqlError::ExecutionError {
                                         message: format!(
                                             "Cannot compute {} on non-numeric value: {:?}",
@@ -189,7 +219,7 @@ impl AccumulatorManager {
                             }
                         }
                     }
-                    "FIRST" => {
+                    "FIRST" | "FIRST_VALUE" => {
                         if let Some(arg) = args.first() {
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;
@@ -201,7 +231,7 @@ impl AccumulatorManager {
                             }
                         }
                     }
-                    "LAST" => {
+                    "LAST" | "LAST_VALUE" => {
                         if let Some(arg) = args.first() {
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;
@@ -211,7 +241,7 @@ impl AccumulatorManager {
                                 .insert(field_name.to_string(), value);
                         }
                     }
-                    "STRING_AGG" => {
+                    "STRING_AGG" | "GROUP_CONCAT" | "LISTAGG" | "COLLECT" => {
                         if let Some(arg) = args.first() {
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;

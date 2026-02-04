@@ -193,9 +193,14 @@ pub struct FieldConstraints {
     #[serde(default)]
     pub references: Option<ReferenceConstraint>,
 
-    /// Timestamp range (relative or absolute)
+    /// Timestamp range (relative or absolute) - generates FieldValue::Timestamp
     #[serde(default)]
     pub timestamp_range: Option<TimestampRange>,
+
+    /// Timestamp as epoch milliseconds (relative or absolute) - generates FieldValue::Integer
+    /// Use this for event-time fields that need to survive JSON serialization round-trips
+    #[serde(default)]
+    pub timestamp_epoch_ms: Option<TimestampRange>,
 }
 
 /// Enum constraint with optional weights
@@ -423,35 +428,34 @@ impl Schema {
 
         // Validate enum weights match values
         for field in &self.fields {
-            if let Some(ref enum_constraint) = field.constraints.enum_values {
-                if let Some(ref weights) = enum_constraint.weights {
-                    if weights.len() != enum_constraint.values.len() {
-                        return Err(TestHarnessError::SchemaParseError {
-                            message: format!(
-                                "Field '{}': weights count ({}) doesn't match values count ({})",
-                                field.name,
-                                weights.len(),
-                                enum_constraint.values.len()
-                            ),
-                            file: self.name.clone(),
-                        });
-                    }
-                }
+            if let Some(ref enum_constraint) = field.constraints.enum_values
+                && let Some(ref weights) = enum_constraint.weights
+                && weights.len() != enum_constraint.values.len()
+            {
+                return Err(TestHarnessError::SchemaParseError {
+                    message: format!(
+                        "Field '{}': weights count ({}) doesn't match values count ({})",
+                        field.name,
+                        weights.len(),
+                        enum_constraint.values.len()
+                    ),
+                    file: self.name.clone(),
+                });
             }
         }
 
         // Validate range constraints
         for field in &self.fields {
-            if let Some(ref range) = field.constraints.range {
-                if range.min > range.max {
-                    return Err(TestHarnessError::SchemaParseError {
-                        message: format!(
-                            "Field '{}': min ({}) > max ({})",
-                            field.name, range.min, range.max
-                        ),
-                        file: self.name.clone(),
-                    });
-                }
+            if let Some(ref range) = field.constraints.range
+                && range.min > range.max
+            {
+                return Err(TestHarnessError::SchemaParseError {
+                    message: format!(
+                        "Field '{}': min ({}) > max ({})",
+                        field.name, range.min, range.max
+                    ),
+                    file: self.name.clone(),
+                });
             }
         }
 
@@ -691,10 +695,9 @@ impl SchemaRegistry {
             if file_path
                 .extension()
                 .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                && let Ok(schema) = Schema::from_file(&file_path)
             {
-                if let Ok(schema) = Schema::from_file(&file_path) {
-                    registry.register(schema);
-                }
+                registry.register(schema);
             }
         }
 

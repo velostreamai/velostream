@@ -5,6 +5,7 @@
 
 use super::{ProcessorContext, WindowContext};
 use crate::velostream::sql::ast::WindowSpec;
+use crate::velostream::sql::execution::expression::is_aggregate_function;
 use crate::velostream::sql::execution::types::StreamRecord;
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use log::{error, trace};
@@ -84,13 +85,7 @@ impl WindowProcessor {
         use crate::velostream::sql::ast::Expr;
 
         match expr {
-            Expr::Function { name, .. } => {
-                let name_upper = name.to_uppercase();
-                matches!(
-                    name_upper.as_str(),
-                    "AVG" | "MIN" | "MAX" | "COUNT" | "SUM" | "STDDEV" | "VARIANCE"
-                )
-            }
+            Expr::Function { name, .. } => is_aggregate_function(name),
             Expr::BinaryOp { left, right, .. } => {
                 Self::expr_is_aggregation(left) || Self::expr_is_aggregation(right)
             }
@@ -104,6 +99,7 @@ impl WindowProcessor {
             buffer: Vec::new(),
             last_emit: 0,
             should_emit: false,
+            buffer_includes_current: false,
         }
     }
 

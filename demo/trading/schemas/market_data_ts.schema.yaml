@@ -8,7 +8,7 @@ fields:
     nullable: false
     constraints:
       enum_values:
-        values: ["AAPL", "GOOG", "MSFT", "AMZN", "META"]
+        values: ["AAPL", "GOOGL", "MSFT", "TSLA", "JPM"]
         weights: [0.25, 0.25, 0.2, 0.15, 0.15]
 
   - name: exchange
@@ -99,10 +99,3 @@ fields:
         min: 100000000000
         max: 3000000000000
 
-  - name: event_time
-    type: timestamp
-    nullable: true
-    constraints:
-      timestamp_range:
-        start: "-1h"
-        end: "now"

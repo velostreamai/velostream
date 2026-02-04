@@ -407,13 +407,23 @@ impl JoinProcessor {
             combined_fields.insert(final_key, value.clone());
         }
 
+        // Propagate event_time: use the newer of the two event times
+        // This matches stream-stream join semantics where the joined record
+        // represents an event at the latest point in time of its constituent records
+        let merged_event_time = match (left_record.event_time, right_record.event_time) {
+            (Some(l), Some(r)) => Some(l.max(r)),
+            (Some(l), None) => Some(l),
+            (None, Some(r)) => Some(r),
+            (None, None) => None,
+        };
+
         Ok(StreamRecord {
             fields: combined_fields,
             timestamp: left_record.timestamp.max(right_record.timestamp),
             offset: left_record.offset,
             partition: left_record.partition,
             headers: Self::merge_headers(&left_record.headers, &right_record.headers),
-            event_time: None,
+            event_time: merged_event_time,
             topic: None,
             key: None,
         })
@@ -439,13 +449,14 @@ impl JoinProcessor {
             // For now, we'll just return the base record
         }
 
+        // Preserve base record's event_time for outer joins
         Ok(StreamRecord {
             fields: combined_fields,
             timestamp: base_record.timestamp,
             offset: base_record.offset,
             partition: base_record.partition,
             headers: base_record.headers.clone(),
-            event_time: None,
+            event_time: base_record.event_time,
             topic: None,
             key: None,
         })
@@ -547,13 +558,14 @@ impl JoinProcessor {
             combined_fields.extend(left_null_fields);
         }
 
+        // Preserve base record's event_time for outer joins (fallback path)
         Ok(StreamRecord {
             fields: combined_fields,
             timestamp: base_record.timestamp,
             offset: base_record.offset,
             partition: base_record.partition,
             headers: base_record.headers.clone(),
-            event_time: None,
+            event_time: base_record.event_time,
             topic: None,
             key: None,
         })

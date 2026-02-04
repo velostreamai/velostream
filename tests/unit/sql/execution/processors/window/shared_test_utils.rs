@@ -91,9 +91,11 @@ impl TestDataBuilder {
     ) -> StreamRecord {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(id));
+        fields.insert("trader_id".to_string(), FieldValue::Integer(id));
         fields.insert("symbol".to_string(), FieldValue::String(symbol.to_string()));
         fields.insert("price".to_string(), FieldValue::Float(price));
         fields.insert("volume".to_string(), FieldValue::Integer(volume));
+        fields.insert("quantity".to_string(), FieldValue::Integer(volume));
         fields.insert(
             "timestamp".to_string(),
             FieldValue::Integer(timestamp_millis),

@@ -9,8 +9,6 @@ use super::functions::BuiltinFunctions;
 use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
 use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
-use rust_decimal::Decimal;
-use std::str::FromStr;
 
 /// Type alias for WHERE clause predicate function
 type WhereClausePredicate = Box<dyn Fn(&String, &FieldValue) -> bool>;
@@ -105,6 +103,19 @@ impl ExpressionEvaluator {
         ExpressionEvaluator
     }
 
+    /// Get the _EVENT_TIME value for a record
+    ///
+    /// Returns the event time as milliseconds since epoch, falling back to
+    /// processing time (_TIMESTAMP) if event_time is not set.
+    /// This matches Flink/ksqlDB semantics where event time is always available.
+    #[inline]
+    pub fn get_event_time_value(record: &StreamRecord) -> FieldValue {
+        match record.event_time {
+            Some(event_time) => FieldValue::Integer(event_time.timestamp_millis()),
+            None => FieldValue::Integer(record.timestamp),
+        }
+    }
+
     /// Parse a WHERE clause and return a predicate function
     ///
     /// This is a simplified version for testing that returns a closure
@@ -112,7 +123,7 @@ impl ExpressionEvaluator {
     pub fn parse_where_clause(&self, where_clause: &str) -> Result<WhereClausePredicate, SqlError> {
         // This is a simplified implementation for testing
         // In a real implementation, you'd parse the WHERE clause into an AST
-        let clause = where_clause.to_string();
+        let _clause = where_clause.to_string();
 
         Ok(Box::new(
             move |_key: &String, _value: &FieldValue| -> bool {
@@ -138,14 +149,7 @@ impl ExpressionEvaluator {
                         system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
                         system_columns::OFFSET => FieldValue::Integer(record.offset),
                         system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
-                        system_columns::EVENT_TIME => {
-                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
-                            if let Some(event_time) = record.event_time {
-                                FieldValue::Integer(event_time.timestamp_millis())
-                            } else {
-                                FieldValue::Null
-                            }
-                        }
+                        system_columns::EVENT_TIME => Self::get_event_time_value(record),
                         system_columns::WINDOW_START | system_columns::WINDOW_END => {
                             // Window columns are injected into fields HashMap by WindowProcessor
                             // Look them up as regular fields
@@ -165,18 +169,44 @@ impl ExpressionEvaluator {
                             value.clone()
                         } else {
                             let column_name = name.split('.').next_back().unwrap_or(name);
-                            // Try to find with the "right_" prefix (for non-aliased JOINs)
-                            let prefixed_name = format!("right_{}", column_name);
-                            if let Some(value) = record.fields.get(&prefixed_name) {
-                                value.clone()
+                            // Check if the unqualified column is a system column
+                            if let Some(sys_col) =
+                                system_columns::normalize_if_system_column(column_name)
+                            {
+                                match sys_col {
+                                    system_columns::TIMESTAMP => {
+                                        FieldValue::Integer(record.timestamp)
+                                    }
+                                    system_columns::OFFSET => FieldValue::Integer(record.offset),
+                                    system_columns::PARTITION => {
+                                        FieldValue::Integer(record.partition as i64)
+                                    }
+                                    system_columns::EVENT_TIME => {
+                                        Self::get_event_time_value(record)
+                                    }
+                                    system_columns::WINDOW_START | system_columns::WINDOW_END => {
+                                        record
+                                            .fields
+                                            .get(sys_col)
+                                            .cloned()
+                                            .unwrap_or(FieldValue::Null)
+                                    }
+                                    _ => unreachable!(),
+                                }
                             } else {
-                                // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                // Return NULL if not found instead of error
-                                record
-                                    .fields
-                                    .get(column_name)
-                                    .cloned()
-                                    .unwrap_or(FieldValue::Null)
+                                // Try to find with the "right_" prefix (for non-aliased JOINs)
+                                let prefixed_name = format!("right_{}", column_name);
+                                if let Some(value) = record.fields.get(&prefixed_name) {
+                                    value.clone()
+                                } else {
+                                    // Fall back to just the column name (for FROM clause aliases like l.name -> name)
+                                    // Return NULL if not found instead of error
+                                    record
+                                        .fields
+                                        .get(column_name)
+                                        .cloned()
+                                        .unwrap_or(FieldValue::Null)
+                                }
                             }
                         }
                     } else {
@@ -405,14 +435,7 @@ impl ExpressionEvaluator {
                         system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
                         system_columns::OFFSET => FieldValue::Integer(record.offset),
                         system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
-                        system_columns::EVENT_TIME => {
-                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
-                            if let Some(event_time) = record.event_time {
-                                FieldValue::Integer(event_time.timestamp_millis())
-                            } else {
-                                FieldValue::Null
-                            }
-                        }
+                        system_columns::EVENT_TIME => Self::get_event_time_value(record),
                         system_columns::WINDOW_START | system_columns::WINDOW_END => {
                             // Window columns are injected into fields HashMap by WindowProcessor
                             // Look them up as regular fields
@@ -432,18 +455,44 @@ impl ExpressionEvaluator {
                             Ok(value.clone())
                         } else {
                             let column_name = name.split('.').next_back().unwrap_or(name);
-                            // Try to find with the "right_" prefix (for non-aliased JOINs)
-                            let prefixed_name = format!("right_{}", column_name);
-                            if let Some(value) = record.fields.get(&prefixed_name) {
-                                Ok(value.clone())
+                            // Check if the unqualified column is a system column (e.g. m._event_time → _event_time)
+                            if let Some(sys_col) =
+                                system_columns::normalize_if_system_column(column_name)
+                            {
+                                Ok(match sys_col {
+                                    system_columns::TIMESTAMP => {
+                                        FieldValue::Integer(record.timestamp)
+                                    }
+                                    system_columns::OFFSET => FieldValue::Integer(record.offset),
+                                    system_columns::PARTITION => {
+                                        FieldValue::Integer(record.partition as i64)
+                                    }
+                                    system_columns::EVENT_TIME => {
+                                        Self::get_event_time_value(record)
+                                    }
+                                    system_columns::WINDOW_START | system_columns::WINDOW_END => {
+                                        record
+                                            .fields
+                                            .get(sys_col)
+                                            .cloned()
+                                            .unwrap_or(FieldValue::Null)
+                                    }
+                                    _ => unreachable!(),
+                                })
                             } else {
-                                // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                // Return NULL if not found instead of error
-                                Ok(record
-                                    .fields
-                                    .get(column_name)
-                                    .cloned()
-                                    .unwrap_or(FieldValue::Null))
+                                // Try to find with the "right_" prefix (for non-aliased JOINs)
+                                let prefixed_name = format!("right_{}", column_name);
+                                if let Some(value) = record.fields.get(&prefixed_name) {
+                                    Ok(value.clone())
+                                } else {
+                                    // Fall back to just the column name (for FROM clause aliases like l.name -> name)
+                                    // Return NULL if not found instead of error
+                                    Ok(record
+                                        .fields
+                                        .get(column_name)
+                                        .cloned()
+                                        .unwrap_or(FieldValue::Null))
+                                }
                             }
                         }
                     } else {
@@ -468,6 +517,54 @@ impl ExpressionEvaluator {
                 }),
             },
             Expr::BinaryOp { left, op, right } => {
+                // Handle IN/NOT IN BEFORE evaluating right side, since List
+                // nodes cannot be evaluated as standalone expressions.
+                match op {
+                    BinaryOperator::In => {
+                        let left_val = Self::evaluate_expression_value(left, record)?;
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                return Ok(FieldValue::Boolean(false));
+                            }
+                            _ => {
+                                let right_val = Self::evaluate_expression_value(right, record)?;
+                                return Ok(FieldValue::Boolean(Self::values_equal(
+                                    &left_val, &right_val,
+                                )));
+                            }
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        let left_val = Self::evaluate_expression_value(left, record)?;
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                return Ok(FieldValue::Boolean(true));
+                            }
+                            _ => {
+                                let right_val = Self::evaluate_expression_value(right, record)?;
+                                return Ok(FieldValue::Boolean(!Self::values_equal(
+                                    &left_val, &right_val,
+                                )));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
                 let left_val = Self::evaluate_expression_value(left, record)?;
                 let right_val = Self::evaluate_expression_value(right, record)?;
 
@@ -646,62 +743,9 @@ impl ExpressionEvaluator {
                         }),
                     },
 
-                    // Set membership operators
-                    BinaryOperator::In => {
-                        // For IN operator, right side should be a list or subquery
-                        match &**right {
-                            Expr::List(values) => {
-                                for value_expr in values {
-                                    let value =
-                                        Self::evaluate_expression_value(value_expr, record)?;
-                                    if Self::values_equal(&left_val, &value) {
-                                        return Ok(FieldValue::Boolean(true));
-                                    }
-                                }
-                                Ok(FieldValue::Boolean(false))
-                            }
-                            Expr::Subquery { .. } => {
-                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
-                                unreachable!(
-                                    "IN subqueries cannot be evaluated with basic evaluator. \
-                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
-                                )
-                            }
-                            _ => Err(SqlError::ExecutionError {
-                                message:
-                                    "IN operator requires a list or subquery on the right side"
-                                        .to_string(),
-                                query: None,
-                            }),
-                        }
-                    }
-                    BinaryOperator::NotIn => {
-                        // For NOT IN operator, right side should be a list or subquery
-                        match &**right {
-                            Expr::List(values) => {
-                                for value_expr in values {
-                                    let value =
-                                        Self::evaluate_expression_value(value_expr, record)?;
-                                    if Self::values_equal(&left_val, &value) {
-                                        return Ok(FieldValue::Boolean(false));
-                                    }
-                                }
-                                Ok(FieldValue::Boolean(true))
-                            }
-                            Expr::Subquery { .. } => {
-                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
-                                unreachable!(
-                                    "NOT IN subqueries cannot be evaluated with basic evaluator. \
-                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
-                                )
-                            }
-                            _ => Err(SqlError::ExecutionError {
-                                message:
-                                    "NOT IN operator requires a list or subquery on the right side"
-                                        .to_string(),
-                                query: None,
-                            }),
-                        }
+                    // Set membership operators - handled early above (before eager evaluation)
+                    BinaryOperator::In | BinaryOperator::NotIn => {
+                        unreachable!("IN/NOT IN handled above before right-side evaluation")
                     }
 
                     _ => Err(SqlError::ExecutionError {
@@ -887,6 +931,7 @@ impl ExpressionEvaluator {
                     over_clause,
                     record,
                     &empty_buffer,
+                    false,
                 )
             }
         }
@@ -951,6 +996,42 @@ impl ExpressionEvaluator {
                     })
                 }
             }
+            // Temporal equality
+            (FieldValue::Timestamp(a), FieldValue::Timestamp(b)) => a == b,
+            (FieldValue::Date(a), FieldValue::Date(b)) => a == b,
+            (FieldValue::Date(a), FieldValue::Timestamp(b)) => {
+                a.and_hms_opt(0, 0, 0).unwrap() == *b
+            }
+            (FieldValue::Timestamp(a), FieldValue::Date(b)) => {
+                *a == b.and_hms_opt(0, 0, 0).unwrap()
+            }
+            // Temporal vs Integer(epoch-millis) equality
+            (FieldValue::Date(a), FieldValue::Integer(ms))
+            | (FieldValue::Integer(ms), FieldValue::Date(a)) => {
+                chrono::DateTime::from_timestamp_millis(*ms)
+                    .map(|dt| a.and_hms_opt(0, 0, 0).unwrap() == dt.naive_utc())
+                    .unwrap_or(false)
+            }
+            (FieldValue::Timestamp(a), FieldValue::Integer(ms))
+            | (FieldValue::Integer(ms), FieldValue::Timestamp(a)) => {
+                chrono::DateTime::from_timestamp_millis(*ms)
+                    .map(|dt| *a == dt.naive_utc())
+                    .unwrap_or(false)
+            }
+            // Temporal vs String equality (for substituted correlation literals)
+            (FieldValue::Date(a), FieldValue::String(s))
+            | (FieldValue::String(s), FieldValue::Date(a)) => {
+                chrono::NaiveDate::parse_from_str(&s[..s.len().min(10)], "%Y-%m-%d")
+                    .map(|d| a == &d)
+                    .unwrap_or(false)
+            }
+            (FieldValue::Timestamp(a), FieldValue::String(s))
+            | (FieldValue::String(s), FieldValue::Timestamp(a)) => {
+                chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+                    .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
+                    .map(|dt| a == &dt)
+                    .unwrap_or(false)
+            }
             _ => false,
         }
     }
@@ -1007,10 +1088,98 @@ impl ExpressionEvaluator {
                 a.partial_cmp(&float_b).unwrap_or(std::cmp::Ordering::Equal) as i32
             }
 
+            // Temporal comparisons
+            (FieldValue::Timestamp(a), FieldValue::Timestamp(b)) => a.cmp(b) as i32,
+            (FieldValue::Date(a), FieldValue::Date(b)) => a.cmp(b) as i32,
+            (FieldValue::Date(a), FieldValue::Timestamp(b)) => {
+                a.and_hms_opt(0, 0, 0).unwrap().cmp(b) as i32
+            }
+            (FieldValue::Timestamp(a), FieldValue::Date(b)) => {
+                a.cmp(&b.and_hms_opt(0, 0, 0).unwrap()) as i32
+            }
+
+            // Temporal vs Integer(epoch-millis) comparisons — _event_time is epoch millis
+            (FieldValue::Date(a), FieldValue::Integer(ms))
+            | (FieldValue::Integer(ms), FieldValue::Date(a)) => {
+                let dt = chrono::DateTime::from_timestamp_millis(*ms)
+                    .ok_or_else(|| SqlError::TypeError {
+                        expected: "valid epoch millis".to_string(),
+                        actual: ms.to_string(),
+                        value: None,
+                    })?
+                    .naive_utc();
+                let a_dt = a.and_hms_opt(0, 0, 0).unwrap();
+                if matches!(left, FieldValue::Date(_)) {
+                    a_dt.cmp(&dt) as i32
+                } else {
+                    dt.cmp(&a_dt) as i32
+                }
+            }
+            (FieldValue::Timestamp(a), FieldValue::Integer(ms))
+            | (FieldValue::Integer(ms), FieldValue::Timestamp(a)) => {
+                let dt = chrono::DateTime::from_timestamp_millis(*ms)
+                    .ok_or_else(|| SqlError::TypeError {
+                        expected: "valid epoch millis".to_string(),
+                        actual: ms.to_string(),
+                        value: None,
+                    })?
+                    .naive_utc();
+                if matches!(left, FieldValue::Timestamp(_)) {
+                    a.cmp(&dt) as i32
+                } else {
+                    dt.cmp(a) as i32
+                }
+            }
+
+            // Temporal vs String comparisons (for substituted correlation literals)
+            (FieldValue::Date(a), FieldValue::String(s))
+            | (FieldValue::String(s), FieldValue::Date(a))
+                if s.len() >= 10 =>
+            {
+                let other = chrono::NaiveDate::parse_from_str(&s[..10], "%Y-%m-%d")
+                    .or_else(|_| {
+                        chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+                            .map(|dt| dt.date())
+                    })
+                    .map_err(|_| SqlError::TypeError {
+                        expected: "date-compatible string".to_string(),
+                        actual: s.clone(),
+                        value: None,
+                    })?;
+                if matches!(left, FieldValue::Date(_)) {
+                    a.cmp(&other) as i32
+                } else {
+                    other.cmp(a) as i32
+                }
+            }
+            (FieldValue::Timestamp(a), FieldValue::String(s))
+            | (FieldValue::String(s), FieldValue::Timestamp(a))
+                if s.len() >= 19 =>
+            {
+                let other = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+                    .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
+                    .map_err(|_| SqlError::TypeError {
+                        expected: "timestamp-compatible string".to_string(),
+                        actual: s.clone(),
+                        value: None,
+                    })?;
+                if matches!(left, FieldValue::Timestamp(_)) {
+                    a.cmp(&other) as i32
+                } else {
+                    other.cmp(a) as i32
+                }
+            }
+
             _ => {
                 return Err(SqlError::TypeError {
                     expected: "comparable types".to_string(),
-                    actual: "incompatible types".to_string(),
+                    actual: format!(
+                        "incompatible types: left={} ({:?}), right={} ({:?})",
+                        left.type_name(),
+                        left,
+                        right.type_name(),
+                        right
+                    ),
                     value: None,
                 });
             }
@@ -1377,14 +1546,7 @@ impl ExpressionEvaluator {
                         system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
                         system_columns::OFFSET => FieldValue::Integer(record.offset),
                         system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
-                        system_columns::EVENT_TIME => {
-                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
-                            if let Some(event_time) = record.event_time {
-                                FieldValue::Integer(event_time.timestamp_millis())
-                            } else {
-                                FieldValue::Null
-                            }
-                        }
+                        system_columns::EVENT_TIME => Self::get_event_time_value(record),
                         system_columns::WINDOW_START | system_columns::WINDOW_END => {
                             // Window columns are injected into fields HashMap by WindowProcessor
                             // Look them up as regular fields
@@ -1404,17 +1566,43 @@ impl ExpressionEvaluator {
                             Ok(value.clone())
                         } else {
                             let column_name = name.split('.').next_back().unwrap_or(name);
-                            // Try to find with the "right_" prefix (for non-aliased JOINs)
-                            let prefixed_name = format!("right_{}", column_name);
-                            if let Some(value) = record.fields.get(&prefixed_name) {
-                                Ok(value.clone())
+                            // Check if the unqualified column is a system column
+                            if let Some(sys_col) =
+                                system_columns::normalize_if_system_column(column_name)
+                            {
+                                Ok(match sys_col {
+                                    system_columns::TIMESTAMP => {
+                                        FieldValue::Integer(record.timestamp)
+                                    }
+                                    system_columns::OFFSET => FieldValue::Integer(record.offset),
+                                    system_columns::PARTITION => {
+                                        FieldValue::Integer(record.partition as i64)
+                                    }
+                                    system_columns::EVENT_TIME => {
+                                        Self::get_event_time_value(record)
+                                    }
+                                    system_columns::WINDOW_START | system_columns::WINDOW_END => {
+                                        record
+                                            .fields
+                                            .get(sys_col)
+                                            .cloned()
+                                            .unwrap_or(FieldValue::Null)
+                                    }
+                                    _ => unreachable!(),
+                                })
                             } else {
-                                // Fall back to just the column name
-                                Ok(record
-                                    .fields
-                                    .get(column_name)
-                                    .cloned()
-                                    .unwrap_or(FieldValue::Null))
+                                // Try to find with the "right_" prefix (for non-aliased JOINs)
+                                let prefixed_name = format!("right_{}", column_name);
+                                if let Some(value) = record.fields.get(&prefixed_name) {
+                                    Ok(value.clone())
+                                } else {
+                                    // Fall back to just the column name
+                                    Ok(record
+                                        .fields
+                                        .get(column_name)
+                                        .cloned()
+                                        .unwrap_or(FieldValue::Null))
+                                }
                             }
                         }
                     } else {
@@ -1446,7 +1634,7 @@ impl ExpressionEvaluator {
                 // We'll evaluate the args first to ensure subqueries in args work
                 let mut evaluated_args = Vec::new();
                 for arg in args {
-                    let arg_value = Self::evaluate_expression_value_with_subqueries(
+                    let _arg_value = Self::evaluate_expression_value_with_subqueries(
                         arg,
                         record,
                         subquery_executor,
@@ -1628,12 +1816,18 @@ impl ExpressionEvaluator {
                 } else {
                     &empty_buffer
                 };
+                let buffer_includes_current = context
+                    .window_context
+                    .as_ref()
+                    .map(|wc| wc.buffer_includes_current)
+                    .unwrap_or(false);
                 super::WindowFunctions::evaluate_window_function(
                     function_name,
                     args,
                     over_clause,
                     record,
                     window_buffer,
+                    buffer_includes_current,
                 )
             }
             Expr::List(_) => {

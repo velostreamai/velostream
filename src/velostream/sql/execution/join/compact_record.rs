@@ -293,7 +293,7 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(42));
         fields.insert("name".to_string(), FieldValue::String("test".to_string()));
-        fields.insert("value".to_string(), FieldValue::Float(3.14));
+        fields.insert("value".to_string(), FieldValue::Float(3.15));
 
         let mut original = StreamRecord::new(fields);
         original.timestamp = 12345;
@@ -307,7 +307,7 @@ mod tests {
             compact.get("name"),
             Some(&FieldValue::String("test".to_string()))
         );
-        assert_eq!(compact.get("value"), Some(&FieldValue::Float(3.14)));
+        assert_eq!(compact.get("value"), Some(&FieldValue::Float(3.15)));
         assert_eq!(compact.timestamp, 12345);
 
         // Convert back and verify
@@ -317,7 +317,7 @@ mod tests {
             restored.fields.get("name"),
             Some(&FieldValue::String("test".to_string()))
         );
-        assert_eq!(restored.fields.get("value"), Some(&FieldValue::Float(3.14)));
+        assert_eq!(restored.fields.get("value"), Some(&FieldValue::Float(3.15)));
         assert_eq!(restored.timestamp, 12345);
     }
 

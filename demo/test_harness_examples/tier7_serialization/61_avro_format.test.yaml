@@ -35,6 +35,6 @@ queries:
           {"name": "price", "type": "double"},
           {"name": "side", "type": "string"},
           {"name": "notional_value", "type": "double"},
-          {"name": "event_time", "type": "string"}
+          {"name": "event_time", "type": "long"}
         ]
       }

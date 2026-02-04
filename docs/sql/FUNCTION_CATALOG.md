@@ -26,10 +26,9 @@ Auto-generated catalog of all available SQL functions.
 | MAX | - | ✓ | - |
 | APPROX_COUNT_DISTINCT | - | ✓ | - |
 | COUNT_DISTINCT | - | ✓ | - |
-| FIRST_VALUE | - | ✓ | ✓ |
-| LAST_VALUE | - | ✓ | ✓ |
-| LISTAGG | - | ✓ | - |
-| STRING_AGG | - | ✓ | - |
+| FIRST | FIRST_VALUE | ✓ | ✓ |
+| LAST | LAST_VALUE | ✓ | ✓ |
+| STRING_AGG | GROUP_CONCAT, LISTAGG, COLLECT | ✓ | - |
 | MEDIAN | - | ✓ | - |
 | STDDEV | STDDEV_SAMP | ✓ | - |
 | STDDEV_POP | - | ✓ | - |

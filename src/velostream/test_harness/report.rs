@@ -482,3 +482,295 @@ fn escape_xml(s: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
 }
+
+// ============================================================================
+// Multi-App Report Types (for run-all command)
+// ============================================================================
+
+/// Report for running multiple apps
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiAppReport {
+    /// Title for the report
+    pub title: String,
+
+    /// Start time (ISO 8601)
+    pub start_time: String,
+
+    /// End time (ISO 8601)
+    pub end_time: String,
+
+    /// Total duration in seconds
+    pub duration_secs: u64,
+
+    /// Per-app results
+    pub apps: Vec<AppResult>,
+
+    /// Combined summary
+    pub summary: MultiAppSummary,
+}
+
+/// Result for a single app in a multi-app run
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppResult {
+    /// App name (derived from SQL filename)
+    pub name: String,
+
+    /// Whether the app passed all tests
+    pub passed: bool,
+
+    /// Number of queries run
+    pub queries_total: usize,
+
+    /// Number of queries passed
+    pub queries_passed: usize,
+
+    /// Number of assertions run
+    pub assertions_total: usize,
+
+    /// Number of assertions passed
+    pub assertions_passed: usize,
+
+    /// Duration in seconds
+    pub duration_secs: f64,
+
+    /// Error message if app failed to run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+
+    /// The full test report for this app
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<TestReport>,
+}
+
+/// Summary for multi-app run
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiAppSummary {
+    /// Total apps run
+    pub apps_total: usize,
+
+    /// Apps that passed
+    pub apps_passed: usize,
+
+    /// Apps that failed
+    pub apps_failed: usize,
+
+    /// Total queries across all apps
+    pub queries_total: usize,
+
+    /// Queries passed across all apps
+    pub queries_passed: usize,
+
+    /// Total assertions across all apps
+    pub assertions_total: usize,
+
+    /// Assertions passed across all apps
+    pub assertions_passed: usize,
+}
+
+impl MultiAppReport {
+    /// Create a new multi-app report
+    pub fn new(title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            start_time: chrono::Utc::now().to_rfc3339(),
+            end_time: String::new(),
+            duration_secs: 0,
+            apps: Vec::new(),
+            summary: MultiAppSummary {
+                apps_total: 0,
+                apps_passed: 0,
+                apps_failed: 0,
+                queries_total: 0,
+                queries_passed: 0,
+                assertions_total: 0,
+                assertions_passed: 0,
+            },
+        }
+    }
+
+    /// Add an app result
+    pub fn add_app(&mut self, result: AppResult) {
+        self.apps.push(result);
+    }
+
+    /// Finalize the report (calculate summary, set end time)
+    pub fn finalize(&mut self) {
+        self.end_time = chrono::Utc::now().to_rfc3339();
+
+        // Calculate duration from timestamps
+        if let (Ok(start), Ok(end)) = (
+            chrono::DateTime::parse_from_rfc3339(&self.start_time),
+            chrono::DateTime::parse_from_rfc3339(&self.end_time),
+        ) {
+            self.duration_secs = (end - start).num_seconds().max(0) as u64;
+        }
+
+        // Calculate summary
+        self.summary.apps_total = self.apps.len();
+        self.summary.apps_passed = self.apps.iter().filter(|a| a.passed).count();
+        self.summary.apps_failed = self.apps.iter().filter(|a| !a.passed).count();
+        self.summary.queries_total = self.apps.iter().map(|a| a.queries_total).sum();
+        self.summary.queries_passed = self.apps.iter().map(|a| a.queries_passed).sum();
+        self.summary.assertions_total = self.apps.iter().map(|a| a.assertions_total).sum();
+        self.summary.assertions_passed = self.apps.iter().map(|a| a.assertions_passed).sum();
+    }
+}
+
+/// Write multi-app report
+pub fn write_multi_app_report(
+    report: &MultiAppReport,
+    format: OutputFormat,
+    writer: &mut dyn Write,
+) -> std::io::Result<()> {
+    match format {
+        OutputFormat::Text => write_multi_app_text_report(report, writer),
+        OutputFormat::Json => write_multi_app_json_report(report, writer),
+        OutputFormat::Junit => write_multi_app_junit_report(report, writer),
+    }
+}
+
+/// Write multi-app text format report
+fn write_multi_app_text_report(
+    report: &MultiAppReport,
+    writer: &mut dyn Write,
+) -> std::io::Result<()> {
+    writeln!(
+        writer,
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )?;
+    writeln!(writer, "{}", report.title)?;
+    writeln!(
+        writer,
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )?;
+    writeln!(writer)?;
+
+    // Per-app table
+    writeln!(
+        writer,
+        "  {:<25} {:<10} {:<14} {:<10} Status",
+        "App", "Queries", "Assertions", "Duration"
+    )?;
+    writeln!(
+        writer,
+        "  {:<25} {:<10} {:<14} {:<10} ──────",
+        "─────────────────────────", "──────────", "──────────────", "──────────"
+    )?;
+
+    for app in &report.apps {
+        let status = if app.passed { "✅" } else { "❌" };
+        let queries = format!("{}/{}", app.queries_passed, app.queries_total);
+        let assertions = format!("{}/{}", app.assertions_passed, app.assertions_total);
+        let duration = format!("{:.1}s", app.duration_secs);
+
+        writeln!(
+            writer,
+            "  {:<25} {:<10} {:<14} {:<10} {}",
+            app.name, queries, assertions, duration, status
+        )?;
+    }
+
+    // Totals row
+    writeln!(
+        writer,
+        "  {:<25} {:<10} {:<14} {:<10} ──────",
+        "─────────────────────────", "──────────", "──────────────", "──────────"
+    )?;
+
+    let total_status = if report.summary.apps_failed == 0 {
+        "✅"
+    } else {
+        "❌"
+    };
+    let total_queries = format!(
+        "{}/{}",
+        report.summary.queries_passed, report.summary.queries_total
+    );
+    let total_assertions = format!(
+        "{}/{}",
+        report.summary.assertions_passed, report.summary.assertions_total
+    );
+    let total_duration = format!("{}s", report.duration_secs);
+
+    writeln!(
+        writer,
+        "  {:<25} {:<10} {:<14} {:<10} {}",
+        "Total", total_queries, total_assertions, total_duration, total_status
+    )?;
+    writeln!(writer)?;
+
+    // Final status
+    if report.summary.apps_failed == 0 {
+        writeln!(writer, "🎉 ALL TESTS PASSED!")?;
+    } else {
+        writeln!(writer, "❌ {} APP(S) FAILED", report.summary.apps_failed)?;
+    }
+
+    Ok(())
+}
+
+/// Write multi-app JSON report
+fn write_multi_app_json_report(
+    report: &MultiAppReport,
+    writer: &mut dyn Write,
+) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(report).map_err(std::io::Error::other)?;
+    writeln!(writer, "{}", json)
+}
+
+/// Write multi-app JUnit XML report
+fn write_multi_app_junit_report(
+    report: &MultiAppReport,
+    writer: &mut dyn Write,
+) -> std::io::Result<()> {
+    writeln!(writer, r#"<?xml version="1.0" encoding="UTF-8"?>"#)?;
+    writeln!(
+        writer,
+        r#"<testsuites name="{}" tests="{}" failures="{}" time="{}">"#,
+        escape_xml(&report.title),
+        report.summary.queries_total,
+        report.summary.queries_total - report.summary.queries_passed,
+        report.duration_secs
+    )?;
+
+    for app in &report.apps {
+        if let Some(ref app_report) = app.report {
+            writeln!(
+                writer,
+                r#"  <testsuite name="{}" tests="{}" failures="{}" time="{:.1}">"#,
+                escape_xml(&app.name),
+                app.queries_total,
+                app.queries_total - app.queries_passed,
+                app.duration_secs
+            )?;
+
+            for query in &app_report.queries {
+                writeln!(
+                    writer,
+                    r#"    <testcase name="{}" classname="{}" time="{:.3}">"#,
+                    escape_xml(&query.name),
+                    escape_xml(&app.name),
+                    query.duration_ms as f64 / 1000.0
+                )?;
+
+                if query.status == QueryStatus::Failed || query.status == QueryStatus::Error {
+                    if let Some(ref error) = query.error {
+                        writeln!(
+                            writer,
+                            r#"      <failure message="{}">{}</failure>"#,
+                            escape_xml(error),
+                            escape_xml(error)
+                        )?;
+                    }
+                }
+
+                writeln!(writer, "    </testcase>")?;
+            }
+
+            writeln!(writer, "  </testsuite>")?;
+        }
+    }
+
+    writeln!(writer, "</testsuites>")?;
+    Ok(())
+}

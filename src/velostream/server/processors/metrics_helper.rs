@@ -14,6 +14,7 @@ use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::observability::label_extraction::{
     LabelExtractionConfig, extract_label_values,
 };
+use crate::velostream::observability::metrics::{MetricBatch, MetricsProvider};
 use crate::velostream::server::processors::observability_utils::{
     extract_and_validate_labels, with_observability_lock,
 };
@@ -290,9 +291,7 @@ impl ProcessorMetricsHelper {
     ///
     /// # Visibility
     /// Public for testing purposes.
-    pub fn parse_condition_to_expr(
-        condition_str: &str,
-    ) -> Result<crate::velostream::sql::ast::Expr, String> {
+    pub fn parse_condition_to_expr(condition_str: &str) -> Result<Expr, String> {
         let dummy_sql = format!("SELECT * FROM dummy WHERE {}", condition_str);
         let parser = StreamingSqlParser::new();
 
@@ -301,7 +300,7 @@ impl ProcessorMetricsHelper {
             .map_err(|e| format!("Failed to parse condition: {:?}", e))?;
 
         match query {
-            crate::velostream::sql::StreamingQuery::Select { where_clause, .. } => {
+            StreamingQuery::Select { where_clause, .. } => {
                 where_clause.ok_or_else(|| "No WHERE clause extracted from condition".to_string())
             }
             _ => Err("Parsed query is not a SELECT statement".to_string()),
@@ -316,8 +315,8 @@ impl ProcessorMetricsHelper {
     /// # Visibility
     /// Public for testing purposes.
     pub fn evaluate_condition_expr(
-        expr: &crate::velostream::sql::ast::Expr,
-        record: &crate::velostream::sql::execution::StreamRecord,
+        expr: &Expr,
+        record: &StreamRecord,
         metric_name: &str,
         job_name: &str,
     ) -> bool {
@@ -359,7 +358,7 @@ impl ProcessorMetricsHelper {
     async fn evaluate_condition(
         &self,
         metric_name: &str,
-        record: &crate::velostream::sql::execution::StreamRecord,
+        record: &StreamRecord,
         job_name: &str,
     ) -> bool {
         // Use read lock for concurrent access (no contention)
@@ -384,7 +383,7 @@ impl ProcessorMetricsHelper {
     async fn should_emit_metric(
         &self,
         annotation: &MetricAnnotation,
-        record: &crate::velostream::sql::execution::StreamRecord,
+        record: &StreamRecord,
         job_name: &str,
     ) -> bool {
         if !self
@@ -490,7 +489,7 @@ impl ProcessorMetricsHelper {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
     where
         F: Fn(
-            &crate::velostream::observability::metrics::MetricsProvider,
+            &MetricsProvider,
             &MetricAnnotation,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
     {
@@ -601,17 +600,12 @@ impl ProcessorMetricsHelper {
     async fn emit_metrics_generic<F>(
         &self,
         annotations: Vec<&MetricAnnotation>,
-        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
+        output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
         batch_fn: F,
     ) where
-        F: Fn(
-            &mut crate::velostream::observability::metrics::MetricBatch,
-            &MetricAnnotation,
-            &[String],
-            Option<f64>,
-        ),
+        F: Fn(&mut MetricBatch, &MetricAnnotation, &[String], Option<f64>),
     {
         if annotations.is_empty() || output_records.is_empty() {
             return;
@@ -623,10 +617,7 @@ impl ProcessorMetricsHelper {
             if let Some(metrics) = obs_lock.metrics() {
                 // Pre-allocate batch with reasonable capacity
                 let batch_capacity = output_records.len() * annotations.len();
-                let mut batch =
-                    crate::velostream::observability::metrics::MetricBatch::with_capacity(
-                        batch_capacity,
-                    );
+                let mut batch = MetricBatch::with_capacity(batch_capacity);
 
                 for record_arc in output_records {
                     // Dereference Arc for field access
@@ -668,20 +659,32 @@ impl ProcessorMetricsHelper {
                         let numeric_value = if let Some(field_name) = &annotation.field {
                             if let Some(field_value) = record.fields.get(field_name) {
                                 match field_value {
-                                    crate::velostream::sql::execution::FieldValue::Float(v) => {
-                                        Some(*v)
+                                    FieldValue::Float(v) => Some(*v),
+                                    FieldValue::Integer(v) => Some(*v as f64),
+                                    FieldValue::ScaledInteger(v, scale) => {
+                                        Some((*v as f64) / 10_f64.powi(*scale as i32))
                                     }
-                                    crate::velostream::sql::execution::FieldValue::Integer(v) => {
-                                        Some(*v as f64)
+                                    FieldValue::Decimal(d) => {
+                                        use rust_decimal::prelude::ToPrimitive;
+                                        d.to_f64()
                                     }
-                                    crate::velostream::sql::execution::FieldValue::ScaledInteger(
-                                        v,
-                                        scale,
-                                    ) => Some((*v as f64) / 10_f64.powi(*scale as i32)),
+                                    FieldValue::Null => {
+                                        // NULL values (e.g. from LAG on first records) - skip silently
+                                        None
+                                    }
+                                    FieldValue::Timestamp(ts) => {
+                                        // Convert timestamp to Unix epoch milliseconds for Prometheus
+                                        Some(ts.and_utc().timestamp_millis() as f64)
+                                    }
+                                    FieldValue::Date(d) => {
+                                        // Convert date to Unix epoch seconds (midnight UTC)
+                                        use chrono::NaiveTime;
+                                        Some(d.and_time(NaiveTime::MIN).and_utc().timestamp() as f64)
+                                    }
                                     _ => {
                                         debug!(
-                                            "Job '{}': Metric '{}' field '{}' is not numeric, skipping",
-                                            job_name, annotation.name, field_name
+                                            "Job '{}': Metric '{}' field '{}' is not numeric (type: {:?}), skipping",
+                                            job_name, annotation.name, field_name, field_value
                                         );
                                         continue;
                                     }
@@ -711,6 +714,57 @@ impl ProcessorMetricsHelper {
 
                         // Accumulate metric into batch (no lock acquired yet)
                         batch_fn(&mut batch, annotation, &label_values, numeric_value);
+
+                        // Push to remote-write with event timestamp if available
+                        // This enables proper time-series visualization in Grafana using
+                        // the actual event time rather than scrape time
+                        if metrics.has_remote_write() {
+                            if let Some(event_time) = record.event_time {
+                                let timestamp_ms = event_time.timestamp_millis();
+                                if let Some(value) = numeric_value {
+                                    // Determine metric type and push accordingly
+                                    match annotation.metric_type {
+                                        MetricType::Counter => {
+                                            // For counters, we push a value of 1 (the increment)
+                                            metrics.push_counter_with_timestamp(
+                                                &annotation.name,
+                                                &annotation.labels,
+                                                &label_values,
+                                                1.0,
+                                                timestamp_ms,
+                                            );
+                                        }
+                                        MetricType::Gauge => {
+                                            metrics.push_gauge_with_timestamp(
+                                                &annotation.name,
+                                                &annotation.labels,
+                                                &label_values,
+                                                value,
+                                                timestamp_ms,
+                                            );
+                                        }
+                                        MetricType::Histogram => {
+                                            metrics.push_histogram_with_timestamp(
+                                                &annotation.name,
+                                                &annotation.labels,
+                                                &label_values,
+                                                value,
+                                                timestamp_ms,
+                                            );
+                                        }
+                                    }
+                                } else if annotation.metric_type == MetricType::Counter {
+                                    // Counters without a field just increment by 1
+                                    metrics.push_counter_with_timestamp(
+                                        &annotation.name,
+                                        &annotation.labels,
+                                        &label_values,
+                                        1.0,
+                                        timestamp_ms,
+                                    );
+                                }
+                            }
+                        }
                     }
                     self.record_emission_overhead(record_start.elapsed().as_micros() as u64);
                 }
@@ -727,7 +781,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_counter_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
+        output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {
@@ -813,7 +867,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_gauge_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
+        output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {
@@ -911,7 +965,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_histogram_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
+        output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {

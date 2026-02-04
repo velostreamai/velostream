@@ -38,7 +38,7 @@ log = "0.4.27"
 env_logger = "0.11.8"
 rdkafka = "0.38.0"
 num_cpus = "1.16"
-tokio = { version = "1.47.0", features = [
+tokio = { version = "1.49.0", features = [
     "rt-multi-thread",  # Multi-threaded async runtime with task management
     "time",              # Timing utilities: sleep, timeout, interval
     "sync",              # Synchronization: mpsc, Mutex, RwLock, Semaphore
@@ -81,6 +81,8 @@ base64 = "0.21"
 
 # Phase 4: Observability Dependencies
 prometheus = "0.14.0"
+prometheus_remote_write = { version = "0.2.1", features = ["http"] }  # Remote-write with event timestamps
+snap = "1.1"  # Snappy compression for Prometheus remote-write
 opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio", "trace"] }
 opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace"] }
@@ -102,6 +104,7 @@ sonic-rs = "0.5"
 testcontainers = "0.25"
 testcontainers-modules = { version = "0.13", features = ["kafka"] }
 testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup)
+url = "2.5.8"
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }

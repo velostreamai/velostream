@@ -26,7 +26,7 @@ queries:
           sequential: true
           events_per_second: 50
     outputs:
-      - sink: price_movement_alerts
+      - sink: price_alerts
         assertions:
           - type: record_count
             greater_than: 0
@@ -34,9 +34,61 @@ queries:
           - type: schema_contains
             key_field: symbol
             fields:
-              - exchange
               - price
               - volume
+              - prev_price
+              - price_change_pct
 
           - type: no_nulls
             fields: [symbol, price]
+
+          # Data accuracy: price must be positive
+          - type: field_values
+            field: price
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: volume must be positive
+          - type: field_values
+            field: volume
+            operator: greater_than
+            value: 0
+
+          # Data accuracy: price_rank must be >= 1 (valid rank)
+          - type: field_values
+            field: price_rank
+            operator: greater_than_or_equals
+            value: 1
+
+          # Data accuracy: volume_rank must be >= 1 (valid rank)
+          - type: field_values
+            field: volume_rank
+            operator: greater_than_or_equals
+            value: 1
+
+          # Data accuracy: price_percentile must be between 0 and 1
+          - type: field_values
+            field: price_percentile
+            operator: greater_than_or_equals
+            value: 0
+
+          - type: field_values
+            field: price_percentile
+            operator: less_than_or_equals
+            value: 1
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) now support @metric emission
+    metric_assertions:
+      - type: metric_exists
+        name: velo_price_movement_alerts_total
+        expected_type: counter
+
+      - type: metric_counter
+        name: velo_price_movement_alerts_total
+        operator: greater_than
+        value: 0
+
+      - type: metric_exists
+        name: velo_price_change_pct
+        expected_type: gauge

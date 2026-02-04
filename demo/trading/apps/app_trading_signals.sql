@@ -1,5 +1,5 @@
 -- =============================================================================
--- APPLICATION: trading_signals
+-- SQL Application: trading_signals
 -- =============================================================================
 -- @app: trading_signals
 -- @version: 1.0.0
@@ -62,6 +62,16 @@
 -- @name: volume_spike_analysis
 -- @description: Detects volume anomalies using statistical methods
 -- -----------------------------------------------------------------------------
+-- @metric: velo_volume_spike_analysis_total
+-- @metric_type: counter
+-- @metric_help: "Total volume spike analyses"
+-- @metric_labels: symbol, spike_classification
+--
+-- @metric: velo_avg_volume
+-- @metric_type: gauge
+-- @metric_help: "Average volume in window"
+-- @metric_labels: symbol
+-- @metric_field: avg_volume
 
 CREATE STREAM volume_spike_analysis AS
 SELECT
@@ -80,13 +90,13 @@ SELECT
     AVG(volume) OVER (
         ROWS WINDOW BUFFER 20 ROWS
         PARTITION BY symbol
-        ORDER BY event_time
+        ORDER BY _event_time
     ) AS rolling_avg_20,
 
     STDDEV_POP(volume) OVER (
         ROWS WINDOW BUFFER 20 ROWS
         PARTITION BY symbol
-        ORDER BY event_time
+        ORDER BY _event_time
     ) AS rolling_stddev_20,
 
     -- Volume percentile
@@ -106,12 +116,14 @@ SELECT
         ELSE 'NORMAL'
     END AS spike_classification,
 
-    -- Circuit breaker state
+    -- Circuit breaker state (inlines spike_classification logic to avoid self-referencing alias)
     CASE
         WHEN AVG(volume) > 0 AND MAX(volume) > 10 * AVG(volume) THEN 'TRIGGER_BREAKER'
-        WHEN spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
+        WHEN (AVG(volume) > 0 AND MAX(volume) > 5 * AVG(volume)
+              OR (STDDEV_POP(volume) > 0
+                  AND ABS((MAX(volume) - AVG(volume)) / STDDEV_POP(volume)) > 2.0))
             AND STDDEV_POP(volume) > 3 THEN 'PAUSE_FEED'
-        WHEN spike_classification = 'HIGH_SPIKE'
+        WHEN AVG(volume) > 0 AND MAX(volume) > 3 * AVG(volume)
             AND STDDEV_POP(volume) > 2 THEN 'SLOW_MODE'
         ELSE 'ALLOW'
     END AS circuit_state,
@@ -120,13 +132,14 @@ SELECT
 
 FROM market_data_ts
 GROUP BY symbol
-WINDOW SLIDING(event_time, 5m, 1m)
+WINDOW SLIDING(_event_time, 5m, 1m)
 EMIT CHANGES
 WITH (
     -- Source configuration (external dependency)
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
+    'market_data_ts.auto.offset.reset' = 'earliest',
 
     -- Resource management
     'max.memory.mb' = '1024',
@@ -163,10 +176,10 @@ SELECT
     SUM(quantity) AS total_volume,
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) AS buy_ratio,
     SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) AS sell_ratio,
-    TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS analysis_time
+    TUMBLE_END(_event_time, INTERVAL '1' MINUTE) AS analysis_time
 FROM in_order_book_stream
 GROUP BY symbol
-WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+WINDOW TUMBLING(_event_time, INTERVAL '1' MINUTE)
 HAVING
     SUM(quantity) > 10000
     AND (
@@ -177,7 +190,7 @@ EMIT CHANGES
 WITH (
     -- Source configuration
     'in_order_book_stream.type' = 'kafka_source',
-    'in_order_book_stream.topic.name' = 'order_book',
+    'in_order_book_stream.topic.name' = 'in_order_book_stream',
     'in_order_book_stream.config_file' = '../configs/kafka_source.yaml',
 
     -- Sink configuration
@@ -212,12 +225,12 @@ EMIT CHANGES
 WITH (
     -- Source configuration - Exchange A
     'in_market_data_stream_a.type' = 'kafka_source',
-    'in_market_data_stream_a.topic.name' = 'market_data_exchange_a',
+    'in_market_data_stream_a.topic.name' = 'in_market_data_stream_a',
     'in_market_data_stream_a.config_file' = '../configs/kafka_source.yaml',
 
     -- Source configuration - Exchange B
     'in_market_data_stream_b.type' = 'kafka_source',
-    'in_market_data_stream_b.topic.name' = 'market_data_exchange_b',
+    'in_market_data_stream_b.topic.name' = 'in_market_data_stream_b',
     'in_market_data_stream_b.config_file' = '../configs/kafka_source.yaml',
 
     -- Sink configuration

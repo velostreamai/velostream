@@ -3,6 +3,7 @@
 //! This factory provides a simple interface for creating the appropriate
 //! job processor based on JobProcessorConfig.
 
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, MockJobProcessor,
     SimpleJobProcessor, TransactionalJobProcessor,
@@ -293,6 +294,7 @@ impl JobProcessorFactory {
     /// - Query-based auto-selection
     /// - Table registry injection for subqueries
     /// - Production-ready timeout configuration
+    /// - Observability for @metric annotation support
     ///
     /// Used by StreamJobServer for deploying Adaptive jobs.
     #[allow(clippy::too_many_arguments)]
@@ -305,6 +307,40 @@ impl JobProcessorFactory {
         empty_batch_count: u32,
         wait_on_empty_batch_ms: u64,
     ) -> Arc<dyn JobProcessor> {
+        Self::create_adaptive_full_with_observability(
+            num_partitions,
+            enable_core_affinity,
+            partitioning_strategy,
+            auto_select_from_query,
+            table_registry,
+            empty_batch_count,
+            wait_on_empty_batch_ms,
+            None,
+        )
+    }
+
+    /// Create an Adaptive mode processor with full configuration options and observability.
+    ///
+    /// This is the most complete factory method for Adaptive processors, supporting:
+    /// - Custom partition count and core affinity
+    /// - Partitioning strategy selection (by name: "always_hash", "smart_repartition", etc.)
+    /// - Query-based auto-selection
+    /// - Table registry injection for subqueries
+    /// - Production-ready timeout configuration
+    /// - Observability for @metric annotation support
+    ///
+    /// Used by StreamJobServer for deploying Adaptive jobs with metrics support.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_adaptive_full_with_observability(
+        num_partitions: Option<usize>,
+        enable_core_affinity: bool,
+        partitioning_strategy: Option<String>,
+        auto_select_from_query: Option<Arc<crate::velostream::sql::ast::StreamingQuery>>,
+        table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
+        empty_batch_count: u32,
+        wait_on_empty_batch_ms: u64,
+        observability: Option<SharedObservabilityManager>,
+    ) -> Arc<dyn JobProcessor> {
         let partitioned_config = PartitionedJobConfig {
             num_partitions,
             enable_core_affinity,
@@ -313,6 +349,7 @@ impl JobProcessorFactory {
             table_registry,
             empty_batch_count,
             wait_on_empty_batch_ms,
+            observability,
             ..Default::default()
         };
 
