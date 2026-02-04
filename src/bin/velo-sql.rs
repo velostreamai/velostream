@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::fs;
 use std::time::Duration;
 use velostream::velostream::{
@@ -98,6 +98,16 @@ enum Commands {
         /// OpenTelemetry OTLP endpoint - ignored when using --server
         #[arg(long)]
         otlp_endpoint: Option<String>,
+
+        /// Enable remote-write to push metrics with event timestamps to Prometheus
+        /// This allows metrics to appear at the actual event time rather than scrape time
+        #[arg(long)]
+        enable_remote_write: bool,
+
+        /// Remote-write endpoint URL (e.g., http://prometheus:9090/api/v1/write)
+        /// Required when --enable-remote-write is set
+        #[arg(long)]
+        remote_write_endpoint: Option<String>,
     },
 }
 
@@ -392,6 +402,8 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
             metrics_port,
             enable_profiling,
             otlp_endpoint,
+            enable_remote_write,
+            remote_write_endpoint,
         } => {
             deploy_sql_application_from_file(
                 file,
@@ -405,6 +417,8 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
                 metrics_port,
                 enable_profiling,
                 otlp_endpoint,
+                enable_remote_write,
+                remote_write_endpoint,
             )
             .await?;
         }
@@ -426,9 +440,11 @@ async fn deploy_sql_application_from_file(
     metrics_port: u16,
     enable_profiling: bool,
     otlp_endpoint: Option<String>,
+    enable_remote_write: bool,
+    remote_write_endpoint: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Log observability configuration
-    if enable_tracing || enable_metrics || enable_profiling {
+    if enable_tracing || enable_metrics || enable_profiling || enable_remote_write {
         info!("🔍 Observability Configuration:");
         if enable_tracing {
             // Dev default: 100% sampling (1.0), Prod default: 1% sampling (0.01)
@@ -445,6 +461,13 @@ async fn deploy_sql_application_from_file(
         }
         if enable_metrics {
             info!("  • Prometheus Metrics: ENABLED (port: {})", metrics_port);
+        }
+        if enable_remote_write {
+            if let Some(ref endpoint) = remote_write_endpoint {
+                info!("  • Remote-Write: ENABLED (endpoint: {})", endpoint);
+            } else {
+                warn!("  • Remote-Write: ENABLED but no endpoint specified - will be disabled");
+            }
         }
         if enable_profiling {
             info!("  • Performance Profiling: ENABLED");
@@ -658,6 +681,10 @@ async fn deploy_sql_application_from_file(
             enable_streaming_metrics: true,
             collection_interval_seconds: 15,
             max_labels_per_metric: 10,
+            // Enable remote-write if both flag and endpoint are provided
+            remote_write_enabled: enable_remote_write && remote_write_endpoint.is_some(),
+            remote_write_endpoint: remote_write_endpoint.clone(),
+            ..PrometheusConfig::default()
         };
         streaming_config = streaming_config.with_prometheus_config(prometheus_config);
     }

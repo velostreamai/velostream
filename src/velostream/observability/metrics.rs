@@ -1,6 +1,7 @@
 // === PHASE 4: PROMETHEUS METRICS COLLECTION ===
 
 use crate::velostream::observability::error_tracker::ErrorMessageBuffer;
+use crate::velostream::observability::remote_write::RemoteWriteClient;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::PrometheusConfig;
 use prometheus::{
@@ -140,6 +141,8 @@ pub struct MetricsProvider {
     job_metrics: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     // Error message tracking with rolling buffer (last 10 messages + counts)
     error_tracker: Arc<Mutex<ErrorMessageBuffer>>,
+    // Remote-write client for pushing metrics with event timestamps
+    remote_write_client: Option<Arc<Mutex<RemoteWriteClient>>>,
 }
 
 impl MetricsProvider {
@@ -153,12 +156,43 @@ impl MetricsProvider {
         let system_metrics = SystemMetrics::new(&registry, &config)?;
         let join_metrics = JoinMetrics::new(&registry)?;
 
+        // Initialize remote-write client if configured
+        let remote_write_client = if config.remote_write_enabled {
+            if let Some(endpoint) = &config.remote_write_endpoint {
+                match RemoteWriteClient::new(
+                    endpoint,
+                    config.remote_write_batch_size,
+                    config.remote_write_flush_interval_ms,
+                ) {
+                    Ok(client) => {
+                        log::info!(
+                            "📤 Remote-write enabled: endpoint={}, batch_size={}, flush_interval_ms={}",
+                            endpoint,
+                            config.remote_write_batch_size,
+                            config.remote_write_flush_interval_ms
+                        );
+                        Some(Arc::new(Mutex::new(client)))
+                    }
+                    Err(e) => {
+                        log::warn!("📤 Failed to initialize remote-write client: {}", e);
+                        None
+                    }
+                }
+            } else {
+                log::warn!("📤 Remote-write enabled but no endpoint configured");
+                None
+            }
+        } else {
+            None
+        };
+
         log::info!("📊 Phase 4: Prometheus metrics initialized");
         log::info!(
-            "📊 Metrics configuration: histograms={}, port={}, path={}",
+            "📊 Metrics configuration: histograms={}, port={}, path={}, remote_write={}",
             config.enable_histograms,
             config.port,
-            config.metrics_path
+            config.metrics_path,
+            remote_write_client.is_some()
         );
 
         Ok(Self {
@@ -172,6 +206,7 @@ impl MetricsProvider {
             dynamic_metrics: Arc::new(Mutex::new(DynamicMetrics::new())),
             job_metrics: Arc::new(Mutex::new(HashMap::new())),
             error_tracker: Arc::new(Mutex::new(ErrorMessageBuffer::new())),
+            remote_write_client,
         })
     }
 
@@ -973,6 +1008,118 @@ impl MetricsProvider {
         }
 
         Ok(())
+    }
+
+    // =========================================================================
+    // Remote-Write: Event-Time Metrics Push
+    // =========================================================================
+
+    /// Check if remote-write is enabled and configured
+    pub fn has_remote_write(&self) -> bool {
+        self.remote_write_client.is_some()
+    }
+
+    /// Push a gauge metric with an explicit event timestamp via remote-write
+    ///
+    /// This method pushes a metric with its actual event timestamp, allowing
+    /// Grafana to display the metric at the correct point in time rather than
+    /// at the scrape time.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Metric name
+    /// * `label_names` - Label names for this metric
+    /// * `label_values` - Label values (must match label_names length)
+    /// * `value` - The gauge value
+    /// * `timestamp_ms` - Event timestamp in milliseconds since Unix epoch
+    pub fn push_gauge_with_timestamp(
+        &self,
+        name: &str,
+        label_names: &[String],
+        label_values: &[String],
+        value: f64,
+        timestamp_ms: i64,
+    ) {
+        if let Some(client) = &self.remote_write_client {
+            if let Ok(client) = client.lock() {
+                client.push_gauge(name, label_names, label_values, value, timestamp_ms);
+            }
+        }
+    }
+
+    /// Push a counter metric with an explicit event timestamp via remote-write
+    pub fn push_counter_with_timestamp(
+        &self,
+        name: &str,
+        label_names: &[String],
+        label_values: &[String],
+        value: f64,
+        timestamp_ms: i64,
+    ) {
+        if let Some(client) = &self.remote_write_client {
+            if let Ok(client) = client.lock() {
+                client.push_counter(name, label_names, label_values, value, timestamp_ms);
+            }
+        }
+    }
+
+    /// Push a histogram observation with an explicit event timestamp via remote-write
+    pub fn push_histogram_with_timestamp(
+        &self,
+        name: &str,
+        label_names: &[String],
+        label_values: &[String],
+        value: f64,
+        timestamp_ms: i64,
+    ) {
+        if let Some(client) = &self.remote_write_client {
+            if let Ok(client) = client.lock() {
+                client.push_histogram_observation(
+                    name,
+                    label_names,
+                    label_values,
+                    value,
+                    timestamp_ms,
+                );
+            }
+        }
+    }
+
+    /// Flush buffered remote-write metrics to Prometheus
+    ///
+    /// This method should be called periodically or when a batch completes
+    /// to ensure metrics are pushed to the remote-write endpoint.
+    pub async fn flush_remote_write(&self) -> Result<usize, SqlError> {
+        if let Some(client_arc) = &self.remote_write_client {
+            // Clone the client under the lock, then release lock before async I/O
+            // This is safe because RemoteWriteClient::clone() shares the internal buffer (Arc<Mutex>)
+            let client = {
+                let guard = client_arc
+                    .lock()
+                    .map_err(|e| SqlError::ConfigurationError {
+                        message: format!("Failed to acquire lock on remote-write client: {}", e),
+                    })?;
+                guard.clone()
+            }; // Lock released here, before async operation
+
+            client
+                .flush()
+                .await
+                .map_err(|e| SqlError::ConfigurationError {
+                    message: format!("Failed to flush remote-write metrics: {}", e),
+                })
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Get the number of buffered remote-write samples
+    pub fn remote_write_buffered_count(&self) -> usize {
+        self.remote_write_client
+            .as_ref()
+            .and_then(|c| c.lock().ok())
+            .map(|c| c.buffered_count())
+            .unwrap_or(0)
     }
 
     // =========================================================================

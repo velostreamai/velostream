@@ -704,6 +704,14 @@ pub struct PrometheusConfig {
     pub collection_interval_seconds: u64,
     /// Maximum number of metrics labels per metric
     pub max_labels_per_metric: usize,
+    /// Enable remote-write for pushing metrics with event timestamps
+    pub remote_write_enabled: bool,
+    /// Remote-write endpoint URL (e.g., "http://prometheus:9090/api/v1/write")
+    pub remote_write_endpoint: Option<String>,
+    /// Maximum samples to batch before pushing via remote-write
+    pub remote_write_batch_size: usize,
+    /// Remote-write flush interval in milliseconds
+    pub remote_write_flush_interval_ms: u64,
 }
 
 impl Default for PrometheusConfig {
@@ -717,6 +725,10 @@ impl Default for PrometheusConfig {
             enable_streaming_metrics: true,
             collection_interval_seconds: 15,
             max_labels_per_metric: 10,
+            remote_write_enabled: false,
+            remote_write_endpoint: None,
+            remote_write_batch_size: 1000,
+            remote_write_flush_interval_ms: 5000,
         }
     }
 }
@@ -733,6 +745,10 @@ impl PrometheusConfig {
             enable_streaming_metrics: false,
             collection_interval_seconds: 30,
             max_labels_per_metric: 5,
+            remote_write_enabled: false,
+            remote_write_endpoint: None,
+            remote_write_batch_size: 500,
+            remote_write_flush_interval_ms: 10000,
         }
     }
 
@@ -747,6 +763,19 @@ impl PrometheusConfig {
             enable_streaming_metrics: true,
             collection_interval_seconds: 10,
             max_labels_per_metric: 20,
+            remote_write_enabled: false,
+            remote_write_endpoint: None,
+            remote_write_batch_size: 2000,
+            remote_write_flush_interval_ms: 3000,
+        }
+    }
+
+    /// Create configuration with remote-write enabled for event-time metrics
+    pub fn with_remote_write(endpoint: &str) -> Self {
+        Self {
+            remote_write_enabled: true,
+            remote_write_endpoint: Some(endpoint.to_string()),
+            ..Self::default()
         }
     }
 }

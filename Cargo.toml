@@ -81,6 +81,8 @@ base64 = "0.21"
 
 # Phase 4: Observability Dependencies
 prometheus = "0.14.0"
+prometheus_remote_write = { version = "0.2.1", features = ["http"] }  # Remote-write with event timestamps
+snap = "1.1"  # Snappy compression for Prometheus remote-write
 opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio", "trace"] }
 opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace"] }
@@ -102,6 +104,7 @@ sonic-rs = "0.5"
 testcontainers = "0.25"
 testcontainers-modules = { version = "0.13", features = ["kafka"] }
 testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup)
+url = "2.5.8"
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }

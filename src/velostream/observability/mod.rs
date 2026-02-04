@@ -12,6 +12,7 @@ pub mod error_tracker;
 pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;
+pub mod remote_write;
 pub mod span_collector;
 pub mod telemetry;
 pub mod trace_propagation;
@@ -50,6 +51,10 @@ impl PrometheusConfig {
             enable_streaming_metrics: false,
             collection_interval_seconds: 15,
             max_labels_per_metric: 10,
+            remote_write_enabled: false,
+            remote_write_endpoint: None,
+            remote_write_batch_size: 1000,
+            remote_write_flush_interval_ms: 5000,
         }
     }
 }
