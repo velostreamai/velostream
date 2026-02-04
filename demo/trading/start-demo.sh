@@ -64,10 +64,17 @@ NOTE:
     automatically and info is displayed at the end. Use -m to see it earlier.
 
 MONITORING:
-    tail -f /tmp/velo_deployment.log     # Watch SQL job logs
+    tail -f /tmp/velo_app_*.log          # Watch all SQL app logs
     tail -f /tmp/velo_stress.log         # Watch data generation logs
     ./check-demo-health.sh               # Check demo health
     ./stop-demo.sh                       # Stop all demo processes
+
+LOG FILES (one per app):
+    /tmp/velo_app_market_data.log        # Market data pipeline
+    /tmp/velo_app_trading_signals.log    # Trading signals
+    /tmp/velo_app_price_analytics.log    # Price analytics
+    /tmp/velo_app_risk.log               # Risk monitoring
+    /tmp/velo_app_compliance.log         # Compliance
 
 EOF
     exit 0
@@ -511,14 +518,16 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     for app in "$DEPLOY_APPS_DIR"/*.sql; do
         app_name=$(basename "$app" .sql)
         print_timestamp "Deploying $app_name on metrics port $METRICS_PORT..."
-        echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file $app --enable-tracing --enable-metrics --metrics-port $METRICS_PORT --enable-profiling${NC}"
+        echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file $app --enable-tracing --enable-metrics --metrics-port $METRICS_PORT --enable-profiling --enable-remote-write --remote-write-endpoint http://localhost:9090/api/v1/write${NC}"
 
         $VELO_BUILD_DIR/velo-sql deploy-app \
             --file "$app" \
             --enable-tracing \
             --enable-metrics \
             --metrics-port $METRICS_PORT \
-            --enable-profiling &
+            --enable-profiling \
+            --enable-remote-write \
+            --remote-write-endpoint "http://localhost:9090/api/v1/write" &
 
         METRICS_PORT=$((METRICS_PORT + 1))
         sleep 2  # Stagger to allow port binding
@@ -529,15 +538,20 @@ else
     print_timestamp "Launching velo-sql apps (background mode)..."
     echo ""
 
-    # Clear previous log
-    > /tmp/velo_deployment.log
+    # Clear previous logs (one per app)
+    rm -f /tmp/velo_app_*.log
 
-    # Deploy each app in background with unique metrics ports
+    # Deploy each app in background with unique metrics ports and log files
     DEPLOY_PIDS=""
+    DEPLOYED_APPS=""
     METRICS_PORT=9101
     for app in "$DEPLOY_APPS_DIR"/*.sql; do
         app_name=$(basename "$app" .sql)
-        echo -e "${BLUE}Deploying: $app_name (metrics port: $METRICS_PORT)${NC}"
+        # Convert app_market_data.sql -> market_data for cleaner log names
+        short_name="${app_name#app_}"
+        log_file="/tmp/velo_app_${short_name}.log"
+
+        echo -e "${BLUE}Deploying: $app_name (metrics port: $METRICS_PORT, log: $log_file)${NC}"
 
         $VELO_BUILD_DIR/velo-sql deploy-app \
             --file "$app" \
@@ -545,15 +559,18 @@ else
             --enable-metrics \
             --metrics-port $METRICS_PORT \
             --enable-profiling \
-            >> /tmp/velo_deployment.log 2>&1 &
+            --enable-remote-write \
+            --remote-write-endpoint "http://localhost:9090/api/v1/write" \
+            >> "$log_file" 2>&1 &
 
         DEPLOY_PIDS="$DEPLOY_PIDS $!"
+        DEPLOYED_APPS="$DEPLOYED_APPS $short_name"
         METRICS_PORT=$((METRICS_PORT + 1))
         sleep 2  # Stagger deployments to allow port binding
     done
 
     # Use first PID for monitoring
-    DEPLOY_PID=$(echo $DEPLOY_PIDS | awk '{print $1}')
+    DEPLOY_PID=$(echo "$DEPLOY_PIDS" | awk '{print $1}')
     print_timestamp "Deployments started (PIDs:$DEPLOY_PIDS)"
     echo -e "${GREEN}✓ All apps deployed with observability${NC}"
 
@@ -562,9 +579,9 @@ else
     sleep 10  # Give deployment time to initialize
 
     # Check if deployment is still running
-    if ! ps -p $DEPLOY_PID > /dev/null 2>&1; then
+    if ! ps -p "$DEPLOY_PID" > /dev/null 2>&1; then
         echo -e "${RED}✗ Deployment process exited prematurely${NC}"
-        echo "Check /tmp/velo_deployment.log for errors"
+        echo "Check logs in /tmp/velo_app_*.log for errors"
         exit 1
     fi
 
@@ -577,11 +594,13 @@ else
     echo -e "${GREEN}Status Summary${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo -e "Data Generator:     PID $GENERATOR_PID (log: /tmp/velo_stress.log)"
-    echo -e "SQL Deployments:    PIDs$DEPLOY_PIDS (log: /tmp/velo_deployment.log)"
+    echo -e "SQL Deployments:    PIDs$DEPLOY_PIDS"
+    echo -e "  Logs:            ${DEPLOYED_APPS// /, } -> /tmp/velo_app_<name>.log"
     echo -e "Simulation Duration: ${SIMULATION_DURATION} minutes"
     echo ""
     echo -e "${BLUE}Monitoring Commands:${NC}"
-    echo -e "  tail -f /tmp/velo_deployment.log    # Watch SQL job logs"
+    echo -e "  tail -f /tmp/velo_app_*.log         # Watch all SQL app logs"
+    echo -e "  tail -f /tmp/velo_app_market_data.log  # Watch specific app"
     echo -e "  tail -f /tmp/velo_stress.log        # Watch data generation logs"
     echo -e "  ./check-demo-health.sh              # Check demo health"
     echo ""

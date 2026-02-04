@@ -33,6 +33,7 @@ async fn test_single_app_deploy_all_metrics_scrapable() {
         enable_streaming_metrics: true,
         collection_interval_seconds: 15,
         max_labels_per_metric: 10,
+        ..PrometheusConfig::default()
     };
     let streaming_config = StreamingConfig::default().with_prometheus_config(prometheus_config);
     let server_config =

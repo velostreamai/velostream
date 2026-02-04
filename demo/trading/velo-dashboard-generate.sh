@@ -106,14 +106,21 @@ rm -rf "$DEPLOY_MONITORING_DIR/grafana/provisioning" 2>/dev/null || true
 rm -rf "$DEPLOY_MONITORING_DIR/tempo" 2>/dev/null || true
 rm -f "$DEPLOY_MONITORING_DIR/grafana/dashboards/dashboard.yml" 2>/dev/null || true
 
-# Build combined prometheus.yml with all telemetry targets
-echo -e "${YELLOW}Writing combined prometheus.yml...${NC}"
+# Build prometheus.yml with per-app job names for proper labeling
+echo -e "${YELLOW}Writing prometheus.yml with per-app jobs...${NC}"
 
-TELEMETRY_TARGETS=""
+# Build individual scrape configs for each app
+APP_SCRAPE_CONFIGS=""
 METRICS_PORT=$METRICS_BASE_PORT
 for app in "$APPS_DIR"/app_*.sql; do
     app_name=$(basename "$app" .sql)
-    TELEMETRY_TARGETS="${TELEMETRY_TARGETS}        - 'host.docker.internal:${METRICS_PORT}'  # ${app_name}
+    APP_SCRAPE_CONFIGS="${APP_SCRAPE_CONFIGS}
+  - job_name: '${app_name}'
+    static_configs:
+      - targets: ['host.docker.internal:${METRICS_PORT}']
+    metrics_path: /metrics
+    scrape_interval: 5s
+    scrape_timeout: 3s
 "
     METRICS_PORT=$((METRICS_PORT + 1))
 done
@@ -133,14 +140,7 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 10s
     scrape_timeout: 5s
-
-  - job_name: 'velo-sql-telemetry'
-    static_configs:
-      - targets:
-${TELEMETRY_TARGETS}    metrics_path: /metrics
-    scrape_interval: 5s
-    scrape_timeout: 3s
-"
+${APP_SCRAPE_CONFIGS}"
 
 echo "$PROMETHEUS_YML" > "$DEPLOY_MONITORING_DIR/prometheus.yml"
 

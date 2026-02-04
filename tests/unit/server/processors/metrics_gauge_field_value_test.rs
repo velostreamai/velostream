@@ -1,10 +1,11 @@
 //! Tests that gauge and histogram metric emission works correctly for every FieldValue variant.
 //!
 //! Ensures `emit_metrics_generic` properly handles Float, Integer, ScaledInteger,
-//! Decimal, Null, String, and Boolean field values — emitting numeric values and
+//! Decimal, Timestamp, Date, Null, String, and Boolean field values — emitting numeric values and
 //! gracefully skipping non-numeric ones. Both gauge (set) and histogram (observe)
 //! batch functions are exercised.
 
+use chrono::{NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -27,6 +28,7 @@ fn prometheus_config() -> PrometheusConfig {
         enable_streaming_metrics: true,
         collection_interval_seconds: 15,
         max_labels_per_metric: 10,
+        ..PrometheusConfig::default()
     }
 }
 
@@ -317,6 +319,67 @@ async fn test_gauge_with_boolean_field() {
 }
 
 #[tokio::test]
+async fn test_gauge_with_timestamp_field() {
+    let (server, wrapper, query, job_name) = setup_gauge_test().await;
+    let server_obs = server.observability().cloned();
+    // 2024-01-15 12:30:45 UTC
+    let ts = NaiveDateTime::parse_from_str("2024-01-15 12:30:45", "%Y-%m-%d %H:%M:%S")
+        .expect("Valid datetime");
+    let expected_millis = ts.and_utc().timestamp_millis();
+    let records = make_record(FieldValue::Timestamp(ts));
+
+    wrapper
+        .metrics_helper()
+        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .await;
+
+    let metrics = server
+        .get_performance_metrics()
+        .expect("Should return metrics");
+    assert!(
+        metrics.contains("velo_test_gauge_value"),
+        "Gauge should be emitted for Timestamp.\nMetrics:\n{}",
+        metrics
+    );
+    // Verify it contains the expected epoch milliseconds value
+    assert!(
+        metrics.contains(&expected_millis.to_string()),
+        "Gauge value should be epoch milliseconds ({}).\nMetrics:\n{}",
+        expected_millis,
+        metrics
+    );
+}
+
+#[tokio::test]
+async fn test_gauge_with_date_field() {
+    let (server, wrapper, query, job_name) = setup_gauge_test().await;
+    let server_obs = server.observability().cloned();
+    // 2024-01-15 → 1705276800 seconds since epoch (midnight UTC)
+    let date = NaiveDate::from_ymd_opt(2024, 1, 15).expect("Valid date");
+    let records = make_record(FieldValue::Date(date));
+
+    wrapper
+        .metrics_helper()
+        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .await;
+
+    let metrics = server
+        .get_performance_metrics()
+        .expect("Should return metrics");
+    assert!(
+        metrics.contains("velo_test_gauge_value"),
+        "Gauge should be emitted for Date.\nMetrics:\n{}",
+        metrics
+    );
+    // Verify it's a large number (epoch seconds for midnight)
+    assert!(
+        metrics.contains("1705276800"),
+        "Gauge value should be epoch seconds (1705276800).\nMetrics:\n{}",
+        metrics
+    );
+}
+
+#[tokio::test]
 async fn test_gauge_mixed_null_and_valid() {
     let (server, wrapper, query, job_name) = setup_gauge_test().await;
     let server_obs = server.observability().cloned();
@@ -511,6 +574,53 @@ async fn test_histogram_with_boolean_field() {
     assert!(
         !metrics.contains("velo_test_histogram_value_bucket"),
         "Histogram should NOT be emitted for Boolean.\nMetrics:\n{}",
+        metrics
+    );
+}
+
+#[tokio::test]
+async fn test_histogram_with_timestamp_field() {
+    let (server, wrapper, query, job_name) = setup_histogram_test().await;
+    let server_obs = server.observability().cloned();
+    // 2024-01-15 12:30:45 UTC → 1705322445000 milliseconds since epoch
+    let ts = NaiveDateTime::parse_from_str("2024-01-15 12:30:45", "%Y-%m-%d %H:%M:%S")
+        .expect("Valid datetime");
+    let records = make_record(FieldValue::Timestamp(ts));
+
+    wrapper
+        .metrics_helper()
+        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .await;
+
+    let metrics = server
+        .get_performance_metrics()
+        .expect("Should return metrics");
+    assert!(
+        metrics.contains("velo_test_histogram_value"),
+        "Histogram should be emitted for Timestamp.\nMetrics:\n{}",
+        metrics
+    );
+}
+
+#[tokio::test]
+async fn test_histogram_with_date_field() {
+    let (server, wrapper, query, job_name) = setup_histogram_test().await;
+    let server_obs = server.observability().cloned();
+    // 2024-01-15 → 1705276800 seconds since epoch (midnight UTC)
+    let date = NaiveDate::from_ymd_opt(2024, 1, 15).expect("Valid date");
+    let records = make_record(FieldValue::Date(date));
+
+    wrapper
+        .metrics_helper()
+        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .await;
+
+    let metrics = server
+        .get_performance_metrics()
+        .expect("Should return metrics");
+    assert!(
+        metrics.contains("velo_test_histogram_value"),
+        "Histogram should be emitted for Date.\nMetrics:\n{}",
         metrics
     );
 }

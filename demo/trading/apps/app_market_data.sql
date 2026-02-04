@@ -112,6 +112,7 @@
 -- @metric_type: gauge
 -- @metric_help: "Current price value"
 -- @metric_field: price
+-- @metric_labels: symbol
 
 CREATE STREAM market_data_ts AS
 SELECT
