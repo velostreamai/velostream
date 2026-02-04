@@ -45,6 +45,15 @@ const HASH_TYPE_INTERVAL: u8 = 11;
 /// When exceeded, oldest entries are evicted (FIFO).
 pub const DEFAULT_DISTINCT_MAX_ENTRIES: usize = 100_000;
 
+/// Prefix for ROWS WINDOW state keys in the ProcessorContext cache.
+/// Format: "{ROWS_WINDOW_STATE_KEY_PREFIX}{source_name}:{partition_key}"
+const ROWS_WINDOW_STATE_KEY_PREFIX: &str = "rows_window:select_";
+
+/// Maximum number of ROWS WINDOW config entries to cache per ProcessorContext.
+/// Prevents unbounded memory growth if many different source names are used.
+/// In practice, most contexts have 1-3 sources, so this is generous.
+const ROWS_WINDOW_CONFIG_CACHE_MAX_SIZE: usize = 100;
+
 /// Parameter binding for SQL queries to prevent injection
 #[derive(Debug, Clone)]
 pub struct SqlParameter {
@@ -521,31 +530,36 @@ impl SelectProcessor {
             // Use cached ROWS WINDOW config to avoid re-walking the AST every record.
             // Cache key uses the source name which is constant for a given query.
             let cache_key = match from {
-                StreamSource::Stream(name) | StreamSource::Table(name) => name.as_str(),
-                StreamSource::Uri(uri) => uri.as_str(),
-                StreamSource::Subquery(_) => "subquery",
+                StreamSource::Stream(name) | StreamSource::Table(name) => name.clone(),
+                StreamSource::Uri(uri) => uri.clone(),
+                StreamSource::Subquery(_) => "subquery".to_string(),
             };
-            if !context.rows_window_config_cache.contains_key(cache_key) {
-                let config = Self::extract_rows_window_config(fields).map(|(buf, parts, emit)| {
-                    let source_label = match from {
-                        StreamSource::Stream(name) | StreamSource::Table(name) => name.clone(),
-                        StreamSource::Uri(uri) => uri.replace("://", "_").replace("/", "_"),
-                        StreamSource::Subquery(_) => "subquery".to_string(),
-                    };
-                    let prefix = format!("rows_window:select_{}", source_label);
-                    (buf, parts, emit, prefix)
-                });
-                context
-                    .rows_window_config_cache
-                    .insert(cache_key.to_string(), config);
+
+            // Use entry API for efficient cache access (single lookup instead of contains+get+insert)
+            // Evict oldest entries if cache exceeds max size to prevent unbounded growth
+            if context.rows_window_config_cache.len() >= ROWS_WINDOW_CONFIG_CACHE_MAX_SIZE {
+                // Simple eviction: remove first entry (HashMap iteration order is arbitrary but stable)
+                if let Some(key_to_remove) = context.rows_window_config_cache.keys().next().cloned()
+                {
+                    context.rows_window_config_cache.remove(&key_to_remove);
+                }
             }
-            // Clone is cheap here: Option of (u32, small Vec<String>, enum, short String).
-            // Required because we need mutable access to context below for rows_window_state.
+
             let rows_window_cached = context
                 .rows_window_config_cache
-                .get(cache_key)
-                .cloned()
-                .unwrap();
+                .entry(cache_key.clone())
+                .or_insert_with(|| {
+                    Self::extract_rows_window_config(fields).map(|(buf, parts, emit)| {
+                        let source_label = match from {
+                            StreamSource::Stream(name) | StreamSource::Table(name) => name.clone(),
+                            StreamSource::Uri(uri) => uri.replace("://", "_").replace("/", "_"),
+                            StreamSource::Subquery(_) => "subquery".to_string(),
+                        };
+                        let prefix = format!("{}{}", ROWS_WINDOW_STATE_KEY_PREFIX, source_label);
+                        (buf, parts, emit, prefix)
+                    })
+                })
+                .clone(); // Clone is cheap: Option of (u32, small Vec<String>, enum, short String)
             if let Some((max_buffer, ref partition_cols, ref emit_mode, ref prefix)) =
                 rows_window_cached
             {
@@ -2118,7 +2132,7 @@ impl SelectProcessor {
     /// Extract ROWS WINDOW configuration from SELECT fields containing window functions.
     /// Scans for Expr::WindowFunction with OverClause containing WindowSpec::Rows.
     /// Returns (max_buffer_size, partition_columns, emit_mode) if any ROWS WINDOW found.
-    fn extract_rows_window_config(
+    pub fn extract_rows_window_config(
         fields: &[SelectField],
     ) -> Option<(u32, Vec<String>, RowsEmitMode)> {
         let mut max_buffer: u32 = 0;
