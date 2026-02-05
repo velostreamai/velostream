@@ -22,7 +22,7 @@ queries:
       - source: in_market_data_stream
         records: 100
         time_simulation:
-          start_time: "-2m"  # Use recent timestamps for Prometheus remote-write compatibility
+          start_time: "-1h"  # Remote-write uses event timestamps, so historical data works
           end_time: "now"
           sequential: true
           events_per_second: 50
