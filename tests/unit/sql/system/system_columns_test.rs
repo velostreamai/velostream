@@ -725,4 +725,110 @@ mod tests {
             }
         }
     }
+
+    // Test for direct _event_time column selection (not aliased)
+    // This tests the fix for selecting m._event_time in joins where
+    // the field is selected directly without using AS alias
+    #[tokio::test]
+    async fn test_event_time_direct_column_selection() {
+        // FR-081 extension: Test that selecting _event_time directly (not via alias)
+        // still sets the output record's event_time metadata
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut engine = StreamExecutionEngine::new(tx);
+
+        let parser = StreamingSqlParser::new();
+        // Select _event_time directly (not aliased) - simulates: SELECT m._event_time FROM stream m
+        let query = parser.parse("SELECT id, _event_time FROM orders").unwrap();
+
+        // Create test record with event_time metadata already set
+        // (simulates upstream data source with 'event.time.field' config)
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(1));
+
+        // Set event_time metadata (not as a field - _event_time is a system column
+        // that reads from record.event_time metadata)
+        let input_event_time = chrono::DateTime::from_timestamp_millis(1609459200000).unwrap(); // 2021-01-01 00:00:00 UTC
+
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            event_time: Some(input_event_time), // Input HAS event_time metadata set
+            headers: HashMap::new(),
+            topic: None,
+            key: None,
+        };
+
+        // Execute query
+        let result = engine.execute_with_record(&query, &record).await;
+        assert!(result.is_ok());
+
+        // Check output
+        let output = rx.try_recv().unwrap();
+        assert!(output.fields.contains_key("id"));
+        assert!(output.fields.contains_key("_event_time"));
+
+        // Verify event_time metadata is propagated from input and preserved in output
+        assert!(
+            output.event_time.is_some(),
+            "event_time should be set from direct _event_time column selection"
+        );
+
+        // Verify it's a valid DateTime (should be 2021-01-01)
+        let event_time = output.event_time.unwrap();
+        assert_eq!(event_time.timestamp(), 1609459200);
+    }
+
+    #[tokio::test]
+    async fn test_event_time_qualified_column_selection() {
+        // FR-081 extension: Test that selecting qualified _event_time (e.g., m._event_time)
+        // still sets the output record's event_time metadata
+        // This simulates JOIN scenarios like: SELECT m._event_time FROM market_data m
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut engine = StreamExecutionEngine::new(tx);
+
+        let parser = StreamingSqlParser::new();
+        // Select with qualified column name (simulates table alias prefix)
+        let query = parser
+            .parse("SELECT id, m._event_time FROM orders m")
+            .unwrap();
+
+        // Create test record with event_time metadata set
+        // (simulates upstream data source with 'event.time.field' config)
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(2));
+
+        // Set event_time metadata (not as a field - _event_time is a system column
+        // that reads from record.event_time metadata)
+        let input_event_time = chrono::DateTime::from_timestamp_millis(1640998800000).unwrap(); // 2022-01-01 00:00:00 UTC
+
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            event_time: Some(input_event_time), // Input HAS event_time metadata set
+            headers: HashMap::new(),
+            topic: None,
+            key: None,
+        };
+
+        // Execute query
+        let result = engine.execute_with_record(&query, &record).await;
+        assert!(result.is_ok());
+
+        // Check output
+        let output = rx.try_recv().unwrap();
+
+        // Verify event_time metadata is propagated from input and preserved in output
+        assert!(
+            output.event_time.is_some(),
+            "event_time should be set from qualified m._event_time column selection"
+        );
+
+        // Verify it's the correct DateTime (2022-01-01)
+        let event_time = output.event_time.unwrap();
+        assert_eq!(event_time.timestamp(), 1640998800);
+    }
 }

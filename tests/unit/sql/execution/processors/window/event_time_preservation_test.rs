@@ -214,3 +214,288 @@ fn create_trade_record_with_volume(
     record.event_time = DateTime::from_timestamp_millis(timestamp_ms);
     record
 }
+
+// =============================================================================
+// Tests for qualified column reference event_time propagation (FR-081)
+// =============================================================================
+// These tests verify that SELECT queries with qualified column references like
+// `m._event_time` properly set the output record's event_time metadata.
+
+/// Test that direct `_event_time` column selection sets output event_time.
+/// This is the simplest case - SELECT _event_time FROM source.
+#[tokio::test]
+async fn test_direct_event_time_column_selection() {
+    let sql = r#"
+        CREATE STREAM output AS
+        SELECT
+            symbol,
+            price,
+            _event_time
+        FROM market_data
+        EMIT CHANGES
+        WITH (
+            'market_data.type' = 'memory',
+            'output.type' = 'memory'
+        )
+    "#;
+
+    // Create record with event_time set to 1 hour in the past
+    let past_time_ms = chrono::Utc::now().timestamp_millis() - 3600_000; // 1 hour ago
+    let mut record = TestDataBuilder::trade_record(1, "AAPL", 150.0, 100, past_time_ms);
+    record.event_time = DateTime::from_timestamp_millis(past_time_ms);
+
+    let results = SqlExecutor::execute_query(sql, vec![record]).await;
+
+    assert!(!results.is_empty(), "Should have at least one result");
+
+    let output = &results[0];
+    assert!(
+        output.event_time.is_some(),
+        "Output record MUST have event_time set when _event_time is selected. Got: None"
+    );
+
+    let output_event_time_ms = output.event_time.unwrap().timestamp_millis();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    // The output event_time should be the PAST time from the input, not current time
+    assert!(
+        output_event_time_ms < now_ms - 3000_000, // At least 50 minutes ago
+        "Output event_time should be in the past (from input), not current time. \
+         Input: {}ms, Output: {}ms, Now: {}ms, Diff: {}s",
+        past_time_ms,
+        output_event_time_ms,
+        now_ms,
+        (output_event_time_ms - now_ms) / 1000
+    );
+
+    // Should match the input event_time
+    assert_eq!(
+        output_event_time_ms, past_time_ms,
+        "Output event_time should equal input event_time. Expected: {}ms, Got: {}ms",
+        past_time_ms, output_event_time_ms
+    );
+
+    println!(
+        "✅ Direct _event_time selection preserved: input={}ms, output={}ms",
+        past_time_ms, output_event_time_ms
+    );
+}
+
+/// Test that qualified column reference `m._event_time` sets output event_time.
+/// This is the pattern used in JOIN queries like `SELECT m._event_time FROM market_data m`.
+#[tokio::test]
+async fn test_qualified_event_time_column_reference() {
+    let sql = r#"
+        CREATE STREAM output AS
+        SELECT
+            m.symbol,
+            m.price,
+            m._event_time
+        FROM market_data m
+        EMIT CHANGES
+        WITH (
+            'market_data.type' = 'memory',
+            'output.type' = 'memory'
+        )
+    "#;
+
+    // Create record with event_time set to 1 hour in the past
+    let past_time_ms = chrono::Utc::now().timestamp_millis() - 3600_000;
+    let mut record = TestDataBuilder::trade_record(1, "GOOGL", 175.0, 200, past_time_ms);
+    record.event_time = DateTime::from_timestamp_millis(past_time_ms);
+
+    let results = SqlExecutor::execute_query(sql, vec![record]).await;
+
+    assert!(!results.is_empty(), "Should have at least one result");
+
+    let output = &results[0];
+    assert!(
+        output.event_time.is_some(),
+        "Output record MUST have event_time set when m._event_time is selected. Got: None"
+    );
+
+    let output_event_time_ms = output.event_time.unwrap().timestamp_millis();
+
+    // The output event_time should match the input, not be in the future
+    assert_eq!(
+        output_event_time_ms, past_time_ms,
+        "Output event_time should equal input event_time for qualified column m._event_time. \
+         Expected: {}ms, Got: {}ms",
+        past_time_ms, output_event_time_ms
+    );
+
+    println!(
+        "✅ Qualified m._event_time selection preserved: input={}ms, output={}ms",
+        past_time_ms, output_event_time_ms
+    );
+}
+
+/// Test that _event_time is preserved alongside NOW() in the same query.
+/// This reproduces the enriched_market_data scenario where both m._event_time
+/// and NOW() as enrichment_time are in the SELECT.
+#[tokio::test]
+async fn test_event_time_with_now_function() {
+    let sql = r#"
+        CREATE STREAM enriched AS
+        SELECT
+            m.symbol,
+            m.price,
+            m._event_time,
+            NOW() as processing_time
+        FROM market_data m
+        EMIT CHANGES
+        WITH (
+            'market_data.type' = 'memory',
+            'enriched.type' = 'memory'
+        )
+    "#;
+
+    // Create record with event_time set to 1 hour in the past
+    let past_time_ms = chrono::Utc::now().timestamp_millis() - 3600_000;
+    let mut record = TestDataBuilder::trade_record(1, "MSFT", 400.0, 150, past_time_ms);
+    record.event_time = DateTime::from_timestamp_millis(past_time_ms);
+
+    let results = SqlExecutor::execute_query(sql, vec![record]).await;
+
+    assert!(!results.is_empty(), "Should have at least one result");
+
+    let output = &results[0];
+
+    // CRITICAL: event_time should come from m._event_time (in the past),
+    // NOT from NOW() (current time) or some future value
+    assert!(
+        output.event_time.is_some(),
+        "Output record MUST have event_time set. Got: None"
+    );
+
+    let output_event_time_ms = output.event_time.unwrap().timestamp_millis();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    // The event_time should be the PAST input time, not current or future
+    assert!(
+        output_event_time_ms <= now_ms,
+        "Output event_time should NOT be in the future! \
+         Got: {}ms, Now: {}ms, Diff: {}s in future",
+        output_event_time_ms,
+        now_ms,
+        (output_event_time_ms - now_ms) / 1000
+    );
+
+    assert_eq!(
+        output_event_time_ms, past_time_ms,
+        "Output event_time should equal input event_time, not NOW(). \
+         Expected: {}ms (past), Got: {}ms",
+        past_time_ms, output_event_time_ms
+    );
+
+    // Also verify the processing_time field contains a recent timestamp (from NOW())
+    if let Some(FieldValue::Integer(processing_time)) = output.fields.get("processing_time") {
+        assert!(
+            (*processing_time - now_ms).abs() < 5000, // Within 5 seconds
+            "processing_time field should be close to current time (from NOW()). \
+             Got: {}ms, Now: {}ms",
+            processing_time,
+            now_ms
+        );
+    }
+
+    println!(
+        "✅ event_time preserved with NOW() in query: event_time={}ms (past), now={}ms",
+        output_event_time_ms, now_ms
+    );
+}
+
+/// Test event_time propagation in a scenario similar to enriched_market_data.
+/// This includes a JOIN and multiple fields including NOW().
+#[tokio::test]
+async fn test_event_time_in_join_with_enrichment() {
+    // This test simulates the enriched_market_data query pattern
+    let sql = r#"
+        CREATE STREAM enriched_market_data AS
+        SELECT
+            m.symbol,
+            m.price,
+            m._event_time,
+            m.timestamp,
+            NOW() as enrichment_time,
+            (NOW() - m._event_time) / 1000 as latency_seconds
+        FROM market_data m
+        EMIT CHANGES
+        WITH (
+            'market_data.type' = 'memory',
+            'enriched_market_data.type' = 'memory'
+        )
+    "#;
+
+    // Create record with event_time 2 minutes in the past
+    let past_time_ms = chrono::Utc::now().timestamp_millis() - 120_000;
+    let mut record = TestDataBuilder::trade_record(1, "AAPL", 150.0, 100, past_time_ms);
+    record.event_time = DateTime::from_timestamp_millis(past_time_ms);
+
+    let results = SqlExecutor::execute_query(sql, vec![record]).await;
+
+    assert!(!results.is_empty(), "Should have at least one result");
+
+    let output = &results[0];
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    // CRITICAL ASSERTION: event_time must be set and must be in the PAST
+    assert!(
+        output.event_time.is_some(),
+        "Output event_time MUST be set for metrics to work correctly"
+    );
+
+    let output_event_time_ms = output.event_time.unwrap().timestamp_millis();
+
+    // This is the key assertion that would catch the "future timestamp" bug
+    assert!(
+        output_event_time_ms <= now_ms,
+        "BUG DETECTED: Output event_time is in the FUTURE! \
+         This causes Prometheus remote-write to reject metrics. \
+         event_time: {}ms, now: {}ms, diff: {}s in future",
+        output_event_time_ms,
+        now_ms,
+        (output_event_time_ms - now_ms) / 1000
+    );
+
+    // event_time should match the input (past time)
+    assert_eq!(
+        output_event_time_ms,
+        past_time_ms,
+        "Output event_time should match input event_time. \
+         Expected: {}ms, Got: {}ms, Diff: {}s",
+        past_time_ms,
+        output_event_time_ms,
+        (output_event_time_ms - past_time_ms) / 1000
+    );
+
+    // The latency_seconds field should be positive (since input is in the past)
+    if let Some(latency) = output.fields.get("latency_seconds") {
+        match latency {
+            FieldValue::Integer(l) => {
+                assert!(
+                    *l > 0,
+                    "latency_seconds should be positive for past events. Got: {}",
+                    l
+                );
+                println!("  latency_seconds: {}s", l);
+            }
+            FieldValue::Float(l) => {
+                assert!(
+                    *l > 0.0,
+                    "latency_seconds should be positive for past events. Got: {}",
+                    l
+                );
+                println!("  latency_seconds: {:.2}s", l);
+            }
+            _ => {}
+        }
+    }
+
+    println!(
+        "✅ JOIN enrichment preserved event_time: input={}ms, output={}ms ({}s ago)",
+        past_time_ms,
+        output_event_time_ms,
+        (now_ms - output_event_time_ms) / 1000
+    );
+}

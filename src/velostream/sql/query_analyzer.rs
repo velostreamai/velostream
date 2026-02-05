@@ -485,6 +485,21 @@ impl QueryAnalyzer {
             }
         }
 
+        // Include top-level event-time configuration properties
+        // These apply to the source for event-time extraction and are essential
+        // for proper timestamp propagation to metrics (remote-write) and watermarks
+        for event_time_key in [
+            "event.time.field",
+            "event.time.format",
+            "watermark.strategy",
+            "watermark.max_out_of_orderness",
+            "late.data.strategy",
+        ] {
+            if let Some(value) = config.get(event_time_key) {
+                properties.insert(event_time_key.to_string(), value.clone());
+            }
+        }
+
         // Determine source type - EXPLICIT ONLY (no autodetection)
         // Uses simple compound type format: {name}.type = '{type}_source'
         // Examples: 'kafka_source', 'file_source', 's3_source'
