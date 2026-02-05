@@ -13,6 +13,7 @@ pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;
 pub mod remote_write;
+pub mod resource_monitor;
 pub mod span_collector;
 pub mod telemetry;
 pub mod trace_propagation;
