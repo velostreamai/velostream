@@ -65,11 +65,11 @@ cd "$SCRIPT_DIR"
 # Data generation configuration per app
 # Format: app_file|topic|data_type|records|timeframe
 declare -a DATA_SPECS=(
-    "apps/app_market_data.sql|in_market_data_stream|Market Ticks (OHLCV)|100|last 1 hour"
-    "apps/app_risk.sql|in_trading_positions_stream|Trading Positions|50|last 1 hour"
-    "apps/app_trading_signals.sql|in_order_book_stream|Order Book Depth|100|last 1 hour"
-    "apps/app_trading_signals.sql|in_market_data_stream_a|Exchange A Quotes|100|last 1 hour"
-    "apps/app_trading_signals.sql|in_market_data_stream_b|Exchange B Quotes|100|last 1 hour"
+    "apps/app_market_data.sql|in_market_data_stream|Market Ticks (OHLCV)|100|last 2 minutes"
+    "apps/app_risk.sql|in_trading_positions_stream|Trading Positions|50|last 2 minutes"
+    "apps/app_trading_signals.sql|in_order_book_stream|Order Book Depth|100|last 2 minutes"
+    "apps/app_trading_signals.sql|in_market_data_stream_a|Exchange A Quotes|100|last 2 minutes"
+    "apps/app_trading_signals.sql|in_market_data_stream_b|Exchange B Quotes|100|last 2 minutes"
 )
 
 # Unique apps for iteration

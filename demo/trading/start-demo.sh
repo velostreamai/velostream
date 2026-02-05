@@ -4,7 +4,7 @@
 
 set -e  # Exit on error
 
-# Cleanup background processes on exit
+# Cleanup background processes on interrupt (not normal exit)
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up background processes...${NC}"
     [ -n "${GENERATOR_PID:-}" ] && kill "$GENERATOR_PID" 2>/dev/null || true
@@ -12,7 +12,9 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
     done
 }
-trap cleanup EXIT INT TERM
+# Only cleanup on INT/TERM signals, not normal exit
+# This allows background mode to exit without killing the apps
+trap cleanup INT TERM
 
 # Colors for output
 RED='\033[0;31m'
@@ -400,8 +402,8 @@ print_binary_info "$VELO_TEST_BINARY_PATH"
 echo ""
 echo -e "${GREEN}✓ All binaries up-to-date${NC}"
 
-# Step 7: Reset consumer groups (for clean demo start)
-print_step "Step 7: Resetting consumer groups for clean start"
+# Step 7: Reset consumer groups and clear output topics (for clean demo start)
+print_step "Step 7: Resetting consumer groups and clearing output topics"
 echo -e "${YELLOW}⚠ Deleting existing consumer groups...${NC}"
 for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server localhost:9092 --list 2>/dev/null | grep "velo-sql"); do
     docker exec simple-kafka kafka-consumer-groups \
@@ -409,6 +411,40 @@ for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server
         --group "$group" \
         --delete 2>/dev/null || true
 done
+
+# Clear output topics to prevent stale data accumulation
+# This prevents "timestamp too far in the future" errors when restarting the demo
+# after a time gap (stale data with old "now" timestamps appears as future data)
+OUTPUT_TOPICS=(
+    "market_data_ts"
+    "tick_buckets"
+    "enriched_market_data"
+    "price_alerts"
+    "price_movement_debug"
+    "price_stats"
+    "volume_spikes"
+    "order_imbalance"
+    "arbitrage_opportunities"
+    "trading_positions_ts"
+    "risk_alerts"
+    "risk_hierarchy_validation"
+    "compliant_market_data"
+    "active_hours_market_data"
+)
+
+echo -e "${YELLOW}⚠ Clearing output topics to remove stale data...${NC}"
+for topic in "${OUTPUT_TOPICS[@]}"; do
+    if docker exec simple-kafka kafka-topics --list --bootstrap-server localhost:9092 2>/dev/null | grep -q "^${topic}$"; then
+        # Get partition count before deletion
+        partitions=$(docker exec simple-kafka kafka-topics --describe --topic "$topic" --bootstrap-server localhost:9092 2>/dev/null | grep -o 'PartitionCount: [0-9]*' | grep -o '[0-9]*' || echo "8")
+        # Delete and recreate to clear data
+        docker exec simple-kafka kafka-topics --delete --topic "$topic" --bootstrap-server localhost:9092 2>/dev/null || true
+        sleep 0.5
+        docker exec simple-kafka kafka-topics --create --topic "$topic" --partitions "${partitions:-8}" --replication-factor 1 --bootstrap-server localhost:9092 2>/dev/null || true
+        echo -e "${GREEN}✓ Cleared topic '$topic'${NC}"
+    fi
+done
+echo -e "${GREEN}✓ Output topics cleared${NC}"
 
 # Step 8: Build velo-test binary for data generation
 print_step "Step 8: Building velo-test binary"
@@ -629,3 +665,18 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo -e "${BLUE}Stop Demo:${NC}  ./stop-demo.sh"
 echo -e "${GREEN}========================================${NC}"
+
+# In interactive mode, wait for processes and cleanup on Ctrl+C
+# In background mode, exit cleanly and let processes continue running
+if [ "$INTERACTIVE_MODE" = true ]; then
+    echo ""
+    echo -e "${YELLOW}Running in interactive mode. Press Ctrl+C to stop all processes.${NC}"
+    # Wait for any background process to exit
+    wait
+    # Cleanup will be called by the INT/TERM trap
+else
+    echo ""
+    echo -e "${GREEN}Demo running in background. Use ./stop-demo.sh to stop.${NC}"
+    # Disown background processes so they continue after script exits
+    disown -a 2>/dev/null || true
+fi

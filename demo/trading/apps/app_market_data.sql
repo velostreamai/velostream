@@ -192,6 +192,9 @@ WITH (
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
     'market_data_ts.auto.offset.reset' = 'earliest',
+    -- Event-time configuration: use the _event_time field from upstream
+    'market_data_ts.event.time.field' = '_event_time',
+    'market_data_ts.event.time.format' = 'epoch_millis',
 
     -- Sink configuration
     'tick_buckets.type' = 'kafka_sink',
@@ -253,6 +256,9 @@ WITH (
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
     'market_data_ts.auto.offset.reset' = 'earliest',
+    -- Event-time configuration: use the _event_time field from upstream
+    'market_data_ts.event.time.field' = '_event_time',
+    'market_data_ts.event.time.format' = 'epoch_millis',
 
     -- Reference table
     'instrument_reference.type' = 'file_source',

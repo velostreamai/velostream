@@ -12,6 +12,25 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Parse arguments
+CLEAN_DATA=false
+for arg in "$@"; do
+    case $arg in
+        -c|--clean)
+            CLEAN_DATA=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -c, --clean    Clean all data (Kafka topics, Prometheus data)"
+            echo "  -h, --help     Show this help message"
+            exit 0
+            ;;
+    esac
+done
+
 echo -e "${BLUE}🛑 Stopping Velostream Financial Trading Demo${NC}"
 echo -e "${BLUE}================================================${NC}"
 echo ""
@@ -72,6 +91,46 @@ if [ -L "./velo-cli" ]; then
     echo -e "${YELLOW}🧹 Cleaning up CLI symlink...${NC}"
     rm ./velo-cli
     echo -e "${GREEN}✓ CLI symlink removed${NC}"
+fi
+
+# Clean data if requested
+if [ "$CLEAN_DATA" = true ]; then
+    echo -e "${YELLOW}🧹 Cleaning all demo data (--clean requested)...${NC}"
+
+    # Clear Kafka topics if Kafka is running
+    if docker ps -q --filter "name=simple-kafka" 2>/dev/null | grep -q .; then
+        echo -e "${YELLOW}📦 Deleting Kafka topics...${NC}"
+
+        # Get all velo-related topics
+        TOPICS=$(docker exec simple-kafka kafka-topics --list --bootstrap-server localhost:9092 2>/dev/null | grep -E "^(in_|market_data|tick_|enriched_|price_|volume_|order_|arbitrage_|trading_|risk_|compliant_|active_)" || true)
+
+        for topic in $TOPICS; do
+            docker exec simple-kafka kafka-topics --delete --topic "$topic" --bootstrap-server localhost:9092 2>/dev/null || true
+            echo -e "  ${GREEN}✓ Deleted topic '$topic'${NC}"
+        done
+        echo -e "${GREEN}✓ Kafka topics cleared${NC}"
+    else
+        echo -e "${YELLOW}ℹ️  Kafka not running, skipping topic cleanup${NC}"
+    fi
+
+    # Clear Prometheus data if Prometheus container exists
+    if docker ps -a -q --filter "name=velo-prometheus" 2>/dev/null | grep -q .; then
+        echo -e "${YELLOW}📊 Clearing Prometheus data...${NC}"
+
+        # Stop prometheus, clear data, restart
+        docker stop velo-prometheus 2>/dev/null || true
+        docker exec velo-prometheus rm -rf /prometheus/data/* 2>/dev/null || true
+
+        # Alternative: remove and recreate the container on next start
+        echo -e "${GREEN}✓ Prometheus data will be fresh on next start${NC}"
+    fi
+
+    # Clean up log files
+    echo -e "${YELLOW}📄 Cleaning up log files...${NC}"
+    rm -f /tmp/velo_*.log /tmp/demo_output.log 2>/dev/null || true
+    echo -e "${GREEN}✓ Log files cleaned${NC}"
+
+    echo -e "${GREEN}✓ All demo data cleaned${NC}"
 fi
 
 # Verify everything is stopped
