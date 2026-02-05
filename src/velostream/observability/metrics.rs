@@ -4,6 +4,7 @@ use crate::velostream::observability::error_tracker::ErrorMessageBuffer;
 use crate::velostream::observability::remote_write::RemoteWriteClient;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::PrometheusConfig;
+use log::error;
 use prometheus::{
     Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
     IntGauge, IntGaugeVec, Opts, Registry, TextEncoder, register_gauge_vec_with_registry,
@@ -1041,8 +1042,16 @@ impl MetricsProvider {
         timestamp_ms: i64,
     ) {
         if let Some(client) = &self.remote_write_client {
-            if let Ok(client) = client.lock() {
-                client.push_gauge(name, label_names, label_values, value, timestamp_ms);
+            match client.lock() {
+                Ok(client) => {
+                    client.push_gauge(name, label_names, label_values, value, timestamp_ms);
+                }
+                Err(e) => {
+                    error!(
+                        "Lock poisoned for metric '{}' push: {} - indicates prior panic, metric dropped",
+                        name, e
+                    );
+                }
             }
         }
     }
@@ -1057,8 +1066,16 @@ impl MetricsProvider {
         timestamp_ms: i64,
     ) {
         if let Some(client) = &self.remote_write_client {
-            if let Ok(client) = client.lock() {
-                client.push_counter(name, label_names, label_values, value, timestamp_ms);
+            match client.lock() {
+                Ok(client) => {
+                    client.push_counter(name, label_names, label_values, value, timestamp_ms);
+                }
+                Err(e) => {
+                    error!(
+                        "Lock poisoned for counter '{}' push: {} - indicates prior panic, metric dropped",
+                        name, e
+                    );
+                }
             }
         }
     }
@@ -1073,14 +1090,22 @@ impl MetricsProvider {
         timestamp_ms: i64,
     ) {
         if let Some(client) = &self.remote_write_client {
-            if let Ok(client) = client.lock() {
-                client.push_histogram_observation(
-                    name,
-                    label_names,
-                    label_values,
-                    value,
-                    timestamp_ms,
-                );
+            match client.lock() {
+                Ok(client) => {
+                    client.push_histogram_observation(
+                        name,
+                        label_names,
+                        label_values,
+                        value,
+                        timestamp_ms,
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Lock poisoned for histogram '{}' push: {} - indicates prior panic, metric dropped",
+                        name, e
+                    );
+                }
             }
         }
     }

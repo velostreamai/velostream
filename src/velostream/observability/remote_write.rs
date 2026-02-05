@@ -80,7 +80,7 @@
 use log::{debug, error, info, warn};
 use prometheus_remote_write::{LABEL_NAME, Label, Sample, TimeSeries, WriteRequest};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -328,6 +328,11 @@ pub struct RemoteWriteClient {
     active: Arc<AtomicBool>,
     /// Retry configuration for failed requests
     retry_config: RetryConfig,
+    /// Track last sent timestamp per time series to detect out-of-order samples
+    /// Key: metric identity (name + sorted labels), Value: last sent timestamp
+    last_sent_timestamps: Arc<Mutex<HashMap<String, i64>>>,
+    /// Counter for dropped samples (buffer overflow, future timestamps, label mismatch)
+    dropped_samples: Arc<AtomicU64>,
 }
 
 impl RemoteWriteClient {
@@ -410,6 +415,8 @@ impl RemoteWriteClient {
             http_client,
             active: Arc::new(AtomicBool::new(true)),
             retry_config,
+            last_sent_timestamps: Arc::new(Mutex::new(HashMap::new())),
+            dropped_samples: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -445,6 +452,38 @@ impl RemoteWriteClient {
             return;
         }
 
+        // Validate label alignment to prevent silent data corruption
+        if label_names.len() != label_values.len() {
+            let total = self.dropped_samples.fetch_add(1, Ordering::Relaxed) + 1;
+            warn!(
+                "📤 Label mismatch for metric '{}': {} names vs {} values - skipping (total dropped: {})",
+                name,
+                label_names.len(),
+                label_values.len(),
+                total
+            );
+            return;
+        }
+
+        // Skip samples with timestamps too far in the future (Prometheus will reject them)
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let diff_ms = timestamp_ms - now_ms;
+        if diff_ms > 300_000 {
+            // More than 5 minutes in future
+            let total = self.dropped_samples.fetch_add(1, Ordering::Relaxed) + 1;
+            warn!(
+                "📤 Skipping metric '{}' with timestamp {}ms ({}s in future) - Prometheus would reject (total dropped: {})",
+                name,
+                timestamp_ms,
+                diff_ms / 1000,
+                total
+            );
+            return;
+        }
+
         let sample = TimestampedSample {
             name: name.to_string(),
             label_names: label_names.to_vec(),
@@ -456,9 +495,10 @@ impl RemoteWriteClient {
         if let Ok(mut buffer) = self.buffer.lock() {
             // Buffer overflow protection
             if buffer.len() >= MAX_BUFFER_SIZE {
+                let total = self.dropped_samples.fetch_add(1, Ordering::Relaxed) + 1;
                 warn!(
-                    "📤 Buffer overflow: dropping metric '{}' (buffer at max capacity {})",
-                    name, MAX_BUFFER_SIZE
+                    "📤 Buffer overflow: dropping metric '{}' (buffer at max capacity {}, total dropped: {})",
+                    name, MAX_BUFFER_SIZE, total
                 );
                 return;
             }
@@ -509,10 +549,25 @@ impl RemoteWriteClient {
         self.push_gauge(name, label_names, label_values, value, timestamp_ms);
     }
 
+    /// Get the count of dropped samples (buffer overflow, future timestamps, label mismatch)
+    ///
+    /// This is useful for observability and alerting on data loss.
+    pub fn dropped_samples_count(&self) -> u64 {
+        self.dropped_samples.load(Ordering::Relaxed)
+    }
+
+    /// Reset the dropped samples counter and return the previous value
+    ///
+    /// Useful for periodic reporting where you want to track drops per interval.
+    pub fn reset_dropped_count(&self) -> u64 {
+        self.dropped_samples.swap(0, Ordering::Relaxed)
+    }
+
     /// Flush all buffered metrics to Prometheus with retry logic
     ///
     /// This method sends all buffered samples to the remote-write endpoint.
     /// Samples are grouped by metric identity (name + labels) into time series.
+    /// Out-of-order samples (older than previously sent) are filtered and logged.
     /// On failure, samples are restored to the buffer for retry on next flush.
     pub async fn flush(&self) -> Result<usize, RemoteWriteError> {
         let samples = {
@@ -527,10 +582,20 @@ impl RemoteWriteClient {
             return Ok(0);
         }
 
-        let sample_count = samples.len();
+        let original_sample_count = samples.len();
+
+        // Get current last-sent timestamps for filtering
+        let last_sent = self
+            .last_sent_timestamps
+            .lock()
+            .map_err(|e| RemoteWriteError::HttpError(format!("Lock error: {}", e)))?
+            .clone();
 
         // Group samples by metric identity (name + sorted labels)
-        let mut series_map: HashMap<String, TimeSeries> = HashMap::new();
+        // Track samples that will be skipped as out-of-order
+        let mut series_map: HashMap<String, (TimeSeries, Vec<i64>)> = HashMap::new();
+        let mut skipped_count = 0;
+        let mut skipped_by_series: HashMap<String, usize> = HashMap::new();
 
         for sample in &samples {
             // Build the identity key
@@ -540,8 +605,18 @@ impl RemoteWriteClient {
             }
             let identity = identity_parts.join("|");
 
+            // Check if this sample is out-of-order relative to previously sent data
+            // Use < (not <=) to allow same-millisecond updates (e.g., corrected values)
+            if let Some(&last_ts) = last_sent.get(&identity) {
+                if sample.timestamp_ms < last_ts {
+                    skipped_count += 1;
+                    *skipped_by_series.entry(identity.clone()).or_insert(0) += 1;
+                    continue; // Skip this out-of-order sample
+                }
+            }
+
             // Get or create the time series
-            let series = series_map.entry(identity).or_insert_with(|| {
+            let (series, _timestamps) = series_map.entry(identity.clone()).or_insert_with(|| {
                 let mut labels = vec![Label {
                     name: LABEL_NAME.to_string(),
                     value: sample.name.clone(),
@@ -554,10 +629,13 @@ impl RemoteWriteClient {
                     });
                 }
 
-                TimeSeries {
-                    labels,
-                    samples: Vec::new(),
-                }
+                (
+                    TimeSeries {
+                        labels,
+                        samples: Vec::new(),
+                    },
+                    Vec::new(),
+                )
             });
 
             // Add the sample
@@ -565,13 +643,65 @@ impl RemoteWriteClient {
                 value: sample.value,
                 timestamp: sample.timestamp_ms,
             });
+
+            // Debug: log sample timestamps to diagnose "too far in future" errors
+            if series.samples.len() == 1 {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                let diff_s = (sample.timestamp_ms - now_ms) / 1000;
+                if diff_s.abs() > 300 {
+                    // More than 5 minutes off
+                    warn!(
+                        "📤 Timestamp check: metric={} ts={}ms now={}ms diff={}s",
+                        sample.name, sample.timestamp_ms, now_ms, diff_s
+                    );
+                }
+            }
         }
 
-        // Build the write request
-        let write_request = WriteRequest {
-            timeseries: series_map.into_values().collect(),
+        // Log out-of-order samples summary
+        if skipped_count > 0 {
+            let top_skipped: Vec<_> = skipped_by_series
+                .iter()
+                .take(3)
+                .map(|(k, v)| format!("{}:{}", k.split('|').next().unwrap_or(k), v))
+                .collect();
+            warn!(
+                "📤 Filtered {} out-of-order samples (older than last sent). Top series: [{}]",
+                skipped_count,
+                top_skipped.join(", ")
+            );
         }
-        .sorted();
+
+        // Sort samples within each time series by timestamp (Prometheus requires ascending order)
+        // Also collect the max timestamp per series for updating last_sent_timestamps
+        let mut max_timestamps: HashMap<String, i64> = HashMap::new();
+        let timeseries: Vec<TimeSeries> = series_map
+            .into_iter()
+            .filter_map(|(identity, (mut ts, _))| {
+                if ts.samples.is_empty() {
+                    return None;
+                }
+                ts.samples.sort_by_key(|s| s.timestamp);
+                // Track the max timestamp for this series
+                if let Some(max_sample) = ts.samples.last() {
+                    max_timestamps.insert(identity, max_sample.timestamp);
+                }
+                Some(ts)
+            })
+            .collect();
+
+        if timeseries.is_empty() {
+            debug!("📤 No samples to send after filtering out-of-order data");
+            return Ok(0);
+        }
+
+        let sample_count: usize = timeseries.iter().map(|ts| ts.samples.len()).sum();
+
+        // Build the write request
+        let write_request = WriteRequest { timeseries }.sorted();
 
         // Encode with snappy compression
         let compressed = write_request
@@ -615,10 +745,25 @@ impl RemoteWriteClient {
             {
                 Ok(response) => {
                     if response.status().is_success() {
+                        // Update last-sent timestamps to prevent future out-of-order samples
+                        if let Ok(mut last_sent) = self.last_sent_timestamps.lock() {
+                            for (identity, max_ts) in &max_timestamps {
+                                last_sent
+                                    .entry(identity.clone())
+                                    .and_modify(|ts| *ts = (*ts).max(*max_ts))
+                                    .or_insert(*max_ts);
+                            }
+                        }
+
                         if attempt > 0 {
                             info!(
-                                "📤 Successfully pushed {} samples after {} retries",
-                                sample_count, attempt
+                                "📤 Successfully pushed {} samples after {} retries (filtered {} out-of-order)",
+                                sample_count, attempt, skipped_count
+                            );
+                        } else if skipped_count > 0 {
+                            info!(
+                                "📤 Pushed {} samples, filtered {} out-of-order",
+                                sample_count, skipped_count
                             );
                         } else {
                             debug!(

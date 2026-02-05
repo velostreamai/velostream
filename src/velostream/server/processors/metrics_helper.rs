@@ -645,8 +645,8 @@ impl ProcessorMetricsHelper {
 
                         // Validate labels based on configuration
                         if !self.validate_labels(annotation, label_values.len()) {
-                            debug!(
-                                "Job '{}': Skipping metric '{}' - strict mode: missing label values (expected {}, got {})",
+                            warn!(
+                                "Job '{}': Skipping metric '{}' - strict mode: missing label values (expected {}, got {}) - check label extraction",
                                 job_name,
                                 annotation.name,
                                 annotation.labels.len(),
@@ -702,8 +702,8 @@ impl ProcessorMetricsHelper {
 
                         // Skip if labels are empty but expected
                         if label_values.is_empty() && !annotation.labels.is_empty() {
-                            debug!(
-                                "Job '{}': Skipping metric '{}' - missing label values (expected {}, got {})",
+                            warn!(
+                                "Job '{}': Skipping metric '{}' - missing label values (expected {}, got {}) - check record fields match label names",
                                 job_name,
                                 annotation.name,
                                 annotation.labels.len(),
@@ -772,6 +772,17 @@ impl ProcessorMetricsHelper {
                 // Phase 4: SINGLE LOCK ACQUISITION for all accumulated metrics
                 if let Err(e) = metrics.emit_batch(batch) {
                     debug!("Job '{}': Failed to emit metric batch: {:?}", job_name, e);
+                }
+
+                // Phase 5: Flush remote-write buffer if metrics were pushed
+                // This ensures metrics with event timestamps are sent to Prometheus
+                if metrics.has_remote_write() {
+                    if let Err(e) = metrics.flush_remote_write().await {
+                        debug!(
+                            "Job '{}': Failed to flush remote-write metrics: {:?}",
+                            job_name, e
+                        );
+                    }
                 }
             }
         }
