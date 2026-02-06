@@ -527,11 +527,11 @@ async fn test_event_time_aliasing_in_select() {
 
     let output = rx.try_recv().unwrap();
 
-    // Verify the output record has _EVENT_TIME in fields
-    assert_eq!(
-        output.fields.get("_EVENT_TIME"),
-        Some(&FieldValue::Integer(derived_event_time_ms)),
-        "_EVENT_TIME should be in output fields"
+    // _EVENT_TIME is a system column — it should NOT be in output fields.
+    // It is stripped from the HashMap and only stored as record.event_time metadata.
+    assert!(
+        !output.fields.contains_key("_EVENT_TIME"),
+        "_EVENT_TIME is a system column and should be stripped from output fields"
     );
 
     // Verify the event_time struct field was set from the alias

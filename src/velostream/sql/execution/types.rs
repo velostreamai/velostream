@@ -446,6 +446,31 @@ pub mod system_columns {
     use super::HashSet;
     use std::sync::OnceLock;
 
+    /// Controls behavior when _EVENT_TIME is accessed but record.event_time is None.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum EventTimeFallback {
+        /// Silently use _TIMESTAMP (processing time). Default.
+        ProcessingTime,
+        /// Use _TIMESTAMP but log a warning per-record (diagnostic mode).
+        Warn,
+        /// Return FieldValue::Null — query handles it via COALESCE/WHERE/etc.
+        Null,
+    }
+
+    static EVENT_TIME_FALLBACK: OnceLock<EventTimeFallback> = OnceLock::new();
+
+    /// Read `VELOSTREAM_EVENT_TIME_FALLBACK` env var once.
+    /// Values: `processing_time` (default), `warn`, `null`.
+    pub fn event_time_fallback() -> EventTimeFallback {
+        *EVENT_TIME_FALLBACK.get_or_init(|| {
+            match std::env::var("VELOSTREAM_EVENT_TIME_FALLBACK").as_deref() {
+                Ok("warn") => EventTimeFallback::Warn,
+                Ok("null") => EventTimeFallback::Null,
+                _ => EventTimeFallback::ProcessingTime,
+            }
+        })
+    }
+
     /// Processing time in milliseconds since Unix epoch (UPPERCASE internal form)
     pub const TIMESTAMP: &str = "_TIMESTAMP";
     /// Kafka partition offset for the record (UPPERCASE internal form)

@@ -582,13 +582,27 @@ GROUP BY symbol;
 
 ### Accessing _EVENT_TIME in Queries
 
-The `_EVENT_TIME` system column is always available and falls back to `_TIMESTAMP` (processing time) if event time was not set:
+The `_EVENT_TIME` system column is always available. Its behavior when event time was not set is controlled by the `VELOSTREAM_EVENT_TIME_FALLBACK` environment variable:
+
+| Mode | Env Var Value | Behavior |
+|------|--------------|----------|
+| **Processing Time** (default) | `processing_time` | Falls back to `_TIMESTAMP` silently |
+| **Warn** | `warn` | Falls back to `_TIMESTAMP` and logs a warning |
+| **Null** | `null` | Returns `NULL` — use `COALESCE` to handle |
 
 ```sql
--- _EVENT_TIME always returns a value (never NULL)
+-- Default mode: _EVENT_TIME falls back to processing time when unset
 SELECT
-    _EVENT_TIME,        -- Event time (or falls back to processing time)
-    _TIMESTAMP,         -- Processing time (Kafka message timestamp)
+    _EVENT_TIME,        -- Event time (falls back to _TIMESTAMP by default)
+    _TIMESTAMP,         -- Processing time (wall-clock when record was produced)
+    symbol,
+    price
+FROM trades;
+
+-- Null mode: use COALESCE for explicit fallback handling
+-- Set VELOSTREAM_EVENT_TIME_FALLBACK=null
+SELECT
+    COALESCE(_EVENT_TIME, _TIMESTAMP) AS effective_time,
     symbol,
     price
 FROM trades;

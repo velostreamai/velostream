@@ -60,13 +60,32 @@
 -- @metric: velo_price_movement_alerts_total
 -- @metric_type: counter
 -- @metric_help: "Total price movement alerts generated"
--- @metric_labels: symbol
+-- @metric_labels: symbol, movement_severity
 --
 -- @metric: velo_price_change_pct
 -- @metric_type: gauge
 -- @metric_help: "Price change percentage"
 -- @metric_labels: symbol
 -- @metric_field: price_change_pct
+--
+-- @metric: velo_price_change_distribution
+-- @metric_type: histogram
+-- @metric_help: "Distribution of price change percentages"
+-- @metric_labels: symbol
+-- @metric_field: price_change_pct
+-- @metric_buckets: 0.1, 0.5, 1.0, 2.0, 5.0, 10.0
+--
+-- @metric: velo_price_volatility
+-- @metric_type: gauge
+-- @metric_help: "10-period rolling price volatility (stddev)"
+-- @metric_labels: symbol
+-- @metric_field: price_volatility_10_periods
+--
+-- @metric: velo_price_percentile
+-- @metric_type: gauge
+-- @metric_help: "Price percentile rank within symbol window"
+-- @metric_labels: symbol
+-- @metric_field: price_percentile
 
 CREATE STREAM price_movement_alerts AS
 SELECT
@@ -161,7 +180,6 @@ SELECT
 
     NOW() as detection_time
 FROM market_data_ts
-EMIT CHANGES
 
 WITH (
     -- Source configuration (external dependency)

@@ -85,7 +85,6 @@ WHERE NOT EXISTS (
       AND w.effective_date <= m._event_time
       AND (w.expiry_date IS NULL OR w.expiry_date > m._event_time)
 )
-EMIT CHANGES
 WITH (
     -- Source configuration (external dependency)
     'market_data_ts.type' = 'kafka_source',

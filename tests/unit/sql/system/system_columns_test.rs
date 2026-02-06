@@ -449,9 +449,13 @@ mod tests {
         // Check output
         let output = rx.try_recv().unwrap();
         assert!(output.fields.contains_key("id"));
-        assert!(output.fields.contains_key("_event_time"));
+        // _event_time is a system column — stripped from output fields, stored in metadata only
+        assert!(
+            !output.fields.contains_key("_event_time"),
+            "_event_time is a system column and should be stripped from output fields"
+        );
 
-        // Verify event_time is set (not None) - proves conversion happened
+        // Verify event_time metadata is set (not None) - proves conversion happened
         assert!(
             output.event_time.is_some(),
             "event_time should be set from _event_time assignment"
@@ -767,7 +771,11 @@ mod tests {
         // Check output
         let output = rx.try_recv().unwrap();
         assert!(output.fields.contains_key("id"));
-        assert!(output.fields.contains_key("_event_time"));
+        // _event_time is a system column — stripped from output fields, stored in metadata only
+        assert!(
+            !output.fields.contains_key("_event_time"),
+            "_event_time is a system column and should be stripped from output fields"
+        );
 
         // Verify event_time metadata is propagated from input and preserved in output
         assert!(

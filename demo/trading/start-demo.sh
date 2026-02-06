@@ -499,6 +499,11 @@ export NODE_NAME="velostream-trading-engine"
 export REGION="us-east-1"
 export APP_VERSION="1.0.0"
 
+# Disable silent event_time → processing_time fallback.
+# In the trading demo every pipeline should have event_time set explicitly;
+# returning Null surfaces misconfigurations instead of hiding them.
+export VELOSTREAM_EVENT_TIME_FALLBACK=null
+
 # Deploy from deploy/apps/ (annotated SQL with full deployment annotations)
 DEPLOY_APPS_DIR="deploy/apps"
 

@@ -198,6 +198,10 @@ HAVING
     )
 EMIT CHANGES
 WITH (
+    -- Watermark configuration (event_time comes from Kafka message timestamp)
+    'watermark.strategy' = 'bounded_out_of_orderness',
+    'watermark.max_out_of_orderness' = '5s',
+
     -- Source configuration
     'in_order_book_stream.type' = 'kafka_source',
     'in_order_book_stream.topic.name' = 'in_order_book_stream',
@@ -241,7 +245,6 @@ JOIN in_market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price
     AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 5
     AND LEAST(a.bid_size, b.ask_size) > 500
-EMIT CHANGES
 WITH (
     -- Source configuration - Exchange A
     'in_market_data_stream_a.type' = 'kafka_source',

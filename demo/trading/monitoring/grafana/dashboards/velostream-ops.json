@@ -87,7 +87,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_active_jobs{job=~\"velo.*\"}",
+          "expr": "sum(velo_active_jobs{job=~\"app_.*\"})",
           "interval": "",
           "legendFormat": "Active Jobs ({{instance}})",
           "refId": "A"
@@ -378,9 +378,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "up{job=\"velo-sql-telemetry\"}",
+          "expr": "up{job=~\"app_.*\"}",
           "interval": "",
-          "legendFormat": "VeloSQL Server",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
@@ -468,9 +468,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "up{job=\"velo-sql-telemetry\"}",
+          "expr": "up{job=~\"app_.*\"}",
           "interval": "",
-          "legendFormat": "Velo-SQL Instance {{instance}}",
+          "legendFormat": "{{job}} ({{instance}})",
           "refId": "A"
         },
         {
@@ -730,9 +730,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum by (node_id, node_name) (rate(velo_sql_records_processed_total[5m]))",
+          "expr": "sum by (job) (rate(velo_sql_records_processed_total[5m]))",
           "interval": "",
-          "legendFormat": "Records - {{node_id}} ({{node_name}})",
+          "legendFormat": "Records - {{job}}",
           "refId": "A"
         },
         {
@@ -740,9 +740,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum by (node_id, node_name) (rate(velo_sql_queries_total[5m]))",
+          "expr": "sum by (job) (rate(velo_sql_queries_total[5m]))",
           "interval": "",
-          "legendFormat": "Queries - {{node_id}} ({{node_name}})",
+          "legendFormat": "Queries - {{job}}",
           "refId": "B"
         },
         {
@@ -840,9 +840,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_memory_usage_bytes{job=~\"velo.*\"}",
+          "expr": "velo_memory_usage_bytes{job=~\"app_.*\"}",
           "interval": "",
-          "legendFormat": "Memory - {{node_id}} ({{node_name}})",
+          "legendFormat": "Memory - {{job}}",
           "refId": "A"
         }
       ],
@@ -930,9 +930,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_cpu_usage_percent{job=~\"velo.*\"}",
+          "expr": "velo_cpu_usage_percent{job=~\"app_.*\"}",
           "interval": "",
-          "legendFormat": "CPU - {{node_id}} ({{node_name}})",
+          "legendFormat": "CPU - {{job}}",
           "refId": "A"
         }
       ],

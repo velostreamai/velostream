@@ -47,7 +47,6 @@ queries:
               - position_size
               - current_pnl
               - timestamp
-              - _event_time
 
     # Metric assertions - verify @metric SQL annotations are emitted
     # All processor types (Simple, Transactional, Adaptive) now support @metric emission

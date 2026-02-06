@@ -2455,9 +2455,12 @@ impl StreamJobServer {
         // PHASE 1B: EVENT-TIME & WATERMARKS
         // ====================================================================
 
-        // Enable watermarks if event-time field is specified
-        if properties.contains_key("event.time.field") {
-            info!("Enabling watermarks - event.time.field detected");
+        // Enable watermarks if event-time field is specified or watermark strategy is explicitly set.
+        // When event.time.field is absent, the system uses the Kafka message timestamp as event_time.
+        if properties.contains_key("event.time.field")
+            || properties.contains_key("watermark.strategy")
+        {
+            info!("Enabling watermarks - event.time.field or watermark.strategy detected");
             config.enable_watermarks = true;
         }
 

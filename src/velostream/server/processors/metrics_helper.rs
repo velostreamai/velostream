@@ -23,6 +23,7 @@ use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::execution::FieldValue;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
 use log::{debug, info, warn};
@@ -715,18 +716,37 @@ impl ProcessorMetricsHelper {
                         // Accumulate metric into batch (no lock acquired yet)
                         batch_fn(&mut batch, annotation, &label_values, numeric_value);
 
-                        // Push to remote-write with event timestamp if available,
-                        // falling back to processing time (record.timestamp).
-                        // This ensures @metric records always reach remote-write.
+                        // Push to remote-write with event timestamp if available.
+                        // Fallback behavior controlled by VELOSTREAM_EVENT_TIME_FALLBACK:
+                        //   processing_time (default) / warn → use _TIMESTAMP
+                        //   null → skip remote-write (no timestamp available)
                         if metrics.has_remote_write() {
                             let timestamp_ms = if let Some(event_time) = record.event_time {
-                                event_time.timestamp_millis()
+                                Some(event_time.timestamp_millis())
                             } else {
-                                log::debug!(
-                                    "Metric '{}' has no event_time - using processing time for remote-write",
-                                    annotation.name
-                                );
-                                record.timestamp
+                                match system_columns::event_time_fallback() {
+                                    system_columns::EventTimeFallback::Null => None,
+                                    system_columns::EventTimeFallback::Warn => {
+                                        use std::sync::atomic::{AtomicBool, Ordering};
+                                        static WARNED: AtomicBool = AtomicBool::new(false);
+                                        if !WARNED.swap(true, Ordering::Relaxed) {
+                                            warn!(
+                                                "_EVENT_TIME not set for remote-write metric '{}'; \
+                                                 falling back to _TIMESTAMP. This warning is logged once.",
+                                                annotation.name
+                                            );
+                                        }
+                                        Some(record.timestamp)
+                                    }
+                                    system_columns::EventTimeFallback::ProcessingTime => {
+                                        Some(record.timestamp)
+                                    }
+                                }
+                            };
+
+                            // In Null mode with no event_time, skip remote-write emission
+                            let Some(timestamp_ms) = timestamp_ms else {
+                                continue;
                             };
 
                             if let Some(value) = numeric_value {

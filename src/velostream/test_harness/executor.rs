@@ -1244,6 +1244,11 @@ impl QueryExecutor {
 
         let records = self.generator.generate(schema, record_count)?;
 
+        // Drain simulated event times (one per record, from time simulation).
+        // These become the Kafka message timestamp (_event_time in the header),
+        // separate from the `timestamp` field in the JSON payload (wall-clock).
+        let event_times = self.generator.take_event_times();
+
         // Resolve topic: use source_topics mapping from SQL analysis
         // This maps stream name (e.g., "in_market_data_stream") to actual topic (e.g., "in_market_data")
         let topic = self
@@ -1276,8 +1281,14 @@ impl QueryExecutor {
         // Use rate-controlled publishing if events_per_second is configured
         if let Some(ref time_sim) = input.time_simulation {
             if time_sim.events_per_second.is_some() {
-                self.publish_records_with_rate(&topic, &records, time_sim, key_field.as_deref())
-                    .await?;
+                self.publish_records_with_rate(
+                    &topic,
+                    &records,
+                    time_sim,
+                    key_field.as_deref(),
+                    &event_times,
+                )
+                .await?;
                 log::info!(
                     "Published {} records to topic '{}' with rate control",
                     records.len(),
@@ -1288,7 +1299,7 @@ impl QueryExecutor {
         }
 
         // Default: publish all records as fast as possible
-        self.publish_records(&topic, &records, key_field.as_deref())
+        self.publish_records(&topic, &records, key_field.as_deref(), &event_times)
             .await?;
 
         log::info!("Published {} records to topic '{}'", records.len(), topic);
@@ -1349,8 +1360,8 @@ impl QueryExecutor {
             source
         );
 
-        // Publish records to Kafka (no key field for file sources)
-        self.publish_records(&topic, &records, None).await?;
+        // Publish records to Kafka (no key field for file sources, no time simulation)
+        self.publish_records(&topic, &records, None, &[]).await?;
 
         log::info!(
             "Published {} records from file '{}' to topic '{}'",
@@ -1532,22 +1543,46 @@ impl QueryExecutor {
             })
     }
 
-    /// Convert HashMap records to StreamRecords with optional key field extraction
+    /// Convert HashMap records to StreamRecords with optional key field extraction.
+    ///
+    /// When `event_times` is provided (from time simulation), those are used as
+    /// `record.event_time` (Kafka header timestamp). The `timestamp` payload field
+    /// is left as wall-clock production time from `StreamRecord::new()`.
+    ///
+    /// When `event_times` is empty, falls back to extracting event_time from
+    /// well-known payload fields (backward compatible).
     fn to_stream_records(
         records: &[HashMap<String, FieldValue>],
         key_field: Option<&str>,
+        event_times: &[i64],
     ) -> Vec<StreamRecord> {
         records
             .iter()
-            .map(|record| {
+            .enumerate()
+            .map(|(i, record)| {
                 let mut sr = StreamRecord::new(record.clone());
                 if let Some(kf) = key_field {
                     sr.key = record.get(kf).cloned();
                 }
-                if let Some(ts) = Self::extract_event_time_ms(record) {
-                    sr.timestamp = ts;
-                    // Also set event_time for proper event-time semantics in windows and metrics
-                    sr.event_time = chrono::DateTime::from_timestamp_millis(ts);
+                if let Some(&et) = event_times.get(i) {
+                    // Time simulation: event_time from Kafka header, timestamp stays as wall-clock
+                    sr.event_time = chrono::DateTime::from_timestamp_millis(et);
+                } else if event_times.is_empty() {
+                    // No time simulation: extract from payload fields (backward compatible)
+                    if let Some(ts) = Self::extract_event_time_ms(record) {
+                        sr.timestamp = ts;
+                        sr.event_time = chrono::DateTime::from_timestamp_millis(ts);
+                    }
+                } else {
+                    // event_times shorter than records — should not happen; fall back to payload
+                    log::warn!(
+                        "event_times has {} entries but records has {} — falling back to payload extraction for record {}",
+                        event_times.len(), records.len(), i
+                    );
+                    if let Some(ts) = Self::extract_event_time_ms(record) {
+                        sr.timestamp = ts;
+                        sr.event_time = chrono::DateTime::from_timestamp_millis(ts);
+                    }
                 }
                 sr
             })
@@ -1595,13 +1630,15 @@ impl QueryExecutor {
     /// * `topic` - Kafka topic name
     /// * `records` - Records to publish
     /// * `key_field` - Optional field name to use as Kafka message key
+    /// * `event_times` - Simulated event times for Kafka header (from time simulation)
     async fn publish_records(
         &self,
         topic: &str,
         records: &[HashMap<String, FieldValue>],
         key_field: Option<&str>,
+        event_times: &[i64],
     ) -> TestHarnessResult<()> {
-        let stream_records = Self::to_stream_records(records, key_field);
+        let stream_records = Self::to_stream_records(records, key_field, event_times);
         self.publish_stream_records(topic, &stream_records).await
     }
 
@@ -1622,8 +1659,9 @@ impl QueryExecutor {
         records: &[HashMap<String, FieldValue>],
         config: &TimeSimulationConfig,
         key_field: Option<&str>,
+        event_times: &[i64],
     ) -> TestHarnessResult<()> {
-        let stream_records = Self::to_stream_records(records, key_field);
+        let stream_records = Self::to_stream_records(records, key_field, event_times);
         let mut producer = self.infra.create_async_producer()?;
         let simulated_rate = config.events_per_second.unwrap_or(f64::MAX);
 

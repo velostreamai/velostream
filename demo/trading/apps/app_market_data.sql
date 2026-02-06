@@ -119,7 +119,6 @@ SELECT
     symbol PRIMARY KEY,
     exchange,
     timestamp,
-    timestamp as _event_time,
     price,
     bid_price,
     ask_price,
@@ -129,11 +128,8 @@ SELECT
     vwap,
     market_cap
 FROM in_market_data_stream
-EMIT CHANGES
 WITH (
-    -- Event-time processing configuration
-    'event.time.field' = 'timestamp',
-    'event.time.format' = 'epoch_millis',
+    -- Watermark configuration (event_time comes from Kafka message timestamp)
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '5s',
     'late.data.strategy' = 'dead_letter',
@@ -192,9 +188,6 @@ WITH (
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
     'market_data_ts.auto.offset.reset' = 'earliest',
-    -- Event-time configuration: use the _event_time field from upstream
-    'market_data_ts.event.time.field' = '_event_time',
-    'market_data_ts.event.time.format' = 'epoch_millis',
 
     -- Sink configuration
     'tick_buckets.type' = 'kafka_sink',
@@ -248,17 +241,12 @@ SELECT
 
 FROM market_data_ts m
 LEFT JOIN instrument_reference r ON m.symbol = r.symbol
-
-EMIT CHANGES
 WITH (
     -- Source configuration (from Stage 1)
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.topic.name' = 'market_data_ts',
     'market_data_ts.config_file' = '../configs/kafka_source.yaml',
     'market_data_ts.auto.offset.reset' = 'earliest',
-    -- Event-time configuration: use the _event_time field from upstream
-    'market_data_ts.event.time.field' = '_event_time',
-    'market_data_ts.event.time.format' = 'epoch_millis',
 
     -- Reference table
     'instrument_reference.type' = 'file_source',

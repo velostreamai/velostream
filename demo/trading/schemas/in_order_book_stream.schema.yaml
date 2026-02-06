@@ -25,11 +25,7 @@ fields:
 
   - name: timestamp
     type: integer
-    description: Order book update timestamp (epoch milliseconds)
-    constraints:
-      timestamp_epoch_ms:
-        start: "-5m"
-        end: "now"
+    description: Wall-clock production time (epoch ms). Event time is in the Kafka header (_event_time).
 
   - name: side
     type: string

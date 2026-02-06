@@ -82,14 +82,10 @@ SELECT
     symbol PRIMARY KEY,
     position_size,
     current_pnl,
-    timestamp,
-    timestamp as _event_time
+    timestamp
 FROM in_trading_positions_stream
-EMIT CHANGES
 WITH (
-    -- Event-time processing
-    'event.time.field' = 'timestamp',
-    'event.time.format' = 'epoch_millis',
+    -- Watermark configuration (event_time comes from Kafka message timestamp)
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '2s',
     'late.data.strategy' = 'update_previous',
@@ -190,7 +186,6 @@ LEFT JOIN market_data_ts m
 WHERE ABS(p.position_size * COALESCE(m.price, 0)) > 100000
    OR p.current_pnl < -10000
 
-EMIT CHANGES
 WITH (
     -- Source configurations
     'trading_positions_ts.type' = 'kafka_source',
@@ -292,7 +287,6 @@ FROM trading_positions_ts p
 LEFT JOIN firm_limits f ON true
 LEFT JOIN desk_limits d ON p.desk_id = d.desk_id
 LEFT JOIN trader_limits tl ON p.trader_id = tl.trader_id
-EMIT CHANGES
 WITH (
     -- Source configuration
     'trading_positions_ts.type' = 'kafka_source',

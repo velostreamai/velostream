@@ -352,6 +352,12 @@ precedence over configuration file settings (12-factor app style).
 | `VELOSTREAM_JOB_TIMEOUT_SECS`  | Job timeout in seconds                                 | `86400` |
 | `VELOSTREAM_TABLE_CACHE_SIZE`  | Table registry cache size                              | `100`   |
 
+### Event-Time Configuration
+
+| Environment Variable                | Description                                                                               | Default            |
+|-------------------------------------|-------------------------------------------------------------------------------------------|--------------------|
+| `VELOSTREAM_EVENT_TIME_FALLBACK`    | Behavior when `_EVENT_TIME` is accessed but not set: `processing_time`, `warn`, or `null` | `processing_time`  |
+
 ### Retry Configuration
 
 | Environment Variable              | Description                               | Default       |
