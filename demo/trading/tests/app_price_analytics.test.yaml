@@ -11,7 +11,7 @@ description: |
   Validates price analytics streaming output.
 
 default_timeout_ms: 60000
-default_records: 100
+default_records: 1000
 
 queries:
   # Test price movement alerts
@@ -19,12 +19,12 @@ queries:
     description: Test price movement detection with LAG function
     inputs:
       - source: market_data_ts
-        records: 100
+        records: 1000
         time_simulation:
           start_time: "-1h"
           end_time: "now"
           sequential: true
-          events_per_second: 50
+          events_per_second: 500
     outputs:
       - sink: price_alerts
         assertions:

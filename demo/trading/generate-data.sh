@@ -65,11 +65,11 @@ cd "$SCRIPT_DIR"
 # Data generation configuration per app
 # Format: app_file|topic|data_type|records|timeframe
 declare -a DATA_SPECS=(
-    "apps/app_market_data.sql|in_market_data_stream|Market Ticks (OHLCV)|100|last 1 hour"
-    "apps/app_risk.sql|in_trading_positions_stream|Trading Positions|50|last 1 hour"
-    "apps/app_trading_signals.sql|in_order_book_stream|Order Book Depth|100|last 1 hour"
-    "apps/app_trading_signals.sql|in_market_data_stream_a|Exchange A Quotes|100|last 1 hour"
-    "apps/app_trading_signals.sql|in_market_data_stream_b|Exchange B Quotes|100|last 1 hour"
+    "apps/app_market_data.sql|in_market_data_stream|Market Ticks (OHLCV)|1000|last 1 hour"
+    "apps/app_risk.sql|in_trading_positions_stream|Trading Positions|500|last 1 hour"
+    "apps/app_trading_signals.sql|in_order_book_stream|Order Book Depth|1000|last 1 hour"
+    "apps/app_trading_signals.sql|in_market_data_stream_a|Exchange A Quotes|1000|last 1 hour"
+    "apps/app_trading_signals.sql|in_market_data_stream_b|Exchange B Quotes|1000|last 1 hour"
 )
 
 # Unique apps for iteration
@@ -103,11 +103,14 @@ generate_batch() {
     local batch_num=$1
     local batch_start=$(date +%s)
 
-    echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} ${YELLOW}Batch $batch_num${NC} starting..."
+    echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} ${YELLOW}Batch $batch_num${NC} starting (all apps in parallel)..."
+
+    # Launch all apps in parallel — each writes to independent input topics
+    declare -a PIDS=()
+    declare -a APP_NAMES=()
 
     for app in "${APPS[@]}"; do
         local app_name=$(basename "$app" .sql)
-        local app_start=$(date +%s)
 
         # Count topics for this app
         local topic_count=0
@@ -123,18 +126,33 @@ generate_batch() {
         echo -e "  ${GREEN}▶${NC} $app_name (${topic_count} topics:${topics})"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Generating data: $app_name (batch $batch_num)" >> "$LOG_FILE"
 
-        if RUST_LOG=warn "$VELO_TEST" run "$app" \
+        # Derive spec file from app file: apps/app_foo.sql -> tests/app_foo.test.yaml
+        local spec_file="tests/${app_name}.test.yaml"
+        local app_log="/tmp/velo_gen_${app_name}.log"
+
+        RUST_LOG=warn "$VELO_TEST" run "$app" \
+            --spec "$spec_file" \
             --data-only \
             --kafka "$KAFKA_BROKER" \
             --timeout-ms 120000 \
             -y \
-            >> "$LOG_FILE" 2>&1; then
-            local app_end=$(date +%s)
-            local app_duration=$((app_end - app_start))
-            echo -e "    ${GREEN}✓${NC} completed in ${app_duration}s"
+            > "$app_log" 2>&1 &
+
+        PIDS+=($!)
+        APP_NAMES+=("$app_name")
+    done
+
+    # Wait for all apps to finish and report results
+    local all_ok=true
+    for i in "${!PIDS[@]}"; do
+        if wait "${PIDS[$i]}"; then
+            echo -e "    ${GREEN}✓${NC} ${APP_NAMES[$i]} completed"
+            cat "/tmp/velo_gen_${APP_NAMES[$i]}.log" >> "$LOG_FILE"
         else
-            echo -e "    ${RED}✗${NC} failed (check $LOG_FILE)"
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: $app_name data generation failed" >> "$LOG_FILE"
+            echo -e "    ${RED}✗${NC} ${APP_NAMES[$i]} failed (check $LOG_FILE)"
+            cat "/tmp/velo_gen_${APP_NAMES[$i]}.log" >> "$LOG_FILE"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: ${APP_NAMES[$i]} data generation failed" >> "$LOG_FILE"
+            all_ok=false
         fi
     done
 

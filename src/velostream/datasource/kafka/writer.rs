@@ -664,7 +664,9 @@ impl KafkaDataWriter {
 
     /// Spawn a new poll thread for async delivery confirmation
     ///
-    /// The poll thread runs poll(0) in a tight loop to process delivery callbacks.
+    /// The poll thread runs poll(0) to process delivery callbacks with adaptive
+    /// backoff based on `in_flight_count()`: tight-loops when messages are in
+    /// flight, backs off to 1ms then 10ms sleep when idle.
     /// This is stopped during flush() to avoid contention, then restarted after.
     fn spawn_poll_thread(
         producer: Arc<BaseProducer<DefaultProducerContext>>,
@@ -673,12 +675,26 @@ impl KafkaDataWriter {
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             log::debug!("KafkaDataWriter: Poll thread started for topic '{}'", topic);
+            let mut idle_streak: u32 = 0;
             while !poll_stop.load(Ordering::Relaxed) {
-                // poll(0) = process callbacks immediately, no blocking
-                // This runs at 100% CPU but is required for maximum throughput
-                // to keep up with high-speed message production.
                 producer.poll(Duration::from_millis(0));
+
+                if producer.in_flight_count() == 0 {
+                    idle_streak = idle_streak.saturating_add(1);
+                    let sleep_ms = match idle_streak {
+                        0..=100 => 0,
+                        101..=1000 => 1,
+                        _ => 10,
+                    };
+                    if sleep_ms > 0 {
+                        thread::sleep(Duration::from_millis(sleep_ms));
+                    }
+                } else {
+                    idle_streak = 0;
+                }
             }
+            // Drain remaining callbacks before exit
+            producer.poll(Duration::from_millis(100));
             log::debug!("KafkaDataWriter: Poll thread stopped for topic '{}'", topic);
         })
     }

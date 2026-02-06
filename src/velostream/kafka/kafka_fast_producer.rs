@@ -264,14 +264,26 @@ impl AsyncPolledProducer {
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             log::debug!("AsyncPolledProducer: Poll thread started");
+            let mut idle_streak: u32 = 0;
             while !poll_stop.load(Ordering::Relaxed) {
-                // poll(0) = process callbacks immediately
                 producer.poll(Duration::from_millis(0));
-                // Sleep 1ms to prevent tight CPU spinning (~1-5% CPU instead of 100%)
-                thread::sleep(Duration::from_millis(1));
+
+                if producer.in_flight_count() == 0 {
+                    idle_streak = idle_streak.saturating_add(1);
+                    let sleep_ms = match idle_streak {
+                        0..=100 => 0,
+                        101..=1000 => 1,
+                        _ => 10,
+                    };
+                    if sleep_ms > 0 {
+                        thread::sleep(Duration::from_millis(sleep_ms));
+                    }
+                } else {
+                    idle_streak = 0;
+                }
             }
-            // Drain any remaining callbacks before exiting
-            producer.poll(Duration::from_millis(50));
+            // Drain remaining callbacks before exiting
+            producer.poll(Duration::from_millis(100));
             log::debug!("AsyncPolledProducer: Poll thread stopped (callbacks drained)");
         })
     }

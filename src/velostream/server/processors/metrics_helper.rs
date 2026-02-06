@@ -715,73 +715,82 @@ impl ProcessorMetricsHelper {
                         // Accumulate metric into batch (no lock acquired yet)
                         batch_fn(&mut batch, annotation, &label_values, numeric_value);
 
-                        // Push to remote-write with event timestamp if available
-                        // This enables proper time-series visualization in Grafana using
-                        // the actual event time rather than scrape time
+                        // Push to remote-write with event timestamp if available,
+                        // falling back to processing time (record.timestamp).
+                        // This ensures @metric records always reach remote-write.
                         if metrics.has_remote_write() {
-                            if let Some(event_time) = record.event_time {
-                                let timestamp_ms = event_time.timestamp_millis();
-                                if let Some(value) = numeric_value {
-                                    // Determine metric type and push accordingly
-                                    match annotation.metric_type {
-                                        MetricType::Counter => {
-                                            // For counters, we push a value of 1 (the increment)
-                                            metrics.push_counter_with_timestamp(
-                                                &annotation.name,
-                                                &annotation.labels,
-                                                &label_values,
-                                                1.0,
-                                                timestamp_ms,
-                                            );
-                                        }
-                                        MetricType::Gauge => {
-                                            metrics.push_gauge_with_timestamp(
-                                                &annotation.name,
-                                                &annotation.labels,
-                                                &label_values,
-                                                value,
-                                                timestamp_ms,
-                                            );
-                                        }
-                                        MetricType::Histogram => {
-                                            metrics.push_histogram_with_timestamp(
-                                                &annotation.name,
-                                                &annotation.labels,
-                                                &label_values,
-                                                value,
-                                                timestamp_ms,
-                                            );
-                                        }
+                            let timestamp_ms = if let Some(event_time) = record.event_time {
+                                event_time.timestamp_millis()
+                            } else {
+                                log::debug!(
+                                    "Metric '{}' has no event_time - using processing time for remote-write",
+                                    annotation.name
+                                );
+                                record.timestamp
+                            };
+
+                            if let Some(value) = numeric_value {
+                                match annotation.metric_type {
+                                    MetricType::Counter => {
+                                        metrics.push_counter_with_timestamp(
+                                            &annotation.name,
+                                            &annotation.labels,
+                                            &label_values,
+                                            1.0,
+                                            timestamp_ms,
+                                        );
                                     }
-                                } else if annotation.metric_type == MetricType::Counter {
-                                    // Counters without a field just increment by 1
-                                    metrics.push_counter_with_timestamp(
-                                        &annotation.name,
-                                        &annotation.labels,
-                                        &label_values,
-                                        1.0,
-                                        timestamp_ms,
-                                    );
+                                    MetricType::Gauge => {
+                                        metrics.push_gauge_with_timestamp(
+                                            &annotation.name,
+                                            &annotation.labels,
+                                            &label_values,
+                                            value,
+                                            timestamp_ms,
+                                        );
+                                    }
+                                    MetricType::Histogram => {
+                                        metrics.push_histogram_with_timestamp(
+                                            &annotation.name,
+                                            &annotation.labels,
+                                            &label_values,
+                                            value,
+                                            timestamp_ms,
+                                        );
+                                    }
                                 }
+                            } else if annotation.metric_type == MetricType::Counter {
+                                metrics.push_counter_with_timestamp(
+                                    &annotation.name,
+                                    &annotation.labels,
+                                    &label_values,
+                                    1.0,
+                                    timestamp_ms,
+                                );
                             }
                         }
                     }
                     self.record_emission_overhead(record_start.elapsed().as_micros() as u64);
                 }
 
-                // Phase 4: SINGLE LOCK ACQUISITION for all accumulated metrics
-                if let Err(e) = metrics.emit_batch(batch) {
-                    debug!("Job '{}': Failed to emit metric batch: {:?}", job_name, e);
-                }
-
-                // Phase 5: Flush remote-write buffer if metrics were pushed
-                // This ensures metrics with event timestamps are sent to Prometheus
+                // Phase 4: Emit metrics via the appropriate path
+                //
+                // When remote-write is enabled, ONLY push via remote-write with event
+                // timestamps.  Updating the scrape registry would cause Prometheus to
+                // record the same metric at scrape-time ("now"), which poisons the
+                // time series and causes remote-write samples with historical event
+                // timestamps to be rejected as out-of-order.
                 if metrics.has_remote_write() {
                     if let Err(e) = metrics.flush_remote_write().await {
                         debug!(
                             "Job '{}': Failed to flush remote-write metrics: {:?}",
                             job_name, e
                         );
+                    }
+                } else {
+                    // No remote-write: fall back to scrape-based emission
+                    if let Err(e) = metrics.emit_batch(batch) {
+                        debug!("Job '{}': Failed to emit metric batch: {:?}", job_name, e);
                     }
                 }
             }

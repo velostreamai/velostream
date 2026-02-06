@@ -9,7 +9,7 @@ description: |
   Validates cumulative P&L and exposure calculations.
 
 default_timeout_ms: 60000
-default_records: 100
+default_records: 500
 
 queries:
   # Test trading positions with event-time processing
@@ -18,12 +18,12 @@ queries:
     inputs:
       - source: in_trading_positions_stream
         schema: trading_positions
-        records: 100
+        records: 500
         time_simulation:
           start_time: "-1h"
           end_time: "now"
           sequential: true
-          events_per_second: 50
+          events_per_second: 250
     outputs:
       - sink: trading_positions_ts
         assertions:

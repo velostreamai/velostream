@@ -12,7 +12,7 @@ description: |
   and market hours enforcement using EXISTS and IN subqueries.
 
 default_timeout_ms: 60000
-default_records: 100
+default_records: 1000
 
 queries:
   # Test regulatory compliance filtering
@@ -20,12 +20,12 @@ queries:
     description: Test compliance filtering with NOT EXISTS subquery
     inputs:
       - source: market_data_ts
-        records: 100
+        records: 1000
         time_simulation:
           start_time: "-1h"
           end_time: "now"
           sequential: true
-          events_per_second: 50
+          events_per_second: 500
     outputs:
       - sink: compliant_market_data
         assertions:
@@ -63,3 +63,27 @@ queries:
         name: velo_compliant_market_data_records_total
         operator: greater_than
         value: 0
+
+  # Test market hours enforcement with IN/NOT IN subqueries
+  - name: active_hours_market_data
+    description: Test active trading hours filter with instrument schedules and halt checks
+    inputs:
+      - source: market_data_ts
+        from_previous: compliant_market_data
+      - source: instrument_schedules
+        data_file: ../data/instrument_schedules.csv
+      - source: trading_halts
+        data_file: ../data/trading_halts.csv
+    outputs:
+      - sink: active_hours_market_data
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          - type: no_nulls
+            fields: [symbol, exchange, price]
+
+          - type: field_values
+            field: price
+            operator: greater_than
+            value: 0
