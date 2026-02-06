@@ -109,6 +109,16 @@ WITH (
 -- @name: comprehensive_risk_monitor
 -- @description: Joins positions with market data for real-time risk calculations
 -- -----------------------------------------------------------------------------
+-- @metric: velo_risk_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Total risk alerts by classification"
+-- @metric_labels: risk_classification
+--
+-- @metric: velo_risk_position_value
+-- @metric_type: gauge
+-- @metric_help: "Position value triggering risk alert"
+-- @metric_labels: risk_classification
+-- @metric_field: position_value
 
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
@@ -217,6 +227,15 @@ WITH (
 -- @name: risk_hierarchy_validation
 -- @description: Multi-tier hierarchical risk limit validation (firm → desk → trader)
 -- -----------------------------------------------------------------------------
+-- @metric: velo_risk_hierarchy_validation_total
+-- @metric_type: counter
+-- @metric_help: "Total hierarchy validation checks"
+-- @metric_labels: hierarchy_validation_result
+--
+-- @metric: velo_risk_breach_total
+-- @metric_type: counter
+-- @metric_help: "Total risk limit breaches by type and severity"
+-- @metric_labels: breach_type, breach_severity
 
 CREATE STREAM risk_hierarchy_validation AS
 SELECT

@@ -33,11 +33,11 @@ fields:
 
   - name: side
     type: string
-    description: Order side (BUY or SELL)
+    description: Order side (BUY or SELL) - skewed to create detectable imbalance signals
     constraints:
       enum_values:
         values: [BUY, SELL]
-        weights: [0.50, 0.50]
+        weights: [0.72, 0.28]
 
   - name: price
     type:

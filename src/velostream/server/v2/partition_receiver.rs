@@ -373,9 +373,11 @@ impl PartitionReceiver {
             self.queue.is_some()
         );
 
-        // Register @metric annotations with Prometheus before processing
-        // This must happen before any emit_sql_metrics() calls
-        self.register_sql_metrics().await;
+        // Register @metric annotations with Prometheus only on partition 0
+        // to avoid N×partition duplicate registration spam (16 partitions = 16× attempts)
+        if self.partition_id == 0 {
+            self.register_sql_metrics().await;
+        }
 
         let mut total_records = 0u64;
         let mut batch_count = 0u64;

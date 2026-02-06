@@ -1454,10 +1454,12 @@ overrides:
                 .find(|m| matches!(m.metric_type, MetricType::Histogram));
 
             if let Some(metric) = latency_metric {
+                // Remote-write pushes histogram observations as gauges (no _bucket series),
+                // so use quantile_over_time on the raw gauge for percentile approximation
                 panels.push(self.create_gauge_panel(
                     panel_id,
                     &format!("P95 {}", metric.help),
-                    &format!("histogram_quantile(0.95, rate({}_bucket[5m]))", metric.name),
+                    &format!("quantile_over_time(0.95, {}[5m])", metric.name),
                     12,
                     y_pos,
                     6,
@@ -1470,7 +1472,7 @@ overrides:
                 panels.push(self.create_gauge_panel(
                     panel_id,
                     &format!("P99 {}", metric.help),
-                    &format!("histogram_quantile(0.99, rate({}_bucket[5m]))", metric.name),
+                    &format!("quantile_over_time(0.99, {}[5m])", metric.name),
                     18,
                     y_pos,
                     6,
@@ -1495,8 +1497,9 @@ overrides:
             let expr = match metric.metric_type {
                 MetricType::Counter => format!("rate({}[5m])", metric.name),
                 MetricType::Gauge => metric.name.clone(),
+                // Remote-write pushes histogram observations as gauges (no _bucket series)
                 MetricType::Histogram => {
-                    format!("histogram_quantile(0.95, rate({}_bucket[5m]))", metric.name)
+                    format!("quantile_over_time(0.95, {}[5m])", metric.name)
                 }
             };
 

@@ -376,7 +376,9 @@ async fn test_division_in_having_executes() {
 
         // Extract actual values from results
         let trade_cnt = extract_integer(&results_text, "trade_cnt");
-        let total_vol = extract_float(&results_text, "total_vol");
+        // total_vol may be Integer (SUM of integer volumes) or Float
+        let total_vol = extract_float(&results_text, "total_vol")
+            .or_else(|| extract_integer(&results_text, "total_vol").map(|i| i as f64));
         let symbol = extract_string(&results_text, "symbol");
 
         println!(

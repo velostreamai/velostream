@@ -113,17 +113,19 @@ if [ "$CLEAN_DATA" = true ]; then
         echo -e "${YELLOW}ℹ️  Kafka not running, skipping topic cleanup${NC}"
     fi
 
-    # Clear Prometheus data if Prometheus container exists
-    if docker ps -a -q --filter "name=velo-prometheus" 2>/dev/null | grep -q .; then
-        echo -e "${YELLOW}📊 Clearing Prometheus data...${NC}"
+    # Clear Prometheus data - remove container AND volume
+    echo -e "${YELLOW}📊 Clearing Prometheus data...${NC}"
+    docker rm -f velo-prometheus 2>/dev/null || true
+    # Remove the data volume to clear all historical metrics
+    docker volume rm trading_prometheus_data 2>/dev/null || true
+    docker volume rm demo_trading_prometheus_data 2>/dev/null || true
+    echo -e "${GREEN}✓ Prometheus container and data volume removed${NC}"
 
-        # Stop prometheus, clear data, restart
-        docker stop velo-prometheus 2>/dev/null || true
-        docker exec velo-prometheus rm -rf /prometheus/data/* 2>/dev/null || true
-
-        # Alternative: remove and recreate the container on next start
-        echo -e "${GREEN}✓ Prometheus data will be fresh on next start${NC}"
-    fi
+    # Also clear Grafana data volume for clean dashboards
+    docker rm -f velo-grafana 2>/dev/null || true
+    docker volume rm trading_grafana_data 2>/dev/null || true
+    docker volume rm demo_trading_grafana_data 2>/dev/null || true
+    echo -e "${GREEN}✓ Grafana container and data volume removed${NC}"
 
     # Clean up log files
     echo -e "${YELLOW}📄 Cleaning up log files...${NC}"
@@ -154,13 +156,45 @@ else
     echo -e "${GREEN}✓ No Docker containers running${NC}"
 fi
 
+# Prompt to clean data if not already requested
+if [ "$CLEAN_DATA" = false ]; then
+    echo ""
+    echo -e "${YELLOW}📦 Demo data (Kafka topics, Prometheus/Grafana volumes) is still preserved.${NC}"
+    read -r -p "   Clean all stored data? [y/N] " response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}🧹 Cleaning all demo data...${NC}"
+
+        # Clear Kafka topics if Kafka is still reachable
+        if docker ps -q --filter "name=simple-kafka" 2>/dev/null | grep -q .; then
+            echo -e "${YELLOW}📦 Deleting Kafka topics...${NC}"
+            TOPICS=$(docker exec simple-kafka kafka-topics --list --bootstrap-server localhost:9092 2>/dev/null | grep -E "^(in_|market_data|tick_|enriched_|price_|volume_|order_|arbitrage_|trading_|risk_|compliant_|active_)" || true)
+            for topic in $TOPICS; do
+                docker exec simple-kafka kafka-topics --delete --topic "$topic" --bootstrap-server localhost:9092 2>/dev/null || true
+                echo -e "  ${GREEN}✓ Deleted topic '$topic'${NC}"
+            done
+            echo -e "${GREEN}✓ Kafka topics cleared${NC}"
+        fi
+
+        # Clear Prometheus data
+        docker rm -f velo-prometheus 2>/dev/null || true
+        docker volume rm trading_prometheus_data demo_trading_prometheus_data 2>/dev/null || true
+        echo -e "${GREEN}✓ Prometheus data removed${NC}"
+
+        # Clear Grafana data
+        docker rm -f velo-grafana 2>/dev/null || true
+        docker volume rm trading_grafana_data demo_trading_grafana_data 2>/dev/null || true
+        echo -e "${GREEN}✓ Grafana data removed${NC}"
+
+        # Clean log files
+        rm -f /tmp/velo_*.log /tmp/demo_output.log 2>/dev/null || true
+        echo -e "${GREEN}✓ Log files cleaned${NC}"
+    else
+        echo -e "${GREEN}✓ Data preserved for next run${NC}"
+    fi
+fi
+
 echo ""
 echo -e "${GREEN}🎉 Financial Trading Demo stopped successfully!${NC}"
-echo ""
-echo -e "${BLUE}Status:${NC}"
-echo "• All demo processes terminated"
-echo "• All Docker services stopped" 
-echo "• System ready for next demo run"
 echo ""
 echo -e "${BLUE}To restart:${NC}"
 echo "• Run: ./start-demo.sh"

@@ -417,7 +417,7 @@
       "targets": [
         {
           "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
-          "expr": "rate(velo_pipeline_operation_duration_seconds_sum[5m]) / rate(velo_pipeline_operation_duration_seconds_count[5m])",
+          "expr": "velo_pipeline_operation_duration_seconds",
           "legendFormat": "{{job_name}} - {{operation}}",
           "refId": "A"
         }
@@ -515,7 +515,7 @@
       "targets": [
         {
           "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
-          "expr": "up{job=\"velo-sql-telemetry\"}",
+          "expr": "up{job=~\"app_.*\"}",
           "legendFormat": "{{job}}",
           "refId": "A"
         }

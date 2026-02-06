@@ -65,11 +65,6 @@
 -- @metric_type: counter
 -- @metric_help: "Total compliant records processed"
 -- @metric_labels: symbol
---
--- @metric: velo_compliant_market_data_blocked_total
--- @metric_type: counter
--- @metric_help: "Total blocked records (compliance failures)"
--- @metric_labels: symbol
 
 CREATE STREAM compliant_market_data AS
 SELECT
@@ -119,7 +114,7 @@ WITH (
 -- @metric: velo_active_hours_market_data_records_total
 -- @metric_type: counter
 -- @metric_help: "Total records during active trading hours"
--- @metric_labels: market_session
+-- @metric_labels: current_session
 
 CREATE STREAM active_hours_market_data AS
 SELECT
@@ -132,13 +127,7 @@ SELECT
     m._event_time,
     m.timestamp,
     'ACTIVE_TRADING' as market_session,
-    CASE
-        WHEN h.halt_start_time IS NOT NULL THEN 'HALTED'
-        WHEN i.session_type = 'REGULAR' THEN 'REGULAR_HOURS'
-        WHEN i.session_type = 'PRE_MARKET' THEN 'PRE_MARKET'
-        WHEN i.session_type = 'POST_MARKET' THEN 'POST_MARKET'
-        ELSE 'UNKNOWN'
-    END as current_session
+    'REGULAR_HOURS' as current_session
 FROM market_data_ts m
 WHERE m.symbol IN (
     SELECT symbol FROM instrument_schedules i

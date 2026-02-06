@@ -292,11 +292,20 @@ impl StreamJobServer {
 
                     let obs_lock = obs_manager_clone.read().await;
                     if let Some(metrics_provider) = obs_lock.metrics() {
-                        // Collect real system metrics using sysinfo
+                        // Collect process-level metrics using sysinfo
                         let (cpu_usage, memory_usage) = tokio::task::spawn_blocking(|| {
-                            use sysinfo::System;
-                            let mut system = System::new_all();
-                            system.refresh_all();
+                            use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+                            let pid = Pid::from_u32(std::process::id());
+                            let mut system = System::new();
+
+                            // Refresh CPU info for average calculation
+                            let refresh_kind = ProcessRefreshKind::new().with_cpu().with_memory();
+                            system.refresh_cpu_all();
+                            system.refresh_processes_specifics(
+                                ProcessesToUpdate::Some(&[pid]),
+                                true,
+                                refresh_kind,
+                            );
 
                             // Get average CPU usage across all cores
                             let total_cpu: f64 =
@@ -308,10 +317,11 @@ impl StreamJobServer {
                                 0.0
                             };
 
-                            // Get used memory
-                            let used_memory = system.used_memory();
+                            // Get process RSS memory (not total system memory)
+                            let process_memory =
+                                system.process(pid).map(|p| p.memory()).unwrap_or(0);
 
-                            (avg_cpu, used_memory)
+                            (avg_cpu, process_memory)
                         })
                         .await
                         .unwrap_or((0.0, 0));
@@ -1146,6 +1156,8 @@ impl StreamJobServer {
                                                 right,
                                                 writer,
                                                 Some(shared_stats_for_spawn.clone()),
+                                                observability_for_spawn.clone(),
+                                                Some(Arc::new(parsed_query.clone())),
                                             )
                                             .await
                                         {

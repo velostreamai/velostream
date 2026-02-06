@@ -12,15 +12,18 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use tokio::sync::Mutex;
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::SharedJobStats;
 use crate::velostream::server::processors::common::JobExecutionStats;
+use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::v2::source_coordinator::{
     SourceCoordinator, SourceCoordinatorConfig,
 };
+use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::SelectField;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::StreamRecord;
@@ -159,6 +162,73 @@ impl JoinJobProcessor {
         })
     }
 
+    /// Extract job name from query for metric emission
+    fn extract_job_name(query: &StreamingQuery) -> String {
+        match query {
+            StreamingQuery::CreateStream { name, .. } => name.clone(),
+            StreamingQuery::CreateTable { name, .. } => name.clone(),
+            StreamingQuery::Select { .. } => "select_query".to_string(),
+            _ => "unknown_query".to_string(),
+        }
+    }
+
+    /// Register SQL-annotated metrics (@metric annotations) with Prometheus
+    async fn register_sql_metrics(
+        metrics_helper: &ProcessorMetricsHelper,
+        query: &StreamingQuery,
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+    ) {
+        if let Err(e) = metrics_helper
+            .register_counter_metrics(query, observability, job_name)
+            .await
+        {
+            warn!(
+                "JoinJobProcessor: Failed to register counter metrics for '{}': {}",
+                job_name, e
+            );
+        }
+
+        if let Err(e) = metrics_helper
+            .register_gauge_metrics(query, observability, job_name)
+            .await
+        {
+            warn!(
+                "JoinJobProcessor: Failed to register gauge metrics for '{}': {}",
+                job_name, e
+            );
+        }
+
+        if let Err(e) = metrics_helper
+            .register_histogram_metrics(query, observability, job_name)
+            .await
+        {
+            warn!(
+                "JoinJobProcessor: Failed to register histogram metrics for '{}': {}",
+                job_name, e
+            );
+        }
+    }
+
+    /// Emit SQL-annotated metrics for a batch of output records
+    async fn emit_sql_metrics(
+        metrics_helper: &ProcessorMetricsHelper,
+        query: &StreamingQuery,
+        records: &[Arc<StreamRecord>],
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+    ) {
+        metrics_helper
+            .emit_counter_metrics(query, records, observability, job_name)
+            .await;
+        metrics_helper
+            .emit_gauge_metrics(query, records, observability, job_name)
+            .await;
+        metrics_helper
+            .emit_histogram_metrics(query, records, observability, job_name)
+            .await;
+    }
+
     /// Process a stream-stream join job
     ///
     /// # Arguments
@@ -166,6 +236,8 @@ impl JoinJobProcessor {
     /// * `right_reader` - Reader for the right source
     /// * `writer` - Writer for join output (optional)
     /// * `shared_stats` - Shared stats for real-time monitoring (optional)
+    /// * `observability` - Optional observability manager for Prometheus metrics
+    /// * `query` - Optional parsed query with @metric annotations
     ///
     /// # Returns
     /// Statistics about the join execution
@@ -177,6 +249,8 @@ impl JoinJobProcessor {
         right_reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
         shared_stats: Option<SharedJobStats>,
+        observability: Option<SharedObservabilityManager>,
+        query: Option<Arc<StreamingQuery>>,
     ) -> Result<JoinJobStats, SqlError> {
         let start_time = Instant::now();
         let mut stats = JoinJobStats::default();
@@ -186,6 +260,14 @@ impl JoinJobProcessor {
             "JoinJobProcessor: Starting join between '{}' and '{}'",
             left_name, right_name
         );
+
+        // Set up metrics helper and register SQL-annotated metrics if query is provided
+        let metrics_helper = ProcessorMetricsHelper::new();
+        let job_name_for_metrics = query.as_ref().map(|q| Self::extract_job_name(q));
+
+        if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
+            Self::register_sql_metrics(&metrics_helper, q, &observability, jn).await;
+        }
 
         // Create the interval join processor
         let mut join_processor = IntervalJoinProcessor::new(self.config.join_config.clone());
@@ -275,6 +357,22 @@ impl JoinJobProcessor {
 
                         // Flush when buffer is full
                         if output_buffer.len() >= self.config.output_batch_size {
+                            // Emit metrics for the flushed batch
+                            if let (Some(q), Some(jn)) =
+                                (query.as_ref(), job_name_for_metrics.as_ref())
+                            {
+                                let arc_records: Vec<Arc<StreamRecord>> =
+                                    output_buffer.iter().map(|r| Arc::new(r.clone())).collect();
+                                Self::emit_sql_metrics(
+                                    &metrics_helper,
+                                    q,
+                                    &arc_records,
+                                    &observability,
+                                    jn,
+                                )
+                                .await;
+                            }
+
                             if let Some(ref writer) = writer {
                                 let mut w = writer.lock().await;
                                 for rec in output_buffer.drain(..) {
@@ -300,6 +398,21 @@ impl JoinJobProcessor {
                     // Timeout - flush any pending output then continue polling
                     // This ensures data is written even when batch size isn't reached
                     if !output_buffer.is_empty() {
+                        // Emit metrics for the flushed batch
+                        if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref())
+                        {
+                            let arc_records: Vec<Arc<StreamRecord>> =
+                                output_buffer.iter().map(|r| Arc::new(r.clone())).collect();
+                            Self::emit_sql_metrics(
+                                &metrics_helper,
+                                q,
+                                &arc_records,
+                                &observability,
+                                jn,
+                            )
+                            .await;
+                        }
+
                         if let Some(ref writer) = writer {
                             let mut w = writer.lock().await;
                             debug!(
@@ -343,6 +456,13 @@ impl JoinJobProcessor {
 
         // Flush remaining output
         if !output_buffer.is_empty() {
+            // Emit metrics for the final batch
+            if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
+                let arc_records: Vec<Arc<StreamRecord>> =
+                    output_buffer.iter().map(|r| Arc::new(r.clone())).collect();
+                Self::emit_sql_metrics(&metrics_helper, q, &arc_records, &observability, jn).await;
+            }
+
             if let Some(ref writer) = writer {
                 let mut w = writer.lock().await;
                 for rec in output_buffer.drain(..) {
@@ -567,6 +687,8 @@ mod tests {
                 right_reader,
                 None,
                 Some(shared_stats.clone()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -605,6 +727,8 @@ mod tests {
                 right_reader,
                 Some(Box::new(writer)),
                 Some(shared_stats.clone()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -642,6 +766,8 @@ mod tests {
                 right_reader,
                 None,
                 Some(shared_stats.clone()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -732,6 +858,8 @@ mod tests {
                 right_reader,
                 Some(Box::new(writer)),
                 Some(shared_stats.clone()),
+                None,
+                None,
             )
             .await
             .unwrap();

@@ -1,10 +1,11 @@
-# Market Data Stream Schema for Trading Demo
+# Market Data Stream Schema for Trading Demo - Exchange B
 #
 # Uses Geometric Brownian Motion (GBM) for realistic price paths.
-# Each symbol has its own independent price trajectory.
+# Exchange B has slightly lower prices than Exchange A to create
+# occasional cross-exchange arbitrage opportunities for the demo.
 
-name: in_market_data_stream
-description: Raw market data feed with GBM-based realistic price simulation
+name: in_market_data_stream_b
+description: Exchange B market data feed with GBM-based price simulation (lower prices)
 record_count: 100
 
 fields:
@@ -35,15 +36,15 @@ fields:
   - name: price
     type: float
     nullable: false
-    description: Price using Geometric Brownian Motion for realistic paths
+    description: Price using GBM - Exchange B trades slightly lower than Exchange A
     constraints:
       range:
-        min: 150.0   # Initial price for new symbols
-        max: 400.0   # Price ceiling
+        min: 148.0   # Slightly lower base than Exchange A (150)
+        max: 395.0   # Slightly lower ceiling than Exchange A (400)
       distribution:
         random_walk:
-          drift: 0.0001       # Slight upward bias
-          volatility: 0.02    # 2% volatility per tick
+          drift: -0.0002      # Slight downward bias (vs Exchange A's +0.0001)
+          volatility: 0.025   # Higher volatility creates more arbitrage windows
           group_by: symbol    # Independent price path per symbol
 
   - name: bid_price

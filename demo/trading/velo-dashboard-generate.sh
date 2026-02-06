@@ -129,6 +129,10 @@ PROMETHEUS_YML="global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+storage:
+  tsdb:
+    out_of_order_time_window: 2h  # Accept samples up to 2h old for historical event-time data
+
 scrape_configs:
   - job_name: 'prometheus'
     static_configs:

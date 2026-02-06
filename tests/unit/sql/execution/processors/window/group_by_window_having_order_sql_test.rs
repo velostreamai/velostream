@@ -242,53 +242,46 @@ async fn test_group_by_window_having_complex_condition() {
         create_test_record(4, 100.0, 2500), // customer_id: 0, count=2, sum=300.0
     ];
 
-    match execute_windowed_query(query, records).await {
-        Ok(results) => {
-            // Note: Complex HAVING with multiple aggregates may have limited support
-            // This test documents the current behavior without asserting expectations
-            if !results.is_empty() {
-                // Verify each result has the expected fields
-                for result in &results {
-                    assert!(
-                        result.fields.contains_key("customer_id"),
-                        "Missing customer_id field"
-                    );
-                    assert!(result.fields.contains_key("cnt"), "Missing cnt field");
-                    assert!(result.fields.contains_key("total"), "Missing total field");
+    let results = execute_windowed_query(query, records)
+        .await
+        .expect("GROUP BY → WINDOW → HAVING with complex condition failed");
 
-                    // Validate HAVING clause: COUNT(*) > 1 AND SUM(amount) > 150.0
-                    let count_valid =
-                        if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
-                            *count > 1
-                        } else {
-                            false
-                        };
+    assert!(
+        !results.is_empty(),
+        "BUG: compound HAVING with AND returned 0 results"
+    );
 
-                    let sum_valid =
-                        if let Some(FieldValue::Float(sum_value)) = result.fields.get("total") {
-                            *sum_value > 150.0
-                        } else {
-                            false
-                        };
+    // Verify each result has the expected fields
+    for result in &results {
+        assert!(
+            result.fields.contains_key("customer_id"),
+            "Missing customer_id field"
+        );
+        assert!(result.fields.contains_key("cnt"), "Missing cnt field");
+        assert!(result.fields.contains_key("total"), "Missing total field");
 
-                    assert!(
-                        count_valid && sum_valid,
-                        "HAVING clause failed: COUNT(*) > 1 AND SUM(amount) > 150.0 not satisfied"
-                    );
-                }
-                println!(
-                    "✓ GROUP BY → WINDOW → HAVING with complex condition successful with {} results",
-                    results.len()
-                );
-            }
-        }
-        Err(e) => {
-            panic!(
-                "GROUP BY → WINDOW → HAVING with complex condition failed: {}",
-                e
-            );
-        }
+        // Validate HAVING clause: COUNT(*) > 1 AND SUM(amount) > 150.0
+        let count_valid = if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
+            *count > 1
+        } else {
+            false
+        };
+
+        let sum_valid = if let Some(FieldValue::Float(sum_value)) = result.fields.get("total") {
+            *sum_value > 150.0
+        } else {
+            false
+        };
+
+        assert!(
+            count_valid && sum_valid,
+            "HAVING clause failed: COUNT(*) > 1 AND SUM(amount) > 150.0 not satisfied"
+        );
     }
+    println!(
+        "✓ GROUP BY → WINDOW → HAVING with complex condition successful with {} results",
+        results.len()
+    );
 }
 
 #[tokio::test]
@@ -314,64 +307,64 @@ async fn test_group_by_window_having_arithmetic_expressions() {
     // HAVING clause should filter results
     // Results should include AAPL and MSFT (both have 2+ trades and meet other conditions)
     // Should NOT include GOOGL (only 1 trade, fails COUNT(*) > 1)
-    if !results.is_empty() {
-        // Validate comprehensive conditions for each result
-        for (idx, result) in results.iter().enumerate() {
-            // Verify trade_count is > 1 (COUNT(*) > 1)
-            if let Some(FieldValue::Integer(count)) = result.fields.get("trade_count") {
+    assert!(
+        !results.is_empty(),
+        "BUG: compound HAVING with AND returned 0 results"
+    );
+
+    // Validate comprehensive conditions for each result
+    for (idx, result) in results.iter().enumerate() {
+        // Verify trade_count is > 1 (COUNT(*) > 1)
+        if let Some(FieldValue::Integer(count)) = result.fields.get("trade_count") {
+            assert!(
+                *count > 1,
+                "Result {}: trade_count should be > 1, got {}",
+                idx,
+                count
+            );
+        }
+
+        // Verify avg_price is > 100.0 (AVG(price) > 100.0)
+        if let Some(avg_price_field) = result.fields.get("avg_price") {
+            let avg_price = match avg_price_field {
+                FieldValue::Float(v) => Some(*v),
+                FieldValue::ScaledInteger(v, _) => Some(*v as f64),
+                _ => None,
+            };
+
+            if let Some(val) = avg_price {
                 assert!(
-                    *count > 1,
-                    "Result {}: trade_count should be > 1, got {}",
+                    val > 100.0,
+                    "Result {}: avg_price should be > 100.0, got {}",
                     idx,
-                    count
+                    val
                 );
             }
+        }
 
-            // Verify avg_price is > 100.0 (AVG(price) > 100.0)
-            if let Some(avg_price_field) = result.fields.get("avg_price") {
-                let avg_price = match avg_price_field {
-                    FieldValue::Float(v) => Some(*v),
-                    FieldValue::ScaledInteger(v, _) => Some(*v as f64),
-                    _ => None,
-                };
+        // Verify max_volume is > 500.0 (MAX(volume) > 500.0)
+        if let Some(max_volume_field) = result.fields.get("max_volume") {
+            let max_volume = match max_volume_field {
+                FieldValue::Float(v) => Some(*v),
+                FieldValue::ScaledInteger(v, _) => Some(*v as f64),
+                FieldValue::Integer(v) => Some(*v as f64),
+                _ => None,
+            };
 
-                if let Some(val) = avg_price {
-                    assert!(
-                        val > 100.0,
-                        "Result {}: avg_price should be > 100.0, got {}",
-                        idx,
-                        val
-                    );
-                }
-            }
-
-            // Verify max_volume is > 500.0 (MAX(volume) > 500.0)
-            if let Some(max_volume_field) = result.fields.get("max_volume") {
-                let max_volume = match max_volume_field {
-                    FieldValue::Float(v) => Some(*v),
-                    FieldValue::ScaledInteger(v, _) => Some(*v as f64),
-                    FieldValue::Integer(v) => Some(*v as f64),
-                    _ => None,
-                };
-
-                if let Some(val) = max_volume {
-                    assert!(
-                        val > 500.0,
-                        "Result {}: max_volume should be > 500.0, got {}",
-                        idx,
-                        val
-                    );
-                }
+            if let Some(val) = max_volume {
+                assert!(
+                    val > 500.0,
+                    "Result {}: max_volume should be > 500.0, got {}",
+                    idx,
+                    val
+                );
             }
         }
-        println!(
-            "✓ GROUP BY → WINDOW → HAVING with arithmetic expressions successful with {} results",
-            results.len()
-        );
-    } else {
-        // Empty results are acceptable - the window might not have closed yet
-        println!("⚠️  No results from windowed HAVING query (window may not have closed)");
     }
+    println!(
+        "✓ GROUP BY → WINDOW → HAVING with arithmetic expressions successful with {} results",
+        results.len()
+    );
 }
 
 #[tokio::test]
@@ -394,46 +387,152 @@ async fn test_group_by_window_having_arithmetic_with_multipliers() {
 
     // Should only have AAPL (avg_volume=700 > 500)
     // MSFT should be filtered (avg_volume=150, not > 500)
-    if !results.is_empty() {
-        // Validate comprehensive conditions for each result
-        for (idx, result) in results.iter().enumerate() {
-            // Verify cnt >= 2 (COUNT(*) >= 2)
-            if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
+    assert!(
+        !results.is_empty(),
+        "BUG: compound HAVING with AND returned 0 results"
+    );
+
+    // Validate comprehensive conditions for each result
+    for (idx, result) in results.iter().enumerate() {
+        // Verify cnt >= 2 (COUNT(*) >= 2)
+        if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
+            assert!(
+                *count >= 2,
+                "Result {}: cnt should be >= 2, got {}",
+                idx,
+                count
+            );
+        }
+
+        // Verify avg_vol > 500.0 (AVG(volume) > 500.0)
+        if let Some(avg_vol_field) = result.fields.get("avg_vol") {
+            let avg_vol = match avg_vol_field {
+                FieldValue::Float(v) => Some(*v),
+                FieldValue::ScaledInteger(v, _) => Some(*v as f64),
+                FieldValue::Integer(v) => Some(*v as f64),
+                _ => None,
+            };
+
+            if let Some(val) = avg_vol {
                 assert!(
-                    *count >= 2,
-                    "Result {}: cnt should be >= 2, got {}",
+                    val > 500.0,
+                    "Result {}: avg_vol should be > 500.0, got {}",
                     idx,
-                    count
+                    val
                 );
             }
-
-            // Verify avg_vol > 500.0 (AVG(volume) > 500.0)
-            if let Some(avg_vol_field) = result.fields.get("avg_vol") {
-                let avg_vol = match avg_vol_field {
-                    FieldValue::Float(v) => Some(*v),
-                    FieldValue::ScaledInteger(v, _) => Some(*v as f64),
-                    FieldValue::Integer(v) => Some(*v as f64),
-                    _ => None,
-                };
-
-                if let Some(val) = avg_vol {
-                    assert!(
-                        val > 500.0,
-                        "Result {}: avg_vol should be > 500.0, got {}",
-                        idx,
-                        val
-                    );
-                }
-            }
         }
-        println!(
-            "✓ GROUP BY → WINDOW → HAVING with aggregate arithmetic multipliers successful with {} results",
-            results.len()
-        );
-    } else {
-        // Empty results are acceptable - the window might not have closed yet
-        println!("⚠️  No results from windowed HAVING query (window may not have closed)");
     }
+    println!(
+        "✓ GROUP BY → WINDOW → HAVING with aggregate arithmetic multipliers successful with {} results",
+        results.len()
+    );
+}
+
+#[tokio::test]
+async fn test_group_by_window_having_or_condition() {
+    // Test HAVING with OR: should pass groups that satisfy either condition
+    let query = "SELECT customer_id, COUNT(*) as cnt, SUM(amount) as total FROM orders \
+                GROUP BY customer_id \
+                WINDOW TUMBLING(5s) \
+                HAVING COUNT(*) >= 3 OR SUM(amount) > 250.0";
+
+    let records = vec![
+        create_test_record(1, 100.0, 1000), // customer_id: 1
+        create_test_record(2, 200.0, 1500), // customer_id: 0
+        create_test_record(3, 150.0, 2000), // customer_id: 1
+        create_test_record(4, 100.0, 2500), // customer_id: 0
+    ];
+
+    let results = execute_windowed_query(query, records)
+        .await
+        .expect("HAVING with OR failed");
+
+    assert!(
+        !results.is_empty(),
+        "BUG: HAVING with OR returned 0 results"
+    );
+
+    for result in &results {
+        assert!(
+            result.fields.contains_key("customer_id"),
+            "Missing customer_id field"
+        );
+        assert!(result.fields.contains_key("cnt"), "Missing cnt field");
+        assert!(result.fields.contains_key("total"), "Missing total field");
+
+        // At least one of the OR conditions must be true
+        let count_ok = if let Some(FieldValue::Integer(c)) = result.fields.get("cnt") {
+            *c >= 3
+        } else {
+            false
+        };
+        let sum_ok = if let Some(FieldValue::Float(s)) = result.fields.get("total") {
+            *s > 250.0
+        } else {
+            false
+        };
+        assert!(
+            count_ok || sum_ok,
+            "HAVING OR clause failed: neither COUNT(*) >= 3 nor SUM(amount) > 250.0 satisfied"
+        );
+    }
+    println!(
+        "✓ GROUP BY → WINDOW → HAVING with OR condition successful with {} results",
+        results.len()
+    );
+}
+
+#[tokio::test]
+async fn test_group_by_window_having_division_expression() {
+    // Test HAVING with arithmetic division: SUM(volume) / COUNT(*) > 100.0
+    let query = "SELECT symbol, SUM(volume) as total_vol, COUNT(*) as cnt \
+                FROM trades \
+                GROUP BY symbol \
+                WINDOW TUMBLING(5s) \
+                HAVING SUM(volume) / COUNT(*) > 100.0";
+
+    let records = vec![
+        // AAPL: sum=3100, count=3, avg=1033 -> passes
+        TestDataBuilder::trade_record(1, "AAPL", 150.0, 1000, 0),
+        TestDataBuilder::trade_record(2, "AAPL", 155.0, 1200, 100),
+        TestDataBuilder::trade_record(3, "AAPL", 145.0, 900, 200),
+        // MSFT: sum=30, count=2, avg=15 -> filtered out
+        TestDataBuilder::trade_record(4, "MSFT", 350.0, 10, 300),
+        TestDataBuilder::trade_record(5, "MSFT", 340.0, 20, 400),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(
+        !results.is_empty(),
+        "BUG: HAVING with division expression returned 0 results"
+    );
+
+    for (idx, result) in results.iter().enumerate() {
+        let total_vol = match result.fields.get("total_vol") {
+            Some(FieldValue::Integer(v)) => *v as f64,
+            Some(FieldValue::Float(v)) => *v,
+            other => panic!("Result {}: unexpected total_vol type: {:?}", idx, other),
+        };
+        let cnt = match result.fields.get("cnt") {
+            Some(FieldValue::Integer(v)) => *v as f64,
+            Some(FieldValue::Float(v)) => *v,
+            other => panic!("Result {}: unexpected cnt type: {:?}", idx, other),
+        };
+        assert!(
+            total_vol / cnt > 100.0,
+            "Result {}: SUM(volume)/COUNT(*) = {}/{} = {} should be > 100.0",
+            idx,
+            total_vol,
+            cnt,
+            total_vol / cnt
+        );
+    }
+    println!(
+        "✓ GROUP BY → WINDOW → HAVING with division expression successful with {} results",
+        results.len()
+    );
 }
 
 #[tokio::test]

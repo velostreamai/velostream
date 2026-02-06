@@ -167,6 +167,16 @@ WITH (
 -- @name: order_flow_imbalance
 -- @description: Detects institutional trading patterns from order book data
 -- -----------------------------------------------------------------------------
+-- @metric: velo_order_flow_imbalance_total
+-- @metric_type: counter
+-- @metric_help: "Total order flow imbalance signals detected"
+-- @metric_labels: symbol
+--
+-- @metric: velo_order_buy_ratio
+-- @metric_type: gauge
+-- @metric_help: "Buy-side ratio of total volume"
+-- @metric_labels: symbol
+-- @metric_field: buy_ratio
 
 CREATE STREAM order_flow_imbalance AS
 SELECT
@@ -203,6 +213,16 @@ WITH (
 -- @name: arbitrage_detection
 -- @description: Cross-exchange price discrepancy detection
 -- -----------------------------------------------------------------------------
+-- @metric: velo_arbitrage_opportunities_total
+-- @metric_type: counter
+-- @metric_help: "Total arbitrage opportunities detected"
+-- @metric_labels: symbol
+--
+-- @metric: velo_arbitrage_spread_bps
+-- @metric_type: gauge
+-- @metric_help: "Arbitrage spread in basis points"
+-- @metric_labels: symbol
+-- @metric_field: spread_bps
 
 CREATE STREAM arbitrage_detection AS
 SELECT
@@ -219,8 +239,8 @@ SELECT
 FROM in_market_data_stream_a a
 JOIN in_market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price
-    AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 10
-    AND LEAST(a.bid_size, b.ask_size) > 50000
+    AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 5
+    AND LEAST(a.bid_size, b.ask_size) > 500
 EMIT CHANGES
 WITH (
     -- Source configuration - Exchange A

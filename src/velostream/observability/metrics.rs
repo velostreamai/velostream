@@ -280,6 +280,19 @@ impl MetricsProvider {
         if self.active {
             self.sql_metrics
                 .record_query(query_type, duration, success, record_count);
+
+            // Push SQL error count via remote-write so dashboard panels work
+            if !success && self.remote_write_client.is_some() {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                self.push_counter_with_timestamp(
+                    "velo_sql_query_errors_total",
+                    &[],
+                    &[],
+                    1.0,
+                    now_ms,
+                );
+            }
+
             log::trace!(
                 "📊 Recorded SQL query metrics: type={}, duration={:?}, success={}, records={}",
                 query_type,
@@ -338,6 +351,32 @@ impl MetricsProvider {
         if self.active {
             self.streaming_metrics
                 .record_operation(operation, duration, record_count, throughput);
+
+            // Push core metrics via remote-write with current timestamp
+            if self.remote_write_client.is_some() {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let label_names = vec!["operation".to_string()];
+                let label_values = vec![operation.to_string()];
+
+                // Push throughput gauge
+                self.push_gauge_with_timestamp(
+                    "velo_streaming_throughput_rps",
+                    &label_names,
+                    &label_values,
+                    throughput,
+                    now_ms,
+                );
+
+                // Push records counter (as gauge for remote-write compatibility)
+                self.push_gauge_with_timestamp(
+                    "velo_streaming_records_total",
+                    &label_names,
+                    &label_values,
+                    record_count as f64,
+                    now_ms,
+                );
+            }
+
             log::trace!(
                 "📊 Recorded streaming metrics: operation={}, duration={:?}, records={}, throughput={:.2}",
                 operation,
@@ -365,6 +404,23 @@ impl MetricsProvider {
                 record_count,
                 throughput_rps,
             );
+
+            // Push core metrics via remote-write with current timestamp
+            if self.remote_write_client.is_some() {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let label_names = vec!["job_name".to_string(), "phase".to_string()];
+                let label_values = vec![job_name.to_string(), phase.to_string()];
+
+                // Push throughput gauge
+                self.push_gauge_with_timestamp(
+                    "velo_profiling_phase_throughput_rps",
+                    &label_names,
+                    &label_values,
+                    throughput_rps,
+                    now_ms,
+                );
+            }
+
             log::trace!(
                 "📊 Recorded profiling phase: job={}, phase={}, duration={:?}, throughput={:.2} rec/s",
                 job_name,
@@ -390,6 +446,24 @@ impl MetricsProvider {
                 duration,
                 record_count,
             );
+
+            // Push core metrics via remote-write with current timestamp
+            // Note: Duration is pushed as gauge (seconds) for remote-write compatibility
+            if self.remote_write_client.is_some() {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let label_names = vec!["job_name".to_string(), "operation".to_string()];
+                let label_values = vec![job_name.to_string(), operation.to_string()];
+
+                // Push duration as gauge (seconds)
+                self.push_gauge_with_timestamp(
+                    "velo_pipeline_operation_duration_seconds",
+                    &label_names,
+                    &label_values,
+                    duration.as_secs_f64(),
+                    now_ms,
+                );
+            }
+
             log::trace!(
                 "📊 Recorded pipeline operation: job={}, operation={}, duration={:?}, records={}",
                 job_name,
@@ -405,6 +479,22 @@ impl MetricsProvider {
         if self.active {
             self.streaming_metrics
                 .record_throughput_by_job(job_name, throughput_rps);
+
+            // Push core metrics via remote-write with current timestamp
+            if self.remote_write_client.is_some() {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let label_names = vec!["job_name".to_string()];
+                let label_values = vec![job_name.to_string()];
+
+                self.push_gauge_with_timestamp(
+                    "velo_streaming_throughput_by_job_rps",
+                    &label_names,
+                    &label_values,
+                    throughput_rps,
+                    now_ms,
+                );
+            }
+
             log::trace!(
                 "📊 Recorded throughput by job: job={}, throughput={:.2} rec/s",
                 job_name,
@@ -418,6 +508,48 @@ impl MetricsProvider {
         if self.active {
             self.system_metrics
                 .update(cpu_usage, memory_usage, active_jobs);
+
+            // Push core metrics via remote-write with current timestamp
+            if self.remote_write_client.is_some() {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+
+                // Push CPU usage
+                self.push_gauge_with_timestamp(
+                    "velo_cpu_usage_percent",
+                    &[],
+                    &[],
+                    cpu_usage,
+                    now_ms,
+                );
+
+                // Push memory usage (in bytes)
+                self.push_gauge_with_timestamp(
+                    "velo_memory_usage_bytes",
+                    &[],
+                    &[],
+                    memory_usage as f64,
+                    now_ms,
+                );
+
+                // Push active jobs count (also used as active queries in dashboards)
+                self.push_gauge_with_timestamp(
+                    "velo_active_jobs",
+                    &[],
+                    &[],
+                    active_jobs as f64,
+                    now_ms,
+                );
+
+                // Push active queries gauge for dashboard header panels
+                self.push_gauge_with_timestamp(
+                    "velo_sql_active_queries",
+                    &[],
+                    &[],
+                    active_jobs as f64,
+                    now_ms,
+                );
+            }
+
             log::trace!(
                 "📊 Updated system metrics: cpu={:.2}%, memory={}MB, active_jobs={}",
                 cpu_usage,
@@ -439,6 +571,37 @@ impl MetricsProvider {
     ) {
         if self.active {
             self.join_metrics.update_from_stats(join_name, stats);
+
+            // Push core join metrics via remote-write with current timestamp
+            if self.remote_write_client.is_some() {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let label_names = vec!["join_name".to_string()];
+                let label_values = vec![join_name.to_string()];
+
+                // Push key join metrics
+                self.push_gauge_with_timestamp(
+                    "velo_join_left_records_total",
+                    &label_names,
+                    &label_values,
+                    stats.left_records_processed as f64,
+                    now_ms,
+                );
+                self.push_gauge_with_timestamp(
+                    "velo_join_right_records_total",
+                    &label_names,
+                    &label_values,
+                    stats.right_records_processed as f64,
+                    now_ms,
+                );
+                self.push_gauge_with_timestamp(
+                    "velo_join_matches_total",
+                    &label_names,
+                    &label_values,
+                    stats.matches_emitted as f64,
+                    now_ms,
+                );
+            }
+
             log::trace!(
                 "📊 Updated join metrics: {} - left={}, right={}, matches={}",
                 join_name,
@@ -548,7 +711,7 @@ impl MetricsProvider {
 
         // Check if metric already registered
         if metrics.counters.contains_key(name) {
-            log::warn!("⚠️  Counter metric '{}' already registered, skipping", name);
+            log::debug!("Counter metric '{}' already registered, skipping", name);
             return Ok(());
         }
 
@@ -672,7 +835,7 @@ impl MetricsProvider {
 
         // Check if metric already registered
         if metrics.gauges.contains_key(name) {
-            log::warn!("⚠️  Gauge metric '{}' already registered, skipping", name);
+            log::debug!("Gauge metric '{}' already registered, skipping", name);
             return Ok(());
         }
 
@@ -802,10 +965,7 @@ impl MetricsProvider {
 
         // Check if metric already registered
         if metrics.histograms.contains_key(name) {
-            log::warn!(
-                "⚠️  Histogram metric '{}' already registered, skipping",
-                name
-            );
+            log::debug!("Histogram metric '{}' already registered, skipping", name);
             return Ok(());
         }
 
