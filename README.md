@@ -2,9 +2,9 @@
 
 ![Rust CI](https://github.com/bluemonk3y/velostream/workflows/Rust%20CI/badge.svg)
 [![Crates.io](https://img.shields.io/crates/v/velostream.svg)](https://crates.io/crates/velostream)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
-A high-performance **streaming SQL engine** written in Rust that provides real-time data processing with **pluggable data sources** (Kafka, PostgreSQL, ClickHouse, S3, Iceberg, File), **financial-grade precision arithmetic**, and **production-ready observability**. Process data across heterogeneous sources with SQL, achieve 42x performance improvements over floating-point arithmetic, and deploy with confidence using K8s-native horizontal scaling. 
+A high-performance **streaming SQL engine** written in Rust that provides real-time data processing with **pluggable data sources** (Kafka, File), **financial-grade precision arithmetic**, and **production-ready observability**. Process streaming data with SQL, achieve 42x performance improvements over floating-point arithmetic, and deploy with confidence as a single binary. Additional data sources (PostgreSQL, ClickHouse, S3, Iceberg) are planned.
 
 
 🌀 Velostream: Precision Streaming Analytics in a Single Binary
@@ -13,7 +13,7 @@ Velostream is a single-binary streaming SQL engine, purpose-built in Rust for fi
 Unlike cluster-based systems like Flink or Materialize, Velostream runs anywhere — from the cloud to embedded devices — with zero orchestration.
 
 Its core innovation is deterministic arithmetic via the ScaledDecimal engine, enabling exact numeric computation across high-velocity streams.
-This makes Velostream uniquely uited to financial tick data, sensor feeds, and real-time outlier detection, where float rounding or clock skew cannot be tolerated.
+This makes Velostream uniquely suited to financial tick data, sensor feeds, and real-time outlier detection, where float rounding or clock skew cannot be tolerated.
 
 Velostream fuses SQL expressiveness, windowed computation, and AI-ready introspection — giving developers the power of a data warehouse, the speed of Rust, and the precision of a spreadsheet.
 
@@ -31,6 +31,150 @@ Velostream fuses SQL expressiveness, windowed computation, and AI-ready introspe
 **IP** = deterministic arithmetic + single binary simplicity + introspection hooks.
 **Differentiation** = developer-first, zero-cluster precision analytics for finance/IoT.
 
+## 🚀 Quick Start
+
+### Prerequisites
+- **Rust 1.91+** (`rustup update stable`)
+- **Docker** (for Kafka via `docker-compose`)
+
+### 1. Build
+
+```bash
+cargo build --release --bin velo-sql
+```
+
+### 2. Start Kafka
+
+```bash
+docker-compose up -d
+```
+
+### 3. Write a SQL Application
+
+Create `app.sql`:
+
+```sql
+-- @app: my_first_app
+-- @job_mode: simple
+
+CREATE STREAM filtered_orders AS
+SELECT order_id, customer_id, amount
+FROM orders_input
+WHERE amount > 100.0
+INTO high_value_orders;
+```
+
+### 4. Deploy
+
+```bash
+./target/release/velo-sql deploy-app --file app.sql --brokers localhost:9092
+```
+
+### 5. Monitor
+
+Enable Prometheus metrics with `--enable-metrics`:
+
+```bash
+./target/release/velo-sql deploy-app --file app.sql --brokers localhost:9092 \
+  --enable-metrics --metrics-port 9091
+```
+
+Metrics are available at `http://localhost:9091/metrics`.
+
+For a complete working example with data generation, Grafana dashboards, and multiple SQL apps, see the **[Trading Demo](demo/trading/)** — run it with `demo/trading/start-demo.sh`.
+
+---
+
+## 📦 Deploying a SQL Application
+
+Velostream deploys SQL applications from `.sql` files using the `velo-sql deploy-app` command.
+
+### SQL File Structure
+
+A SQL file can contain application-level annotations and one or more `CREATE STREAM`/`CREATE TABLE` statements:
+
+```sql
+-- Application metadata
+-- @app: trading_signals
+-- @version: 1.0.0
+-- @description: Real-time trading signal generation
+
+-- Job configuration
+-- @job_mode: simple
+-- @batch_size: 500
+
+-- Observability
+-- @observability.metrics.enabled: true
+
+-- Prometheus metric (optional)
+-- @metric: velo_signals_total
+-- @metric_type: counter
+-- @metric_labels: symbol, signal_type
+
+CREATE STREAM trading_signals AS
+SELECT symbol, price, volume,
+       CASE WHEN price > avg_price THEN 'BUY' ELSE 'SELL' END as signal_type
+FROM market_data
+INTO signals_output;
+```
+
+See the [SQL Annotations Reference](docs/user-guides/sql-annotations.md) for the full list of supported annotations.
+
+### `velo-sql deploy-app` CLI Reference
+
+```
+velo-sql deploy-app --file <PATH> [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--file <PATH>` | **(required)** | Path to the `.sql` application file |
+| `--brokers <ADDRS>` | `localhost:9092` | Kafka broker addresses |
+| `--group-id <ID>` | `velo-sql-app` | Base consumer group ID |
+| `--server <URL>` | — | Deploy to a running `velo-sql server` (e.g. `http://localhost:8080`) |
+| `--no-monitor` | `false` | Exit immediately after deployment |
+| `--enable-metrics` | `false` | Enable Prometheus metrics export |
+| `--metrics-port <PORT>` | `9091` | Prometheus metrics port |
+| `--enable-tracing` | `false` | Enable OpenTelemetry distributed tracing |
+| `--enable-profiling` | `false` | Enable performance profiling |
+
+### Server Mode
+
+For hosting multiple applications, run `velo-sql server` and deploy apps to it:
+
+```bash
+# Start the server
+./target/release/velo-sql server --brokers localhost:9092 --port 8080
+
+# Deploy apps to the server
+./target/release/velo-sql deploy-app --file app1.sql --server http://localhost:8080
+./target/release/velo-sql deploy-app --file app2.sql --server http://localhost:8080
+```
+
+### Docker Deployment
+
+Use the provided [`Dockerfile.sqlfile`](Dockerfile.sqlfile) to containerise a SQL application:
+
+```bash
+docker build -f Dockerfile.sqlfile -t my-velo-app .
+docker run -e SQL_FILE=/app/sql-files/app.sql \
+           -e KAFKA_BROKERS=kafka:9092 \
+           my-velo-app
+```
+
+### Trading Demo
+
+The [`demo/trading/`](demo/trading/) directory contains a complete, ready-to-run example with:
+- Multiple SQL applications (compliance, risk, trading signals)
+- Realistic data generation
+- Docker Compose stack (Kafka, Prometheus, Grafana)
+- Pre-built Grafana dashboards
+
+```bash
+demo/trading/start-demo.sh
+```
+
+---
 
 ## 🌟 Key Features
 
@@ -278,7 +422,7 @@ GROUP BY order_id;
 - E-commerce platforms (order totals, tax calculations)
 - Analytics requiring exact decimal precision
 
-**Learn More**: See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for complete financial precision documentation.
+**Learn More**: See [Productionisation Guide](docs/ops/productionisation.md) for complete deployment documentation.
 
 ## 🛡️ Production-Ready Operations
 
@@ -670,14 +814,14 @@ for (key, value) in headers.iter() {
 
 ## 🚀 Deployment
 
-- **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - **Complete production deployment guide**
+- **[Productionisation Guide](docs/ops/productionisation.md)** - **Complete production deployment guide**
   - Docker + Kubernetes deployment
   - Financial precision arithmetic (42x performance)
   - Multi-format serialization (JSON/Avro/Protobuf)
   - Performance configuration profiles
   - Schema file management
-  
-- **[docs/NATIVE_SQL_DEPLOYMENT.md](docs/NATIVE_SQL_DEPLOYMENT.md)** - Native binary deployment (development only)
+
+- **[Native SQL Deployment](docs/sql/deployment/native-deployment.md)** - Native binary deployment (development only)
 
 ## 📚 Examples
 
@@ -690,22 +834,18 @@ for (key, value) in headers.iter() {
 - **[Builder Configuration](examples/builder_configuration.rs)** - Advanced builder pattern and performance presets
 - **[Fluent API Example](examples/fluent_api_example.rs)** - Stream processing with fluent API patterns
 - **[Message Metadata Example](examples/message_metadata_example.rs)** - Complete demonstration of message metadata features
-- **[Latency Performance Test](examples/latency_performance_test.rs)** - Performance testing with metadata tracking
 
 ### Test Suite Examples
 
 #### Unit Tests
-- **[Builder Pattern Tests](tests/unit/builder_pattern_test.rs)** - Comprehensive builder pattern test suite
-- **[Error Handling Tests](tests/unit/error_handling_test.rs)** - Error scenarios and edge cases
-- **[Serialization Tests](tests/unit/serialization_unit_test.rs)** - JSON serialization validation
-- **[Message Metadata Tests](tests/unit/message_metadata_test.rs)** - Message metadata functionality
-- **[Headers Edge Cases](tests/unit/headers_edge_cases_test.rs)** - Advanced headers testing
+- **[Error Handling Tests](tests/unit/kafka/error_handling_test.rs)** - Error scenarios and edge cases
+- **[Message Metadata Tests](tests/unit/kafka/message_metadata_test.rs)** - Message metadata functionality
+- **[Headers Edge Cases](tests/unit/kafka/headers_edge_cases_test.rs)** - Advanced headers testing
 
-#### Integration Tests  
-- **[Kafka Integration Tests](tests/integration/kafka_integration_test.rs)** - Complete test suite including headers functionality
+#### Integration Tests
+- **[Builder Pattern Tests](tests/integration/builder_pattern_test.rs)** - Comprehensive builder pattern test suite
 - **[Kafka Advanced Tests](tests/integration/kafka_advanced_test.rs)** - Advanced patterns and edge cases
-- **[Transaction Tests](tests/integration/transaction_test.rs)** - Transactional producer/consumer patterns
-- **[KTable Tests](tests/integration/ktable_test.rs)** - KTable functionality testing
+- **[Transaction Tests](tests/integration/transactions_test.rs)** - Transactional producer/consumer patterns
 - **[Failure Recovery Tests](tests/integration/failure_recovery_test.rs)** - Network partition and retry logic
 
 ### Shared Test Infrastructure
@@ -713,144 +853,7 @@ for (key, value) in headers.iter() {
 - **[Test Utils](tests/unit/test_utils.rs)** - Shared utilities and helper functions
 - **[Common Imports](tests/unit/common.rs)** - Consolidated imports for all tests
 
-## 🚀 Quick Start
-
-### Option 1: SQL Streaming (Recommended)
-
-Create a SQL file `my_pipeline.sql`:
-
-```sql
--- Real-time order processing pipeline: Kafka → File (CSV)
-CREATE STREAM order_analytics AS
-SELECT
-    order_id,
-    customer_id,
-    amount,
-    quantity,
-    -- Financial precision arithmetic
-    amount * quantity as total_value,
-    -- Window analytics
-    AVG(amount) OVER (
-        PARTITION BY customer_id
-        ORDER BY order_time
-        RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
-    ) as hourly_avg
-FROM kafka_orders_source
-WHERE amount > 100.0
-INTO file_analytics_sink
-WITH (
-    'kafka_orders_source.config_file' = 'config/kafka_source.yaml',
-    'kafka_orders_source.group_id' = 'processor',
-    'file_analytics_sink.config_file' = 'config/file_sink.yaml',
-    'file_analytics_sink.path' = '/output/order_analytics.csv',
-    'file_analytics_sink.format' = 'csv'
-);
-```
-
-Run it:
-```bash
-velo-sql --query-file my_pipeline.sql
-```
-
-### Option 2: Rust API
-
-Add `velostream` to your `Cargo.toml`:
-
-```toml
-[dependencies]
-velostream = "0.1.0"
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-```
-
-#### Simple Producer Example
-
-```rust
-use velostream::{KafkaProducer, JsonSerializer};
-use velostream::velo::kafka::Headers;
-use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize)]
-struct OrderEvent {
-    order_id: u64,
-    customer_id: String,
-    amount: f64,
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let producer = KafkaProducer::<String, OrderEvent, _, _>::new(
-        "localhost:9092",
-        "orders",
-        JsonSerializer,
-        JsonSerializer,
-    )?;
-
-    let order = OrderEvent {
-        order_id: 12345,
-        customer_id: "cust_001".to_string(),
-        amount: 99.99,
-    };
-
-    let headers = Headers::new()
-        .insert("source", "web-frontend")
-        .insert("version", "1.2.3");
-
-    producer.send(
-        Some(&"order-12345".to_string()),
-        &order,
-        headers,
-        None
-    ).await?;
-
-    Ok(())
-}
-```
-
-#### Simple Consumer Example
-
-```rust
-use velostream::{KafkaConsumer, JsonSerializer};
-use std::time::Duration;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
-        "localhost:9092",
-        "order-processors",
-        JsonSerializer,
-        JsonSerializer,
-    )?;
-
-    consumer.subscribe(&["orders"])?;
-
-    loop {
-        match consumer.poll(Duration::from_secs(1)).await {
-            Ok(message) => {
-                println!("Received order: {:?}", message.value());
-
-                // Access headers
-                if let Some(source) = message.headers().get("source") {
-                    println!("From: {}", source);
-                }
-
-                // Access key
-                if let Some(key) = message.key() {
-                    println!("Key: {}", key);
-                }
-            }
-            Err(e) => println!("No message: {}", e),
-        }
-    }
-}
-```
-
-**Next Steps:**
-- See [SQL Reference](docs/sql/) for complete SQL syntax
-- See [Data Sources](docs/data-sources/) for multi-source examples
-- See [Deployment Guide](DEPLOYMENT_GUIDE.md) for production deployment
-
-### SQL Streaming API
+## 🔧 SQL Streaming API
 
 #### CREATE STREAM Syntax (Recommended)
 
@@ -1043,7 +1046,7 @@ Velostream includes a powerful CLI tool for monitoring, validation, and managing
 --format <FORMAT>          # Output format: text, json (default: text)
 ```
 
-See [CLI_USAGE.md](demo/trading/CLI_USAGE.md) for comprehensive documentation.
+See [cli-usage.md](demo/trading/cli-usage.md) for comprehensive documentation.
 
 ## 🔄 Message Processing Patterns
 
@@ -1159,7 +1162,7 @@ let high_priority: Vec<_> = consumer.stream()
 ### Current Features ✅
 
 #### Core Architecture
-- ✅ **Pluggable Data Sources** - 6 core sources (Kafka, PostgreSQL, ClickHouse, S3, Iceberg, File)
+- ✅ **Pluggable Data Sources** - Production-ready sources (Kafka, File) with planned additions (PostgreSQL, ClickHouse, S3, Iceberg)
 - ✅ **Heterogeneous Pipelines** - Read from one source, write to another with URI-based config
 - ✅ **Single Binary, Scale Out** - K8s-native horizontal pod autoscaling
 - ✅ **Financial Precision** - ScaledInteger arithmetic (42x faster than f64, zero precision loss)
@@ -1269,11 +1272,25 @@ cargo test --tests --no-default-features scenario_3b_tumbling_emit_changes_basel
 - **Scenario 3a**: TUMBLING + GROUP BY (standard emission, 28% of workload) - Batch windowing
 - **Scenario 3b**: TUMBLING + EMIT CHANGES (continuous emission) - Real-time dashboards
 
-Each scenario measures both SQL Engine (direct execution) and Job Server (full pipeline) performance for accurate overhead calculation. See [FR-082 Baseline Measurements](docs/feature/FR-082-perf-part-2/FR-082-BASELINE-MEASUREMENTS.md) for detailed results.
+Each scenario measures both SQL Engine (direct execution) and Job Server (full pipeline) performance for accurate overhead calculation. See [FR-082 Performance Documentation](docs/feature/FR-082-perf-part-2/) for detailed results.
+
+### Testing SQL Applications with `velo-test`
+
+The `velo-test` binary runs declarative test specs (`.test.yaml`) against SQL applications with real Kafka infrastructure:
+
+```bash
+cargo build --release --bin velo-test
+
+# Run a test spec against a SQL app (uses testcontainers for Kafka)
+./target/release/velo-test run demo/test_harness_examples/tier1_basic/ \
+  --use-testcontainers --reuse-containers
+```
+
+See [`demo/test_harness_examples/`](demo/test_harness_examples/) for test specs across 8 tiers of complexity.
 
 ### Current Test Status ✅
 - Builder Pattern: 16/16 tests passing
-- Error Handling: 12/12 tests passing  
+- Error Handling: 12/12 tests passing
 - Serialization: 7/7 tests passing
 - Integration: All tests passing
 - Performance: Benchmarks available
@@ -1284,12 +1301,7 @@ Contributions are welcome! Please see our documentation for details.
 
 ## 📄 License
 
-This project is licensed under either of
-
- * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
- * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
+This project is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
 ## 📚 Documentation
 
@@ -1298,11 +1310,11 @@ at your option.
 - **[Observability Architecture](docs/architecture/observability-architecture.md)** - System design and performance ✨ NEW
 - **[Data Sources](docs/data-sources/)** - Complete guide to pluggable data sources
 - **[SQL Reference](docs/sql/)** - Comprehensive SQL syntax and functions reference
-- **[Configuration](docs/configuration-quick-start.md)** - Configuration schema system and validation
-- **[Deployment Guide](DEPLOYMENT_GUIDE.md)** - Production deployment with Docker/K8s
+- **[Configuration](docs/developer/configuration-quick-start.md)** - Configuration schema system and validation
+- **[Deployment Guide](docs/ops/productionisation.md)** - Production deployment with Docker/K8s
 - **[Performance Guide](docs/ops/performance-guide.md)** - Performance tuning and optimization
 - **[Observability](docs/ops/observability.md)** - Monitoring, metrics, and health checks
-- **[CLI Usage](demo/trading/CLI_USAGE.md)** - Complete CLI tool documentation
+- **[CLI Usage](demo/trading/cli-usage.md)** - Complete CLI tool documentation
 
 ### Quick Links
 - [Examples Directory](examples/) - Working code examples
