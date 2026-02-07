@@ -72,6 +72,23 @@
 -- @metric_help: "Average volume in window"
 -- @metric_labels: symbol
 -- @metric_field: avg_volume
+--
+-- @metric: velo_volume_max
+-- @metric_type: gauge
+-- @metric_help: "Peak volume in sliding window"
+-- @metric_labels: symbol
+-- @metric_field: max_volume
+--
+-- @metric: velo_volume_stddev
+-- @metric_type: gauge
+-- @metric_help: "Volume volatility (standard deviation)"
+-- @metric_labels: symbol
+-- @metric_field: stddev_volume
+--
+-- @metric: velo_circuit_breaker_total
+-- @metric_type: counter
+-- @metric_help: "Circuit breaker state transitions"
+-- @metric_labels: symbol, circuit_state
 
 CREATE STREAM volume_spike_analysis AS
 SELECT
@@ -177,6 +194,12 @@ WITH (
 -- @metric_help: "Buy-side ratio of total volume"
 -- @metric_labels: symbol
 -- @metric_field: buy_ratio
+--
+-- @metric: velo_order_total_volume
+-- @metric_type: gauge
+-- @metric_help: "Total order volume per symbol per window"
+-- @metric_labels: symbol
+-- @metric_field: total_volume
 
 CREATE STREAM order_flow_imbalance AS
 SELECT
@@ -227,6 +250,19 @@ WITH (
 -- @metric_help: "Arbitrage spread in basis points"
 -- @metric_labels: symbol
 -- @metric_field: spread_bps
+--
+-- @metric: velo_arbitrage_profit
+-- @metric_type: gauge
+-- @metric_help: "Potential arbitrage profit per opportunity"
+-- @metric_labels: symbol
+-- @metric_field: potential_profit
+--
+-- @metric: velo_arbitrage_spread_distribution
+-- @metric_type: histogram
+-- @metric_help: "Distribution of arbitrage spreads in basis points"
+-- @metric_labels: symbol
+-- @metric_field: spread_bps
+-- @metric_buckets: 5, 10, 25, 50, 100, 250
 
 CREATE STREAM arbitrage_detection AS
 SELECT

@@ -64,6 +64,7 @@ use crate::velostream::datasource::DataWriter;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::metrics_helper::extract_job_name;
+use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
@@ -441,7 +442,7 @@ impl PartitionReceiver {
                 while retry_count <= self.config.max_retries {
                     // Process batch synchronously (Phase 6.7: no async overhead)
                     match self.process_batch(&batch) {
-                        Ok((processed, output_records, pending_dlq_entries)) => {
+                        Ok((processed, mut output_records, pending_dlq_entries)) => {
                             total_records += processed as u64;
                             batch_count += 1;
 
@@ -467,6 +468,22 @@ impl PartitionReceiver {
                             // Emit @metric annotations for processed records
                             if !output_records.is_empty() {
                                 self.emit_sql_metrics(&output_records).await;
+                            }
+
+                            // Inject distributed trace context into output records
+                            // so downstream consumers can link their traces
+                            let batch_span = ObservabilityHelper::start_batch_span(
+                                self.observability_wrapper.observability_ref(),
+                                &self.job_name,
+                                batch_count,
+                                &batch,
+                            );
+                            if !output_records.is_empty() {
+                                ObservabilityHelper::inject_trace_context_into_records(
+                                    &batch_span,
+                                    &mut output_records,
+                                    &self.job_name,
+                                );
                             }
 
                             // Write output records to sink if available

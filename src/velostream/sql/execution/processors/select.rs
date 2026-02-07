@@ -2302,7 +2302,15 @@ impl SelectProcessor {
     /// Get expression name for result field
     pub fn get_expression_name(expr: &Expr) -> String {
         match expr {
-            Expr::Column(name) => name.clone(),
+            Expr::Column(name) => {
+                // Strip table alias prefix (e.g., "a.symbol" → "symbol")
+                // to match SQL semantics where SELECT a.id outputs field named "id"
+                if let Some(pos) = name.rfind('.') {
+                    name[pos + 1..].to_string()
+                } else {
+                    name.clone()
+                }
+            }
             Expr::Function { name, .. } => name.clone(),
             Expr::Literal(lit) => format!("{:?}", lit),
             Expr::BinaryOp { left, op, right } => {

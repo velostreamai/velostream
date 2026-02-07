@@ -782,13 +782,28 @@ impl RemoteWriteClient {
                             .text()
                             .await
                             .unwrap_or_else(|_| "Unknown error".to_string());
-                        error!(
-                            "📤 Remote-write failed with client error (not retrying): status={}, body={}",
-                            status, body
-                        );
 
-                        // Restore samples to buffer for potential manual retry
-                        self.restore_samples(samples);
+                        // Permanent rejections (too old, duplicate, out of order)
+                        // must be dropped — restoring them causes an infinite retry
+                        // loop that starves the async runtime.
+                        let is_permanent = body.contains("too old")
+                            || body.contains("out of order")
+                            || body.contains("duplicate sample");
+
+                        if is_permanent {
+                            warn!(
+                                "📤 Remote-write permanently rejected {} samples (dropping): status={}, body={}",
+                                sample_count, status, body
+                            );
+                        } else {
+                            error!(
+                                "📤 Remote-write failed with client error (not retrying): status={}, body={}",
+                                status, body
+                            );
+                            // Only restore samples that might succeed on a future
+                            // attempt (e.g. schema mismatch the user can fix).
+                            self.restore_samples(samples);
+                        }
 
                         return Err(RemoteWriteError::HttpError(format!(
                             "HTTP {}: {}",

@@ -199,71 +199,48 @@ WITH (
     'circuit.breaker.timeout' = '60s'
 );
 
--- -----------------------------------------------------------------------------
--- @name: price_movement_debug
--- @description: Diagnostic stream showing filter condition visibility
--- -----------------------------------------------------------------------------
-
-CREATE STREAM price_movement_debug AS
-SELECT
-    symbol PRIMARY KEY,
-    COUNT(*) as record_count,
-    AVG(price) as avg_price,
-    STDDEV(price) as stddev_price,
-    MAX(volume) as max_volume,
-    AVG(volume) as avg_volume,
-
-    -- Filter condition visibility
-    COUNT(*) > 1 as passes_count_filter,
-    STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
-    AVG(price) * 0.0001 as volatility_threshold,
-    MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
-    AVG(volume) * 1.1 as volume_threshold,
-
-    -- Combined filter result
-    CASE
-        WHEN COUNT(*) > 1
-            AND STDDEV(price) > AVG(price) * 0.0001
-            AND MAX(volume) > AVG(volume) * 1.1
-        THEN 'WILL_EMIT'
-        ELSE 'FILTERED_OUT'
-    END as filter_result,
-
-    _window_start AS window_start,
-    _window_end AS window_end,
-    NOW() AS debug_timestamp
-
-FROM market_data_ts
-GROUP BY symbol
-  WINDOW TUMBLING(_event_time, INTERVAL '1' MINUTE)
-  HAVING COUNT(*) > 0
-  EMIT CHANGES
-WITH (
-    -- Source configuration
-    'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.topic.name' = 'market_data_ts',
-    'market_data_ts.config_file' = '../configs/kafka_source.yaml',
-    'market_data_ts.auto.offset.reset' = 'earliest',
-
-    -- Sink configuration
-    'price_movement_debug.type' = 'kafka_sink',
-    'price_movement_debug.topic.name' = 'price_movement_debug',
-    'price_movement_debug.config_file' = '../configs/kafka_sink.yaml'
-);
 
 -- -----------------------------------------------------------------------------
 -- @name: price_stats
--- @description: Basic 1-minute price statistics per symbol
+-- @description: 1-minute price statistics per symbol with OHLC and spread
 -- -----------------------------------------------------------------------------
+-- @metric: velo_price_stats_total
+-- @metric_type: counter
+-- @metric_help: "Total 1-minute price stat windows emitted"
+-- @metric_labels: symbol
+--
+-- @metric: velo_price_stats_avg
+-- @metric_type: gauge
+-- @metric_help: "Average price per symbol per minute"
+-- @metric_labels: symbol
+-- @metric_field: avg_price
+--
+-- @metric: velo_price_stats_spread
+-- @metric_type: gauge
+-- @metric_help: "Price range (high - low) per minute window"
+-- @metric_labels: symbol
+-- @metric_field: price_range
+--
+-- @metric: velo_price_stats_stddev
+-- @metric_type: gauge
+-- @metric_help: "Price standard deviation per minute window"
+-- @metric_labels: symbol
+-- @metric_field: price_stddev
 
 CREATE STREAM price_stats AS
 SELECT
     symbol PRIMARY KEY,
     COUNT(*) as record_count,
     AVG(price) as avg_price,
+    MIN(price) as low_price,
+    MAX(price) as high_price,
+    MAX(price) - MIN(price) as price_range,
+    STDDEV(price) as price_stddev,
+    FIRST_VALUE(price) as open_price,
+    LAST_VALUE(price) as close_price,
+    SUM(volume) as total_volume,
     _window_start AS window_start,
-    _window_end AS window_end,
-    NOW() AS stats_timestamp
+    _window_end AS window_end
 
 FROM market_data_ts
 GROUP BY symbol

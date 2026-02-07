@@ -75,6 +75,12 @@
 -- @metric_help: "Current position size"
 -- @metric_labels: trader_id, symbol
 -- @metric_field: position_size
+--
+-- @metric: velo_position_pnl
+-- @metric_type: gauge
+-- @metric_help: "Current P&L per position"
+-- @metric_labels: trader_id, symbol
+-- @metric_field: current_pnl
 
 CREATE STREAM trading_positions_ts AS
 SELECT
@@ -115,6 +121,30 @@ WITH (
 -- @metric_help: "Position value triggering risk alert"
 -- @metric_labels: risk_classification
 -- @metric_field: position_value
+--
+-- @metric: velo_risk_cumulative_pnl
+-- @metric_type: gauge
+-- @metric_help: "Cumulative P&L per trader"
+-- @metric_labels: trader_id
+-- @metric_field: cumulative_pnl
+--
+-- @metric: velo_risk_total_exposure
+-- @metric_type: gauge
+-- @metric_help: "Total risk exposure per trader"
+-- @metric_labels: trader_id
+-- @metric_field: total_exposure
+--
+-- @metric: velo_risk_pnl_volatility
+-- @metric_type: gauge
+-- @metric_help: "P&L volatility per trader (rolling stddev)"
+-- @metric_labels: trader_id
+-- @metric_field: pnl_volatility
+--
+-- @metric: velo_risk_time_lag
+-- @metric_type: histogram
+-- @metric_help: "Position-to-market data time lag in seconds"
+-- @metric_field: time_lag_seconds
+-- @metric_buckets: 0.1, 0.5, 1.0, 5.0, 10.0, 30.0
 
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
@@ -231,6 +261,11 @@ WITH (
 -- @metric_type: counter
 -- @metric_help: "Total risk limit breaches by type and severity"
 -- @metric_labels: breach_type, breach_severity
+--
+-- @metric: velo_risk_escalation_total
+-- @metric_type: counter
+-- @metric_help: "Risk escalation events by status"
+-- @metric_labels: escalation_status
 
 CREATE STREAM risk_hierarchy_validation AS
 SELECT

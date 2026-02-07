@@ -65,6 +65,18 @@
 -- @metric_type: counter
 -- @metric_help: "Total compliant records processed"
 -- @metric_labels: symbol
+--
+-- @metric: velo_compliant_price
+-- @metric_type: gauge
+-- @metric_help: "Latest compliant trade price"
+-- @metric_labels: symbol
+-- @metric_field: price
+--
+-- @metric: velo_compliant_volume
+-- @metric_type: gauge
+-- @metric_help: "Latest compliant trade volume"
+-- @metric_labels: symbol
+-- @metric_field: volume
 
 CREATE STREAM compliant_market_data AS
 SELECT
@@ -114,6 +126,12 @@ WITH (
 -- @metric_type: counter
 -- @metric_help: "Total records during active trading hours"
 -- @metric_labels: current_session
+--
+-- @metric: velo_active_hours_price
+-- @metric_type: gauge
+-- @metric_help: "Latest price during active trading hours"
+-- @metric_labels: symbol
+-- @metric_field: price
 
 CREATE STREAM active_hours_market_data AS
 SELECT

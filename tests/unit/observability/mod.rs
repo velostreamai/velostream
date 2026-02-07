@@ -1,5 +1,7 @@
 pub mod annotation_extraction_cache_test;
+pub mod distributed_tracing_test;
 pub mod dynamic_metrics_consolidation_test;
+pub mod gauge_dedup_test;
 pub mod metrics_provider_test;
 pub mod remote_write_test;
 pub mod span_linking_test;

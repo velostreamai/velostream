@@ -22,6 +22,7 @@ use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::metrics_helper::{
     ProcessorMetricsHelper, extract_job_name,
 };
+use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::server::v2::source_coordinator::{
     SourceCoordinator, SourceCoordinatorConfig,
 };
@@ -164,7 +165,7 @@ impl JoinJobProcessor {
         })
     }
 
-    /// Flush the output buffer: emit metrics, write records, optionally flush the writer.
+    /// Flush the output buffer: emit metrics, inject traces, write records, optionally flush the writer.
     async fn flush_output_buffer(
         output_buffer: &mut Vec<Arc<StreamRecord>>,
         writer: &Option<Arc<Mutex<Box<dyn DataWriter>>>>,
@@ -174,12 +175,35 @@ impl JoinJobProcessor {
         job_name_for_metrics: &Option<String>,
         stats: &mut JoinJobStats,
         flush_writer: bool,
+        flush_count: u64,
     ) -> Result<(), SqlError> {
         // Emit metrics for the batch
         if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
             metrics_helper
                 .emit_all_metrics(q, output_buffer, observability, jn)
                 .await;
+        }
+
+        // Inject distributed trace context into output records.
+        // Creates a batch span that downstream consumers can link to.
+        if !output_buffer.is_empty() {
+            let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
+            // Use first output record to extract any upstream trace context
+            let first_records: Vec<StreamRecord> = output_buffer
+                .first()
+                .map(|r| vec![(**r).clone()])
+                .unwrap_or_default();
+            let batch_span = ObservabilityHelper::start_batch_span(
+                observability,
+                job_name,
+                flush_count,
+                &first_records,
+            );
+            ObservabilityHelper::inject_trace_context_into_records(
+                &batch_span,
+                output_buffer,
+                job_name,
+            );
         }
 
         if let Some(writer) = writer {
@@ -282,6 +306,7 @@ impl JoinJobProcessor {
         // Output buffer for batching writes — stored as Arc to avoid cloning for metrics emission
         let mut output_buffer: Vec<Arc<StreamRecord>> =
             Vec::with_capacity(self.config.output_batch_size);
+        let mut flush_count: u64 = 0;
 
         // Process records as they arrive
         loop {
@@ -336,6 +361,7 @@ impl JoinJobProcessor {
 
                         // Flush when buffer is full
                         if output_buffer.len() >= self.config.output_batch_size {
+                            flush_count += 1;
                             Self::flush_output_buffer(
                                 &mut output_buffer,
                                 &writer,
@@ -345,6 +371,7 @@ impl JoinJobProcessor {
                                 &job_name_for_metrics,
                                 &mut stats,
                                 false,
+                                flush_count,
                             )
                             .await?;
                         }
@@ -363,6 +390,7 @@ impl JoinJobProcessor {
                             "JoinJobProcessor: Flushing {} buffered records on idle",
                             output_buffer.len()
                         );
+                        flush_count += 1;
                         Self::flush_output_buffer(
                             &mut output_buffer,
                             &writer,
@@ -372,6 +400,7 @@ impl JoinJobProcessor {
                             &job_name_for_metrics,
                             &mut stats,
                             true,
+                            flush_count,
                         )
                         .await?;
                     }
@@ -396,6 +425,7 @@ impl JoinJobProcessor {
 
         // Flush remaining output
         if !output_buffer.is_empty() {
+            flush_count += 1;
             Self::flush_output_buffer(
                 &mut output_buffer,
                 &writer,
@@ -405,6 +435,7 @@ impl JoinJobProcessor {
                 &job_name_for_metrics,
                 &mut stats,
                 true,
+                flush_count,
             )
             .await?;
         }

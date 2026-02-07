@@ -620,6 +620,15 @@ impl ProcessorMetricsHelper {
                 let batch_capacity = output_records.len() * annotations.len();
                 let mut batch = MetricBatch::with_capacity(batch_capacity);
 
+                // Gauge deduplication for remote-write: Prometheus rejects
+                // duplicate samples with different values for the same
+                // (metric_name, labels, timestamp).  Keep the LAST value per
+                // unique key so that only one sample is sent per timestamp.
+                let mut gauge_dedup: std::collections::HashMap<
+                    (String, Vec<String>, i64),
+                    (Vec<String>, f64),
+                > = std::collections::HashMap::new();
+
                 for record_arc in output_records {
                     // Dereference Arc for field access
                     let record = &**record_arc;
@@ -764,13 +773,16 @@ impl ProcessorMetricsHelper {
                                         );
                                     }
                                     MetricType::Gauge => {
-                                        metrics.push_gauge_with_timestamp(
-                                            &annotation.name,
-                                            &annotation.labels,
-                                            &label_values,
-                                            value,
+                                        // Defer gauge emission for deduplication.
+                                        // Multiple records with same labels+timestamp
+                                        // would produce duplicate samples that
+                                        // Prometheus rejects.  Last value wins.
+                                        let key = (
+                                            annotation.name.clone(),
+                                            label_values.clone(),
                                             timestamp_ms,
                                         );
+                                        gauge_dedup.insert(key, (annotation.labels.clone(), value));
                                     }
                                     MetricType::Histogram => {
                                         metrics.push_histogram_with_timestamp(
@@ -794,6 +806,18 @@ impl ProcessorMetricsHelper {
                         }
                     }
                     self.record_emission_overhead(record_start.elapsed().as_micros() as u64);
+                }
+
+                // Flush deduplicated gauge samples to remote-write.
+                // Each unique (name, labels, timestamp) gets exactly one sample.
+                for ((name, label_values, ts), (label_names, value)) in gauge_dedup {
+                    metrics.push_gauge_with_timestamp(
+                        &name,
+                        &label_names,
+                        &label_values,
+                        value,
+                        ts,
+                    );
                 }
 
                 // Phase 4: Emit metrics via the appropriate path
