@@ -15,7 +15,12 @@ use velostream::velostream::observability::telemetry::TelemetryProvider;
 use velostream::velostream::observability::trace_propagation;
 use velostream::velostream::server::processors::observability_helper::ObservabilityHelper;
 use velostream::velostream::sql::execution::config::TracingConfig;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::StreamRecord;
+
+// Use shared helpers
+use crate::unit::observability_test_helpers::{
+    create_test_observability_manager, create_test_record, create_test_record_with_traceparent,
+};
 
 // Shared TelemetryProvider initialized once across all tests in this module
 static TELEMETRY_PROVIDER: OnceLock<TelemetryProvider> = OnceLock::new();
@@ -41,29 +46,7 @@ fn get_telemetry() -> &'static TelemetryProvider {
     })
 }
 
-fn create_test_record() -> StreamRecord {
-    let mut fields = HashMap::new();
-    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
-    fields.insert("price".to_string(), FieldValue::Float(150.0));
-    StreamRecord {
-        fields,
-        timestamp: 1700000000000,
-        offset: 0,
-        partition: 0,
-        event_time: None,
-        headers: HashMap::new(),
-        topic: None,
-        key: None,
-    }
-}
-
-fn create_test_record_with_traceparent(traceparent: &str) -> StreamRecord {
-    let mut record = create_test_record();
-    record
-        .headers
-        .insert("traceparent".to_string(), traceparent.to_string());
-    record
-}
+// create_test_record and create_test_record_with_traceparent imported from shared helpers
 
 // =============================================================================
 // W3C Trace Context Injection Tests
@@ -391,7 +374,7 @@ async fn test_start_batch_span_extracts_upstream_context() {
     trace_propagation::inject_trace_context(&upstream_ctx, &mut record.headers);
 
     // Create observability manager with tracing enabled
-    let obs_manager = create_test_observability_manager().await;
+    let obs_manager = create_test_observability_manager("tracing-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager);
 
     // Start batch span with records containing upstream context
@@ -410,7 +393,7 @@ async fn test_start_batch_span_extracts_upstream_context() {
 #[tokio::test]
 #[serial]
 async fn test_start_batch_span_creates_new_trace_without_upstream() {
-    let obs_manager = create_test_observability_manager().await;
+    let obs_manager = create_test_observability_manager("tracing-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager);
 
     // Records without trace headers
@@ -459,7 +442,8 @@ async fn test_end_to_end_trace_propagation_through_pipeline() {
     trace_propagation::inject_trace_context(&upstream_ctx, &mut input_record.headers);
 
     // Stage 2: Downstream consumer extracts and creates new span
-    let obs: Option<SharedObservabilityManager> = Some(create_test_observability_manager().await);
+    let obs: Option<SharedObservabilityManager> =
+        Some(create_test_observability_manager("tracing-test").await);
     let batch_span =
         ObservabilityHelper::start_batch_span(&obs, "consumer", 1, &[input_record.clone()]);
     assert!(batch_span.is_some());
@@ -574,25 +558,4 @@ async fn test_record_with_existing_traceparent_gets_overwritten() {
     );
 }
 
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-async fn create_test_observability_manager() -> SharedObservabilityManager {
-    use velostream::velostream::observability::ObservabilityManager;
-    use velostream::velostream::sql::execution::config::StreamingConfig;
-
-    let mut tracing_config = TracingConfig::default();
-    tracing_config.service_name = "tracing-test".to_string();
-    tracing_config.otlp_endpoint = None;
-
-    let streaming_config = StreamingConfig::default().with_tracing_config(tracing_config);
-
-    let mut manager = ObservabilityManager::from_streaming_config(streaming_config);
-    manager
-        .initialize()
-        .await
-        .expect("Failed to initialize observability manager");
-
-    Arc::new(tokio::sync::RwLock::new(manager))
-}
+// create_test_observability_manager imported from shared helpers

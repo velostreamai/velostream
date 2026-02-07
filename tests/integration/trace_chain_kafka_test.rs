@@ -18,25 +18,25 @@
 //!   - Kafka headers preserve traceparent through produce/consume round-trips
 
 use opentelemetry::trace::TraceId;
+use rdkafka::Message;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::message::{Headers, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::Message;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ContainerAsync;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::kafka::Kafka;
-use velostream::velostream::observability::ObservabilityManager;
-use velostream::velostream::observability::SharedObservabilityManager;
 use velostream::velostream::server::processors::observability_helper::ObservabilityHelper;
-use velostream::velostream::sql::execution::config::{StreamingConfig, TracingConfig};
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::StreamRecord;
+
+// Use shared helpers from common
+use super::*;
 
 // =============================================================================
 // Test infrastructure
@@ -168,61 +168,8 @@ impl TraceChainTestEnv {
     }
 }
 
-fn create_test_record() -> StreamRecord {
-    let mut fields = HashMap::new();
-    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
-    fields.insert("price".to_string(), FieldValue::Float(150.0));
-    StreamRecord {
-        fields,
-        timestamp: 1700000000000,
-        offset: 0,
-        partition: 0,
-        event_time: None,
-        headers: HashMap::new(),
-        topic: None,
-        key: None,
-    }
-}
-
-fn create_test_record_with_headers(headers: HashMap<String, String>) -> StreamRecord {
-    let mut record = create_test_record();
-    record.headers = headers;
-    record
-}
-
-async fn create_test_observability_manager() -> SharedObservabilityManager {
-    let mut tracing_config = TracingConfig::default();
-    tracing_config.service_name = "trace-chain-test".to_string();
-    tracing_config.otlp_endpoint = None; // In-memory span collection
-
-    let streaming_config = StreamingConfig::default().with_tracing_config(tracing_config);
-
-    let mut manager = ObservabilityManager::from_streaming_config(streaming_config);
-    manager
-        .initialize()
-        .await
-        .expect("Failed to initialize observability manager");
-
-    Arc::new(tokio::sync::RwLock::new(manager))
-}
-
-/// Extract trace_id from a traceparent header value
-fn extract_trace_id(traceparent: &str) -> String {
-    traceparent
-        .split('-')
-        .nth(1)
-        .expect("Invalid traceparent format")
-        .to_string()
-}
-
-/// Extract span_id from a traceparent header value
-fn extract_span_id(traceparent: &str) -> String {
-    traceparent
-        .split('-')
-        .nth(2)
-        .expect("Invalid traceparent format")
-        .to_string()
-}
+// create_test_record, create_test_record_with_headers, create_test_observability_manager,
+// extract_trace_id, extract_span_id imported from shared helpers via super::*
 
 // =============================================================================
 // Multi-hop trace chain test through Kafka
@@ -250,7 +197,7 @@ async fn test_multi_hop_trace_chain_through_kafka() {
     env.create_topic("trace_hop2_out").await;
 
     // Initialize observability with in-memory span collection
-    let obs = create_test_observability_manager().await;
+    let obs = create_test_observability_manager("trace-chain-test").await;
 
     // =========================================================================
     // Stage 0: Produce seed record to source topic (no trace context)
@@ -270,8 +217,12 @@ async fn test_multi_hop_trace_chain_through_kafka() {
     let source_record = create_test_record_with_headers(source_headers);
 
     // Create batch span — no upstream trace, so this is the ROOT span
-    let hop1_span =
-        ObservabilityHelper::start_batch_span(&Some(obs.clone()), "market_data_ts", 1, &[source_record]);
+    let hop1_span = ObservabilityHelper::start_batch_span(
+        &Some(obs.clone()),
+        "market_data_ts",
+        1,
+        &[source_record],
+    );
     assert!(
         hop1_span.is_some(),
         "Hop 1 should create a batch span (ROOT)"
@@ -573,7 +524,7 @@ async fn test_kafka_preserves_trace_headers_round_trip() {
 #[tokio::test]
 #[serial]
 async fn test_span_chain_in_memory_three_hops() {
-    let obs = create_test_observability_manager().await;
+    let obs = create_test_observability_manager("trace-chain-test").await;
 
     // HOP 1: Root span (no upstream)
     let hop1_input = vec![create_test_record()]; // no traceparent
@@ -685,7 +636,7 @@ async fn test_span_chain_in_memory_three_hops() {
 #[tokio::test]
 #[serial]
 async fn test_broken_chain_starts_new_trace() {
-    let obs = create_test_observability_manager().await;
+    let obs = create_test_observability_manager("trace-chain-test").await;
 
     // HOP 1: Root span
     let hop1_input = vec![create_test_record()];
