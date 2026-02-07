@@ -19,7 +19,9 @@ use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::SharedJobStats;
 use crate::velostream::server::processors::common::JobExecutionStats;
-use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
+use crate::velostream::server::processors::metrics_helper::{
+    ProcessorMetricsHelper, extract_job_name,
+};
 use crate::velostream::server::v2::source_coordinator::{
     SourceCoordinator, SourceCoordinatorConfig,
 };
@@ -162,71 +164,46 @@ impl JoinJobProcessor {
         })
     }
 
-    /// Extract job name from query for metric emission
-    fn extract_job_name(query: &StreamingQuery) -> String {
-        match query {
-            StreamingQuery::CreateStream { name, .. } => name.clone(),
-            StreamingQuery::CreateTable { name, .. } => name.clone(),
-            StreamingQuery::Select { .. } => "select_query".to_string(),
-            _ => "unknown_query".to_string(),
-        }
-    }
-
-    /// Register SQL-annotated metrics (@metric annotations) with Prometheus
-    async fn register_sql_metrics(
+    /// Flush the output buffer: emit metrics, write records, optionally flush the writer.
+    async fn flush_output_buffer(
+        output_buffer: &mut Vec<Arc<StreamRecord>>,
+        writer: &Option<Arc<Mutex<Box<dyn DataWriter>>>>,
         metrics_helper: &ProcessorMetricsHelper,
-        query: &StreamingQuery,
+        query: &Option<Arc<StreamingQuery>>,
         observability: &Option<SharedObservabilityManager>,
-        job_name: &str,
-    ) {
-        if let Err(e) = metrics_helper
-            .register_counter_metrics(query, observability, job_name)
-            .await
-        {
-            warn!(
-                "JoinJobProcessor: Failed to register counter metrics for '{}': {}",
-                job_name, e
-            );
+        job_name_for_metrics: &Option<String>,
+        stats: &mut JoinJobStats,
+        flush_writer: bool,
+    ) -> Result<(), SqlError> {
+        // Emit metrics for the batch
+        if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
+            metrics_helper
+                .emit_all_metrics(q, output_buffer, observability, jn)
+                .await;
         }
 
-        if let Err(e) = metrics_helper
-            .register_gauge_metrics(query, observability, job_name)
-            .await
-        {
-            warn!(
-                "JoinJobProcessor: Failed to register gauge metrics for '{}': {}",
-                job_name, e
-            );
+        if let Some(writer) = writer {
+            let mut w = writer.lock().await;
+            for rec in output_buffer.drain(..) {
+                let owned = Arc::try_unwrap(rec).unwrap_or_else(|arc| (*arc).clone());
+                w.write(owned).await.map_err(|e| SqlError::ExecutionError {
+                    message: format!("Write error: {}", e),
+                    query: None,
+                })?;
+                stats.records_written += 1;
+            }
+            if flush_writer {
+                w.flush().await.map_err(|e| SqlError::ExecutionError {
+                    message: format!("Flush error: {}", e),
+                    query: None,
+                })?;
+            }
+        } else {
+            stats.records_written += output_buffer.len() as u64;
+            output_buffer.clear();
         }
 
-        if let Err(e) = metrics_helper
-            .register_histogram_metrics(query, observability, job_name)
-            .await
-        {
-            warn!(
-                "JoinJobProcessor: Failed to register histogram metrics for '{}': {}",
-                job_name, e
-            );
-        }
-    }
-
-    /// Emit SQL-annotated metrics for a batch of output records
-    async fn emit_sql_metrics(
-        metrics_helper: &ProcessorMetricsHelper,
-        query: &StreamingQuery,
-        records: &[Arc<StreamRecord>],
-        observability: &Option<SharedObservabilityManager>,
-        job_name: &str,
-    ) {
-        metrics_helper
-            .emit_counter_metrics(query, records, observability, job_name)
-            .await;
-        metrics_helper
-            .emit_gauge_metrics(query, records, observability, job_name)
-            .await;
-        metrics_helper
-            .emit_histogram_metrics(query, records, observability, job_name)
-            .await;
+        Ok(())
     }
 
     /// Process a stream-stream join job
@@ -263,10 +240,12 @@ impl JoinJobProcessor {
 
         // Set up metrics helper and register SQL-annotated metrics if query is provided
         let metrics_helper = ProcessorMetricsHelper::new();
-        let job_name_for_metrics = query.as_ref().map(|q| Self::extract_job_name(q));
+        let job_name_for_metrics = query.as_ref().map(|q| extract_job_name(q));
 
         if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
-            Self::register_sql_metrics(&metrics_helper, q, &observability, jn).await;
+            metrics_helper
+                .register_all_metrics(q, &observability, jn)
+                .await;
         }
 
         // Create the interval join processor
@@ -300,8 +279,8 @@ impl JoinJobProcessor {
         // Wrap writer for async access
         let writer = writer.map(|w| Arc::new(Mutex::new(w)));
 
-        // Output buffer for batching writes
-        let mut output_buffer: Vec<StreamRecord> =
+        // Output buffer for batching writes — stored as Arc to avoid cloning for metrics emission
+        let mut output_buffer: Vec<Arc<StreamRecord>> =
             Vec::with_capacity(self.config.output_batch_size);
 
         // Process records as they arrive
@@ -351,41 +330,23 @@ impl JoinJobProcessor {
 
                     stats.join_matches += joined.len() as u64;
 
-                    // Buffer output
+                    // Buffer output (wrap in Arc once — avoids clone for metrics emission)
                     for record in joined {
-                        output_buffer.push(record);
+                        output_buffer.push(Arc::new(record));
 
                         // Flush when buffer is full
                         if output_buffer.len() >= self.config.output_batch_size {
-                            // Emit metrics for the flushed batch
-                            if let (Some(q), Some(jn)) =
-                                (query.as_ref(), job_name_for_metrics.as_ref())
-                            {
-                                let arc_records: Vec<Arc<StreamRecord>> =
-                                    output_buffer.iter().map(|r| Arc::new(r.clone())).collect();
-                                Self::emit_sql_metrics(
-                                    &metrics_helper,
-                                    q,
-                                    &arc_records,
-                                    &observability,
-                                    jn,
-                                )
-                                .await;
-                            }
-
-                            if let Some(ref writer) = writer {
-                                let mut w = writer.lock().await;
-                                for rec in output_buffer.drain(..) {
-                                    w.write(rec).await.map_err(|e| SqlError::ExecutionError {
-                                        message: format!("Write error: {}", e),
-                                        query: None,
-                                    })?;
-                                    stats.records_written += 1;
-                                }
-                            } else {
-                                stats.records_written += output_buffer.len() as u64;
-                                output_buffer.clear();
-                            }
+                            Self::flush_output_buffer(
+                                &mut output_buffer,
+                                &writer,
+                                &metrics_helper,
+                                &query,
+                                &observability,
+                                &job_name_for_metrics,
+                                &mut stats,
+                                false,
+                            )
+                            .await?;
                         }
                     }
                 }
@@ -398,42 +359,21 @@ impl JoinJobProcessor {
                     // Timeout - flush any pending output then continue polling
                     // This ensures data is written even when batch size isn't reached
                     if !output_buffer.is_empty() {
-                        // Emit metrics for the flushed batch
-                        if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref())
-                        {
-                            let arc_records: Vec<Arc<StreamRecord>> =
-                                output_buffer.iter().map(|r| Arc::new(r.clone())).collect();
-                            Self::emit_sql_metrics(
-                                &metrics_helper,
-                                q,
-                                &arc_records,
-                                &observability,
-                                jn,
-                            )
-                            .await;
-                        }
-
-                        if let Some(ref writer) = writer {
-                            let mut w = writer.lock().await;
-                            debug!(
-                                "JoinJobProcessor: Flushing {} buffered records on idle",
-                                output_buffer.len()
-                            );
-                            for rec in output_buffer.drain(..) {
-                                w.write(rec).await.map_err(|e| SqlError::ExecutionError {
-                                    message: format!("Write error: {}", e),
-                                    query: None,
-                                })?;
-                                stats.records_written += 1;
-                            }
-                            w.flush().await.map_err(|e| SqlError::ExecutionError {
-                                message: format!("Flush error: {}", e),
-                                query: None,
-                            })?;
-                        } else {
-                            stats.records_written += output_buffer.len() as u64;
-                            output_buffer.clear();
-                        }
+                        debug!(
+                            "JoinJobProcessor: Flushing {} buffered records on idle",
+                            output_buffer.len()
+                        );
+                        Self::flush_output_buffer(
+                            &mut output_buffer,
+                            &writer,
+                            &metrics_helper,
+                            &query,
+                            &observability,
+                            &job_name_for_metrics,
+                            &mut stats,
+                            true,
+                        )
+                        .await?;
                     }
 
                     // Update shared_stats on idle too, so the test harness can detect
@@ -456,29 +396,17 @@ impl JoinJobProcessor {
 
         // Flush remaining output
         if !output_buffer.is_empty() {
-            // Emit metrics for the final batch
-            if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
-                let arc_records: Vec<Arc<StreamRecord>> =
-                    output_buffer.iter().map(|r| Arc::new(r.clone())).collect();
-                Self::emit_sql_metrics(&metrics_helper, q, &arc_records, &observability, jn).await;
-            }
-
-            if let Some(ref writer) = writer {
-                let mut w = writer.lock().await;
-                for rec in output_buffer.drain(..) {
-                    w.write(rec).await.map_err(|e| SqlError::ExecutionError {
-                        message: format!("Write error: {}", e),
-                        query: None,
-                    })?;
-                    stats.records_written += 1;
-                }
-                w.flush().await.map_err(|e| SqlError::ExecutionError {
-                    message: format!("Flush error: {}", e),
-                    query: None,
-                })?;
-            } else {
-                stats.records_written += output_buffer.len() as u64;
-            }
+            Self::flush_output_buffer(
+                &mut output_buffer,
+                &writer,
+                &metrics_helper,
+                &query,
+                &observability,
+                &job_name_for_metrics,
+                &mut stats,
+                true,
+            )
+            .await?;
         }
 
         // Wait for coordinator to finish

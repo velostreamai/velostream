@@ -1659,15 +1659,20 @@ impl StreamRecord {
 
         // Extract event time: use config if provided, otherwise use Kafka timestamp
         let event_time = if let Some(config) = event_time_config {
+            static WARNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             extract_event_time(&fields, config)
                 .inspect_err(|e| {
-                    log::warn!(
-                        "Event time extraction failed for field '{}': {}. \
-                         Falling back to Kafka message timestamp. \
-                         This may cause metrics to use processing time instead of event time.",
-                        config.field_name,
-                        e
-                    )
+                    if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        log::warn!(
+                            "Event time extraction failed for field '{}': {}. \
+                             Falling back to Kafka message timestamp. \
+                             This may cause metrics to use processing time instead of event time. \
+                             This warning is logged once.",
+                            config.field_name,
+                            e
+                        );
+                    }
                 })
                 .ok()
         } else {

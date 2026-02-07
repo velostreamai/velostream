@@ -4,6 +4,8 @@
 //! SQL expressions against streaming data records.
 
 use super::super::processors::ProcessorContext;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use super::super::types::{FieldValue, StreamRecord, system_columns};
 use super::functions::BuiltinFunctions;
 use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
@@ -112,7 +114,6 @@ impl ExpressionEvaluator {
     /// - `null`: return FieldValue::Null
     #[inline]
     pub fn get_event_time_value(record: &StreamRecord) -> FieldValue {
-        use std::sync::atomic::{AtomicBool, Ordering};
         static WARNED: AtomicBool = AtomicBool::new(false);
 
         match record.event_time {

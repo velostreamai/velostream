@@ -713,8 +713,11 @@ impl ProcessorMetricsHelper {
                             continue;
                         }
 
-                        // Accumulate metric into batch (no lock acquired yet)
-                        batch_fn(&mut batch, annotation, &label_values, numeric_value);
+                        // Accumulate metric into batch for scrape-based emission
+                        // (skipped when remote-write is active since emit_batch is not called)
+                        if !metrics.has_remote_write() {
+                            batch_fn(&mut batch, annotation, &label_values, numeric_value);
+                        }
 
                         // Push to remote-write with event timestamp if available.
                         // Fallback behavior controlled by VELOSTREAM_EVENT_TIME_FALLBACK:
@@ -1052,10 +1055,77 @@ impl ProcessorMetricsHelper {
         )
         .await
     }
+
+    /// Register all SQL-annotated metrics (@metric annotations) with Prometheus.
+    ///
+    /// Convenience method that calls register_counter_metrics, register_gauge_metrics,
+    /// and register_histogram_metrics. Errors are logged as warnings but do not fail.
+    pub async fn register_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+    ) {
+        if let Err(e) = self
+            .register_counter_metrics(query, observability, job_name)
+            .await
+        {
+            warn!(
+                "Failed to register counter metrics for '{}': {}",
+                job_name, e
+            );
+        }
+        if let Err(e) = self
+            .register_gauge_metrics(query, observability, job_name)
+            .await
+        {
+            warn!("Failed to register gauge metrics for '{}': {}", job_name, e);
+        }
+        if let Err(e) = self
+            .register_histogram_metrics(query, observability, job_name)
+            .await
+        {
+            warn!(
+                "Failed to register histogram metrics for '{}': {}",
+                job_name, e
+            );
+        }
+    }
+
+    /// Emit all SQL-annotated metrics for a batch of output records.
+    ///
+    /// Convenience method that calls emit_counter_metrics, emit_gauge_metrics,
+    /// and emit_histogram_metrics.
+    pub async fn emit_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        records: &[std::sync::Arc<StreamRecord>],
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+    ) {
+        self.emit_counter_metrics(query, records, observability, job_name)
+            .await;
+        self.emit_gauge_metrics(query, records, observability, job_name)
+            .await;
+        self.emit_histogram_metrics(query, records, observability, job_name)
+            .await;
+    }
 }
 
 impl Default for ProcessorMetricsHelper {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Extract job name from a parsed query for metric emission.
+///
+/// Shared utility used by JoinJobProcessor and PartitionReceiver to avoid duplication.
+pub fn extract_job_name(query: &StreamingQuery) -> String {
+    match query {
+        StreamingQuery::CreateStream { name, .. } => name.clone(),
+        StreamingQuery::CreateTable { name, .. } => name.clone(),
+        StreamingQuery::Select { .. } => "select_query".to_string(),
+        _ => "unknown_query".to_string(),
     }
 }

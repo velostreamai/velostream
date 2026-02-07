@@ -20,6 +20,9 @@ use rand::prelude::*;
 use rand_distr::StandardNormal;
 use std::collections::HashMap;
 
+/// Conventional field name for wall-clock production time in generated records.
+const WALL_CLOCK_FIELD_NAME: &str = "timestamp";
+
 // =============================================================================
 // Time Simulation State
 // =============================================================================
@@ -688,7 +691,7 @@ impl SchemaDataGenerator {
 
         let value = if let Some(ref range) = constraints.range {
             self.generate_with_distribution(range.min, range.max, &constraints.distribution) as i64
-        } else if field_name == "timestamp" {
+        } else if field_name == WALL_CLOCK_FIELD_NAME {
             // The `timestamp` field is wall-clock production time by convention
             Utc::now().timestamp_millis()
         } else {
@@ -714,7 +717,7 @@ impl SchemaDataGenerator {
         // - `timestamp` payload field → wall-clock "now" (production time)
         // - Other epoch_millis fields → the simulated event time (already advanced in generate_record)
         if self.time_state.is_some() {
-            if field_name == "timestamp" {
+            if field_name == WALL_CLOCK_FIELD_NAME {
                 return Ok(FieldValue::Integer(Utc::now().timestamp_millis()));
             }
             if let Some(&event_time) = self.event_times.last() {

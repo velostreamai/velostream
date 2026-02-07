@@ -3,7 +3,7 @@
 //! These tests verify that window_start and window_end timestamps are correctly
 //! bounded to the actual event times in the data, not extrapolated into the future.
 //!
-//! BUG REPRODUCTION (FR-XXX): Sliding windows were producing window_end timestamps
+//! BUG REPRODUCTION: Sliding windows were producing window_end timestamps
 //! far into the future when processing accumulated data with varying timestamp ranges.
 //! This caused Prometheus remote-write to reject metrics with "timestamp is too far
 //! in the future" errors.
@@ -102,8 +102,6 @@ async fn test_sliding_window_end_bounded_by_max_event_time() {
             }
         }
     }
-
-    println!("✅ All window_end values are properly bounded (not in the distant future)");
 }
 
 /// Test that tumbling window window_end is bounded correctly.
@@ -148,8 +146,6 @@ async fn test_tumbling_window_end_bounded_by_event_time() {
             );
         }
     }
-
-    println!("✅ Tumbling window_end is properly bounded");
 }
 
 /// Test that event_time on aggregation output matches window_end.
@@ -182,6 +178,7 @@ async fn test_aggregation_event_time_matches_window_end() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
+    let mut checked = 0;
     for result in &results {
         if let (Some(event_time), Some(FieldValue::Integer(window_end))) =
             (result.event_time, result.fields.get("we"))
@@ -193,10 +190,13 @@ async fn test_aggregation_event_time_matches_window_end() {
                  event_time={}, window_end={}",
                 event_time_ms, window_end
             );
+            checked += 1;
         }
     }
-
-    println!("✅ Aggregation event_time matches window_end");
+    assert!(
+        checked > 0,
+        "Expected at least one result with event_time and window_end"
+    );
 }
 
 /// Helper to create a trade record with explicit event_time.

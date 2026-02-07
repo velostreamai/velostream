@@ -674,28 +674,8 @@ impl KafkaDataWriter {
         topic: String,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
-            log::debug!("KafkaDataWriter: Poll thread started for topic '{}'", topic);
-            let mut idle_streak: u32 = 0;
-            while !poll_stop.load(Ordering::Relaxed) {
-                producer.poll(Duration::from_millis(0));
-
-                if producer.in_flight_count() == 0 {
-                    idle_streak = idle_streak.saturating_add(1);
-                    let sleep_ms = match idle_streak {
-                        0..=100 => 0,
-                        101..=1000 => 1,
-                        _ => 10,
-                    };
-                    if sleep_ms > 0 {
-                        thread::sleep(Duration::from_millis(sleep_ms));
-                    }
-                } else {
-                    idle_streak = 0;
-                }
-            }
-            // Drain remaining callbacks before exit
-            producer.poll(Duration::from_millis(100));
-            log::debug!("KafkaDataWriter: Poll thread stopped for topic '{}'", topic);
+            let label = format!("KafkaDataWriter[{}]", topic);
+            crate::velostream::kafka::utils::adaptive_poll_loop(producer, poll_stop, &label);
         })
     }
 
@@ -1246,7 +1226,7 @@ impl DataWriter for KafkaDataWriter {
         let send_result = if self.is_transactional() {
             // Transactional mode: use dedicated send method
             self.send_transactional(
-                &self.topic.clone(),
+                &self.topic,
                 key.as_deref(),
                 &payload,
                 record.event_time.map(|et| et.timestamp_millis()),
@@ -1362,7 +1342,7 @@ impl DataWriter for KafkaDataWriter {
             let send_result = if self.is_transactional() {
                 // Transactional mode: use dedicated send method
                 self.send_transactional(
-                    &self.topic.clone(),
+                    &self.topic,
                     key.as_deref(),
                     &payload,
                     record_arc.event_time.map(|et| et.timestamp_millis()),
@@ -1480,7 +1460,7 @@ impl DataWriter for KafkaDataWriter {
         // Different handling for async vs transactional modes
         let send_result = if self.is_transactional() {
             // Transactional mode: use dedicated send method
-            self.send_transactional(&self.topic.clone(), Some(key), empty_payload, None)
+            self.send_transactional(&self.topic, Some(key), empty_payload, None)
         } else {
             // Async mode: use BaseProducer directly
             let kafka_record = BaseRecord::to(&self.topic).key(key).payload(empty_payload);

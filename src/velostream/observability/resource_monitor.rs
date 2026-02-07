@@ -104,7 +104,7 @@ pub fn spawn() -> Arc<AtomicBool> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
-    std::thread::Builder::new()
+    if let Err(e) = std::thread::Builder::new()
         .name("resource-monitor".to_string())
         .spawn(move || {
             let pid = Pid::from_u32(std::process::id());
@@ -138,7 +138,9 @@ pub fn spawn() -> Arc<AtomicBool> {
                 stats.log_and_reset();
             }
         })
-        .expect("Failed to spawn resource monitor thread");
+    {
+        log::error!("Failed to spawn resource monitor thread: {}", e);
+    }
 
     shutdown
 }

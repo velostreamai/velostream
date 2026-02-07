@@ -52,7 +52,7 @@ fn test_timestamp_field_resolves_to_hashmap_not_system_column() {
 #[test]
 fn test_event_time_resolves_to_system_column_metadata() {
     let field_value_ms: i64 = 1609459200000; // 2021-01-01 (stale data in HashMap)
-    let metadata_event_time_ms: i64 = 1770400000000; // metadata event time
+    let metadata_event_time_ms: i64 = 1770400000000; // ~2026-02-07 (metadata event time)
 
     let mut fields = HashMap::new();
     fields.insert(
@@ -90,7 +90,7 @@ fn test_event_time_resolves_to_system_column_metadata() {
 #[test]
 fn test_qualified_event_time_resolves_to_system_column_metadata() {
     let field_value_ms: i64 = 1609459200000;
-    let metadata_event_time_ms: i64 = 1770400000000;
+    let metadata_event_time_ms: i64 = 1770400000000; // ~2026-02-07
 
     let mut fields = HashMap::new();
     fields.insert(
@@ -128,7 +128,7 @@ fn test_qualified_event_time_resolves_to_system_column_metadata() {
 /// (processing time). This matches Flink/ksqlDB semantics.
 #[test]
 fn test_event_time_falls_back_to_processing_time_when_unset() {
-    let processing_time_ms: i64 = 1770400000000;
+    let processing_time_ms: i64 = 1770400000000; // ~2026-02-07
 
     let record = StreamRecord {
         fields: HashMap::new(),
@@ -177,7 +177,7 @@ fn test_event_time_fallback_enum_variants() {
 fn test_event_time_null_fallback_behavior() {
     let record = StreamRecord {
         fields: HashMap::new(),
-        timestamp: 1770400000000,
+        timestamp: 1770400000000, // ~2026-02-07
         offset: 0,
         partition: 0,
         event_time: None,
@@ -208,7 +208,7 @@ fn test_event_time_null_fallback_behavior() {
 /// _TIMESTAMP when record.event_time is None.
 #[test]
 fn test_event_time_warn_fallback_behavior() {
-    let processing_time_ms: i64 = 1770400000000;
+    let processing_time_ms: i64 = 1770400000000; // ~2026-02-07
 
     let record = StreamRecord {
         fields: HashMap::new(),
@@ -242,7 +242,7 @@ fn test_event_time_warn_fallback_behavior() {
 /// When event_time IS set, the fallback mode is irrelevant — event_time is always used.
 #[test]
 fn test_event_time_present_ignores_fallback_mode() {
-    let event_time_ms: i64 = 1770400000000;
+    let event_time_ms: i64 = 1770400000000; // ~2026-02-07
     let event_time = chrono::DateTime::from_timestamp_millis(event_time_ms).unwrap();
 
     let record = StreamRecord {

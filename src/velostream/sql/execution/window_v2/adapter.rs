@@ -1109,10 +1109,6 @@ impl WindowAdapter {
         Ok(result)
     }
 
-    /// Evaluate an arbitrary HAVING expression to a `FieldValue`.
-    ///
-    /// Handles aggregate functions, literals, and arithmetic (nested BinaryOp)
-    /// so that compound expressions like `SUM(volume) / COUNT(*)` resolve to a value.
     /// Find the accumulator field name for an aggregate expression in the HAVING clause.
     ///
     /// The accumulator stores aggregates keyed by the SELECT alias (e.g., "total" for
@@ -1149,7 +1145,7 @@ impl WindowAdapter {
                     args: s_args,
                 },
             ) => {
-                if h_name.to_uppercase() != s_name.to_uppercase() {
+                if !h_name.eq_ignore_ascii_case(s_name) {
                     return false;
                 }
                 if h_args.len() != s_args.len() {
@@ -1168,9 +1164,7 @@ impl WindowAdapter {
     fn exprs_equal(a: &Expr, b: &Expr) -> bool {
         match (a, b) {
             (Expr::Column(a_col), Expr::Column(b_col)) => a_col == b_col,
-            (Expr::Literal(a_lit), Expr::Literal(b_lit)) => {
-                format!("{:?}", a_lit) == format!("{:?}", b_lit)
-            }
+            (Expr::Literal(a_lit), Expr::Literal(b_lit)) => a_lit == b_lit,
             (
                 Expr::Function {
                     name: a_n,
@@ -1181,7 +1175,7 @@ impl WindowAdapter {
                     args: b_args,
                 },
             ) => {
-                a_n.to_uppercase() == b_n.to_uppercase()
+                a_n.eq_ignore_ascii_case(b_n)
                     && a_args.len() == b_args.len()
                     && a_args
                         .iter()
@@ -1201,12 +1195,8 @@ impl WindowAdapter {
 
         match expr {
             Expr::Function { name, args } => {
-                if name.to_uppercase() == "COUNT" {
-                    if args.is_empty() || (args.len() == 1 && matches!(args[0], Expr::Literal(_))) {
-                        Ok(FieldValue::Integer(accumulator.count as i64))
-                    } else {
-                        Ok(FieldValue::Integer(accumulator.count as i64))
-                    }
+                if name.eq_ignore_ascii_case("COUNT") {
+                    Ok(FieldValue::Integer(accumulator.count as i64))
                 } else {
                     let field_name = Self::find_aggregate_field_name(expr, aggregate_expressions);
                     AggregateFunctions::compute_field_aggregate_value(
@@ -1256,7 +1246,13 @@ impl WindowAdapter {
                     _ => Ok(FieldValue::Null),
                 }
             }
-            _ => Ok(FieldValue::Null),
+            other => {
+                log::debug!(
+                    "HAVING expression evaluator: unhandled expression type {:?}, returning Null",
+                    other
+                );
+                Ok(FieldValue::Null)
+            }
         }
     }
 
@@ -1310,64 +1306,9 @@ impl WindowAdapter {
                 let right_value =
                     Self::evaluate_having_expr_value(right, accumulator, aggregate_expressions)?;
 
-                // Apply comparison operator
-                Ok(match op {
-                    BinaryOperator::GreaterThanOrEqual => match (&left_value, &right_value) {
-                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l >= r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => l >= r,
-                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) >= *r,
-                        (FieldValue::Float(l), FieldValue::Integer(r)) => l >= &(*r as f64),
-                        _ => false,
-                    },
-                    BinaryOperator::GreaterThan => match (&left_value, &right_value) {
-                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l > r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => l > r,
-                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) > *r,
-                        (FieldValue::Float(l), FieldValue::Integer(r)) => l > &(*r as f64),
-                        _ => false,
-                    },
-                    BinaryOperator::LessThanOrEqual => match (&left_value, &right_value) {
-                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l <= r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => l <= r,
-                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) <= *r,
-                        (FieldValue::Float(l), FieldValue::Integer(r)) => l <= &(*r as f64),
-                        _ => false,
-                    },
-                    BinaryOperator::LessThan => match (&left_value, &right_value) {
-                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l < r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => l < r,
-                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) < *r,
-                        (FieldValue::Float(l), FieldValue::Integer(r)) => l < &(*r as f64),
-                        _ => false,
-                    },
-                    BinaryOperator::Equal => match (&left_value, &right_value) {
-                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l == r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => {
-                            (l - r).abs() < f64::EPSILON
-                        }
-                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
-                            ((*l as f64) - r).abs() < f64::EPSILON
-                        }
-                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
-                            (l - (*r as f64)).abs() < f64::EPSILON
-                        }
-                        _ => false,
-                    },
-                    BinaryOperator::NotEqual => match (&left_value, &right_value) {
-                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l != r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => {
-                            (l - r).abs() >= f64::EPSILON
-                        }
-                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
-                            ((*l as f64) - r).abs() >= f64::EPSILON
-                        }
-                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
-                            (l - (*r as f64)).abs() >= f64::EPSILON
-                        }
-                        _ => false,
-                    },
-                    _ => false,
-                })
+                // Apply comparison operator using FieldValueComparator
+                // which handles ScaledInteger, Decimal, and all numeric types
+                FieldValueComparator::compare_values_for_boolean(&left_value, &right_value, op)
             }
             _ => {
                 // Unsupported HAVING expression type
@@ -1983,6 +1924,7 @@ impl WindowAdapter {
         match value {
             FieldValue::Integer(i) => *i == 0,
             FieldValue::Float(f) => *f == 0.0,
+            FieldValue::ScaledInteger(v, _) => *v == 0,
             _ => false,
         }
     }
@@ -2006,6 +1948,28 @@ impl WindowAdapter {
             }
             (FieldValue::Float(l), FieldValue::Integer(r)) => {
                 Ok(FieldValue::Float(op(*l, *r as f64)))
+            }
+            // ScaledInteger combinations
+            (FieldValue::ScaledInteger(l, scale), FieldValue::ScaledInteger(r, s2)) => {
+                let fl = FieldValueComparator::scaled_to_f64(*l, *scale);
+                let fr = FieldValueComparator::scaled_to_f64(*r, *s2);
+                Ok(FieldValue::Float(op(fl, fr)))
+            }
+            (FieldValue::ScaledInteger(l, scale), FieldValue::Integer(r)) => {
+                let fl = FieldValueComparator::scaled_to_f64(*l, *scale);
+                Ok(FieldValue::Float(op(fl, *r as f64)))
+            }
+            (FieldValue::Integer(l), FieldValue::ScaledInteger(r, scale)) => {
+                let fr = FieldValueComparator::scaled_to_f64(*r, *scale);
+                Ok(FieldValue::Float(op(*l as f64, fr)))
+            }
+            (FieldValue::ScaledInteger(l, scale), FieldValue::Float(r)) => {
+                let fl = FieldValueComparator::scaled_to_f64(*l, *scale);
+                Ok(FieldValue::Float(op(fl, *r)))
+            }
+            (FieldValue::Float(l), FieldValue::ScaledInteger(r, scale)) => {
+                let fr = FieldValueComparator::scaled_to_f64(*r, *scale);
+                Ok(FieldValue::Float(op(*l, fr)))
             }
             _ => Ok(FieldValue::Null),
         }

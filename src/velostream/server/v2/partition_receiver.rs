@@ -63,6 +63,7 @@
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::JobProcessingConfig;
+use crate::velostream::server::processors::metrics_helper::extract_job_name;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
@@ -170,7 +171,7 @@ impl PartitionReceiver {
             .build();
 
         // Extract job name from query for metric emission
-        let job_name = Self::extract_job_name(&query);
+        let job_name = extract_job_name(&query);
 
         Self {
             partition_id,
@@ -231,7 +232,7 @@ impl PartitionReceiver {
         let (_, rx) = tokio::sync::mpsc::channel::<Vec<StreamRecord>>(1);
 
         // Extract job name from query for metric emission
-        let job_name = Self::extract_job_name(&query);
+        let job_name = extract_job_name(&query);
 
         Self {
             partition_id,
@@ -246,16 +247,6 @@ impl PartitionReceiver {
             queue: Some(queue),
             eof_flag: Some(eof_flag),
             job_name,
-        }
-    }
-
-    /// Extract job name from query for metric emission
-    fn extract_job_name(query: &StreamingQuery) -> String {
-        match query {
-            StreamingQuery::CreateStream { name, .. } => name.clone(),
-            StreamingQuery::CreateTable { name, .. } => name.clone(),
-            StreamingQuery::Select { .. } => "select_query".to_string(),
-            _ => "unknown_query".to_string(),
         }
     }
 

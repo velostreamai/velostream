@@ -10,7 +10,7 @@ mod kafka_producer_def_context;
 pub mod serialization;
 pub mod serialization_format;
 pub mod unified_consumer;
-mod utils;
+pub(crate) mod utils;
 
 // Common types
 pub mod headers;

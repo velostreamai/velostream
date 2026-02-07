@@ -543,12 +543,7 @@ async fn test_parse_group_by_window_having_order() {
                 WINDOW TUMBLING(5s) \
                 HAVING COUNT(*) > 1";
 
-    match parser.parse(query) {
-        Ok(_) => {
-            println!("✓ Parser accepts GROUP BY → WINDOW → HAVING ordering");
-        }
-        Err(e) => {
-            panic!("Parser rejected GROUP BY → WINDOW → HAVING: {}", e);
-        }
-    }
+    parser
+        .parse(query)
+        .unwrap_or_else(|e| panic!("Parser rejected GROUP BY → WINDOW → HAVING: {}", e));
 }

@@ -127,7 +127,7 @@ async fn test_shorthand_tumbling_window_executes() {
             panic!("Failed to extract cnt value from results");
         }
     } else {
-        println!("⚠️ No results from shorthand TUMBLING - window may not have closed");
+        println!("WARN: No results from shorthand TUMBLING - window may not have closed");
     }
 }
 
@@ -190,7 +190,7 @@ async fn test_shorthand_sliding_window_executes() {
             assert_eq!(sym, "AAPL", "Expected AAPL symbol in results, got {}", sym);
         }
     } else {
-        println!("⚠️ No results from shorthand SLIDING - timing may not allow emission");
+        println!("WARN: No results from shorthand SLIDING - timing may not allow emission");
     }
 }
 
@@ -260,7 +260,7 @@ async fn test_or_in_having_filters_correctly() {
             );
         }
     } else {
-        println!("⚠️ No results from OR in HAVING - window may not have closed");
+        println!("WARN: No results from OR in HAVING - window may not have closed");
     }
 }
 
@@ -337,7 +337,7 @@ async fn test_complex_or_and_logic_in_having() {
             }
         }
     } else {
-        println!("⚠️ No results from complex OR/AND - window may not have closed");
+        println!("WARN: No results from complex OR/AND - window may not have closed");
     }
 }
 
@@ -416,7 +416,7 @@ async fn test_division_in_having_executes() {
             panic!("Failed to extract trade_cnt or total_vol from results");
         }
     } else {
-        println!("⚠️ No results from division in HAVING - window may not have closed");
+        println!("WARN: No results from division in HAVING - window may not have closed");
     }
 }
 
@@ -491,7 +491,7 @@ async fn test_ratio_calculations_in_having() {
             "CHEAP should be filtered out by WHERE price > 200 (price=10 < 200)"
         );
     } else {
-        println!("⚠️ No results from ratio calculation - window may not have closed");
+        println!("WARN: No results from ratio calculation - window may not have closed");
     }
 }
 
@@ -505,10 +505,10 @@ async fn test_first_value_parser_support() {
 
     match parser.parse(query) {
         Ok(_) => {
-            println!("✓ Parser accepts FIRST_VALUE syntax");
+            println!("OK: Parser accepts FIRST_VALUE syntax");
         }
         Err(e) => {
-            println!("⚠️ FIRST_VALUE not yet supported in parser: {}", e);
+            println!("WARN: FIRST_VALUE not yet supported in parser: {}", e);
         }
     }
 }
@@ -521,10 +521,10 @@ async fn test_last_value_parser_support() {
 
     match parser.parse(query) {
         Ok(_) => {
-            println!("✓ Parser accepts LAST_VALUE syntax");
+            println!("OK: Parser accepts LAST_VALUE syntax");
         }
         Err(e) => {
-            println!("⚠️ LAST_VALUE not yet supported in parser: {}", e);
+            println!("WARN: LAST_VALUE not yet supported in parser: {}", e);
         }
     }
 }
@@ -538,10 +538,10 @@ async fn test_tumble_start_parser_support() {
 
     match parser.parse(query) {
         Ok(_) => {
-            println!("✓ Parser accepts TUMBLE_START syntax");
+            println!("OK: Parser accepts TUMBLE_START syntax");
         }
         Err(e) => {
-            println!("⚠️ TUMBLE_START not yet supported in parser: {}", e);
+            println!("WARN: TUMBLE_START not yet supported in parser: {}", e);
         }
     }
 }
@@ -553,10 +553,10 @@ async fn test_tumble_end_parser_support() {
 
     match parser.parse(query) {
         Ok(_) => {
-            println!("✓ Parser accepts TUMBLE_END syntax");
+            println!("OK: Parser accepts TUMBLE_END syntax");
         }
         Err(e) => {
-            println!("⚠️ TUMBLE_END not yet supported in parser: {}", e);
+            println!("WARN: TUMBLE_END not yet supported in parser: {}", e);
         }
     }
 }
