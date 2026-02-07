@@ -472,7 +472,7 @@ impl PartitionReceiver {
 
                             // Inject distributed trace context into output records
                             // so downstream consumers can link their traces
-                            let batch_span = ObservabilityHelper::start_batch_span(
+                            let mut batch_span = ObservabilityHelper::start_batch_span(
                                 self.observability_wrapper.observability_ref(),
                                 &self.job_name,
                                 batch_count,
@@ -485,6 +485,13 @@ impl PartitionReceiver {
                                     &self.job_name,
                                 );
                             }
+
+                            // Complete batch span with success
+                            ObservabilityHelper::complete_batch_span_success(
+                                &mut batch_span,
+                                &start,
+                                processed as u64,
+                            );
 
                             // Write output records to sink if available
                             if !output_records.is_empty() {
@@ -558,6 +565,20 @@ impl PartitionReceiver {
                                 debug!(
                                     "PartitionReceiver {}: Max retries ({}) exceeded, sending batch to DLQ",
                                     self.partition_id, self.config.max_retries
+                                );
+
+                                // Complete batch span with error for the failed batch
+                                let mut error_batch_span = ObservabilityHelper::start_batch_span(
+                                    self.observability_wrapper.observability_ref(),
+                                    &self.job_name,
+                                    batch_count,
+                                    &batch,
+                                );
+                                ObservabilityHelper::complete_batch_span_error(
+                                    &mut error_batch_span,
+                                    &start,
+                                    0,
+                                    batch_size,
                                 );
 
                                 // Send to DLQ if enabled

@@ -1578,7 +1578,11 @@ impl JoinCoordinator {
             timestamp: merged_timestamp,
             offset: left.offset, // Use left offset as reference
             partition: left.partition,
-            headers: left.headers.clone(), // Preserve left headers
+            headers: {
+                let mut h = left.headers.clone();
+                h.extend(right.headers.iter().map(|(k, v)| (k.clone(), v.clone())));
+                h
+            },
             event_time: merged_event_time,
             topic: left.topic.clone(), // Preserve left topic
             key: left.key.clone(),     // Preserve left key

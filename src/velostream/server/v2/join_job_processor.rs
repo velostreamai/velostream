@@ -193,7 +193,7 @@ impl JoinJobProcessor {
                 .first()
                 .map(|r| vec![(**r).clone()])
                 .unwrap_or_default();
-            let batch_span = ObservabilityHelper::start_batch_span(
+            let mut batch_span = ObservabilityHelper::start_batch_span(
                 observability,
                 job_name,
                 flush_count,
@@ -204,6 +204,11 @@ impl JoinJobProcessor {
                 output_buffer,
                 job_name,
             );
+            // Complete batch span with record count and success
+            if let Some(ref mut span) = batch_span {
+                span.set_total_records(output_buffer.len() as u64);
+                span.set_success();
+            }
         }
 
         if let Some(writer) = writer {
@@ -864,5 +869,148 @@ mod tests {
                 record.fields.keys().collect::<Vec<_>>()
             );
         }
+    }
+
+    /// Helper to create a test observability manager with in-memory span collection
+    async fn create_test_observability_manager() -> SharedObservabilityManager {
+        use crate::velostream::observability::ObservabilityManager;
+        use crate::velostream::sql::execution::config::{StreamingConfig, TracingConfig};
+
+        let tracing_config = TracingConfig {
+            service_name: "join-flush-test".to_string(),
+            otlp_endpoint: None,
+            ..Default::default()
+        };
+
+        let streaming_config = StreamingConfig::default().with_tracing_config(tracing_config);
+
+        let mut manager = ObservabilityManager::from_streaming_config(streaming_config);
+        manager
+            .initialize()
+            .await
+            .expect("Failed to initialize observability manager");
+
+        Arc::new(tokio::sync::RwLock::new(manager))
+    }
+
+    /// Helper to create a StreamRecord with an upstream traceparent
+    fn create_record_with_traceparent(traceparent: &str) -> StreamRecord {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(1));
+        let mut headers = HashMap::new();
+        headers.insert("traceparent".to_string(), traceparent.to_string());
+        StreamRecord {
+            fields,
+            timestamp: 1700000000000,
+            offset: 0,
+            partition: 0,
+            event_time: None,
+            headers,
+            topic: None,
+            key: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_flush_output_buffer_injects_trace_context() {
+        let obs_manager = create_test_observability_manager().await;
+        let observability: Option<SharedObservabilityManager> = Some(obs_manager.clone());
+        let metrics_helper = ProcessorMetricsHelper::new();
+        let mut stats = JoinJobStats::default();
+
+        let upstream_traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+        // Create output buffer with first record carrying upstream traceparent
+        let mut output_buffer: Vec<Arc<StreamRecord>> = vec![
+            Arc::new(create_record_with_traceparent(upstream_traceparent)),
+            Arc::new(StreamRecord::new(HashMap::from([(
+                "id".to_string(),
+                FieldValue::Integer(2),
+            )]))),
+        ];
+
+        // Call flush_output_buffer with writer=None, observability=Some
+        JoinJobProcessor::flush_output_buffer(
+            &mut output_buffer,
+            &None, // no writer
+            &metrics_helper,
+            &None, // no query
+            &observability,
+            &Some("test-flush-job".to_string()),
+            &mut stats,
+            false,
+            1,
+        )
+        .await
+        .expect("flush_output_buffer should succeed");
+
+        // Since writer=None, records_written should be updated and buffer cleared
+        assert_eq!(stats.records_written, 2, "Should count 2 written records");
+        assert!(output_buffer.is_empty(), "Buffer should be cleared");
+    }
+
+    #[tokio::test]
+    async fn test_flush_output_buffer_no_observability_skips_trace() {
+        let metrics_helper = ProcessorMetricsHelper::new();
+        let mut stats = JoinJobStats::default();
+
+        // Create output buffer without any trace context
+        let mut output_buffer: Vec<Arc<StreamRecord>> = vec![Arc::new(StreamRecord::new(
+            HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+        ))];
+
+        // Call flush_output_buffer with observability=None
+        JoinJobProcessor::flush_output_buffer(
+            &mut output_buffer,
+            &None, // no writer
+            &metrics_helper,
+            &None, // no query
+            &None, // no observability
+            &Some("test-no-obs-job".to_string()),
+            &mut stats,
+            false,
+            1,
+        )
+        .await
+        .expect("flush_output_buffer should succeed without observability");
+
+        // Should process records without panic
+        assert_eq!(stats.records_written, 1, "Should count 1 written record");
+    }
+
+    #[tokio::test]
+    async fn test_flush_output_buffer_job_name_fallback() {
+        let obs_manager = create_test_observability_manager().await;
+        let observability: Option<SharedObservabilityManager> = Some(obs_manager.clone());
+        let metrics_helper = ProcessorMetricsHelper::new();
+        let mut stats = JoinJobStats::default();
+
+        let upstream_traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+        // Create output buffer with a record carrying upstream traceparent
+        let mut output_buffer: Vec<Arc<StreamRecord>> = vec![Arc::new(
+            create_record_with_traceparent(upstream_traceparent),
+        )];
+
+        // Call flush_output_buffer with job_name_for_metrics=None
+        // This should use "join" as the default job name
+        JoinJobProcessor::flush_output_buffer(
+            &mut output_buffer,
+            &None, // no writer
+            &metrics_helper,
+            &None, // no query
+            &observability,
+            &None, // no job name — should fall back to "join"
+            &mut stats,
+            false,
+            1,
+        )
+        .await
+        .expect("flush_output_buffer should succeed with None job_name");
+
+        assert_eq!(
+            stats.records_written, 1,
+            "Should count 1 written record with fallback job name"
+        );
     }
 }
