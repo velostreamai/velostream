@@ -98,11 +98,13 @@ impl SimpleJobProcessor {
     pub fn with_observability(
         config: JobProcessingConfig,
         observability: Option<SharedObservabilityManager>,
+        app_name: Option<String>,
     ) -> Self {
         Self {
             config: config.clone(),
             observability_wrapper: ObservabilityWrapper::builder()
                 .with_observability(observability)
+                .with_app_name(app_name)
                 .with_dlq(config.enable_dlq)
                 .build(),
             job_metrics: JobMetrics::new(),

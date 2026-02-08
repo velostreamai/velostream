@@ -86,6 +86,7 @@ async fn test_dlq_error_path_no_panic_in_async_context() {
         None, // no writer
         config,
         None, // no observability manager
+        None, // no app name
     );
 
     // Push a record that will cause SQL execution to fail
@@ -151,6 +152,7 @@ async fn test_dlq_error_path_is_exercised() {
         None,
         config,
         None,
+        None, // no app name
     );
 
     // Push multiple failing records
@@ -212,6 +214,7 @@ async fn test_dlq_disabled_no_block_on_called() {
         None,
         config,
         None,
+        None, // no app name
     );
 
     // Push failing record

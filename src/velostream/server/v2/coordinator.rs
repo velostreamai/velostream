@@ -79,6 +79,10 @@ pub struct PartitionedJobConfig {
     /// Optional observability manager for metrics emission (@metric annotations)
     /// When provided, enables SQL-annotated metrics (counter, gauge, histogram)
     pub observability: Option<SharedObservabilityManager>,
+
+    /// Application name for injecting `job` label into remote-write metrics.
+    /// Set from `@application` annotation or derived from source filename.
+    pub app_name: Option<String>,
 }
 
 impl Default for PartitionedJobConfig {
@@ -97,6 +101,7 @@ impl Default for PartitionedJobConfig {
             wait_on_empty_batch_ms: 100,
             table_registry: None, // No tables by default
             observability: None,  // No observability by default
+            app_name: None,       // No app name by default
         }
     }
 }
@@ -332,8 +337,11 @@ impl AdaptiveJobProcessor {
         };
 
         // Use observability from config if provided
-        let observability_wrapper = if config.observability.is_some() {
-            ObservabilityWrapper::with_observability(config.observability.clone())
+        let observability_wrapper = if config.observability.is_some() || config.app_name.is_some() {
+            ObservabilityWrapper::builder()
+                .with_observability(config.observability.clone())
+                .with_app_name(config.app_name.clone())
+                .build()
         } else {
             ObservabilityWrapper::new()
         };
@@ -1356,6 +1364,7 @@ impl AdaptiveJobProcessor {
             let writer_clone = writer.clone();
             let table_registry = self.config.table_registry.clone();
             let observability_clone = self.config.observability.clone();
+            let app_name_clone = self.config.app_name.clone();
 
             // Spawn partition receiver task (Phase 6.8 - lock-free queue optimization)
             let task_handle = tokio::spawn(async move {
@@ -1405,6 +1414,7 @@ impl AdaptiveJobProcessor {
                     writer_clone,
                     job_config,
                     observability_clone, // Pass observability for @metric annotations
+                    app_name_clone,      // Pass app name for remote-write job label
                 );
 
                 // Run synchronous batch processing loop

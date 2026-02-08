@@ -214,6 +214,9 @@ pub struct ProcessorMetricsHelper {
     /// Lock-free performance telemetry using atomic counters (Phase 2 optimization)
     /// Replaces RwLock-based telemetry for 99% overhead reduction on hot paths
     telemetry: AtomicMetricsPerformanceTelemetry,
+    /// Application name for injecting `job` label into remote-write metrics.
+    /// Set from `@application` annotation or derived from source filename.
+    app_name: Option<String>,
 }
 
 impl ProcessorMetricsHelper {
@@ -230,7 +233,18 @@ impl ProcessorMetricsHelper {
             label_config,
             label_extraction_config: LabelExtractionConfig::default(),
             telemetry: AtomicMetricsPerformanceTelemetry::new(),
+            app_name: None,
         }
+    }
+
+    /// Set the application name for `job` label injection in remote-write metrics
+    pub fn set_app_name(&mut self, name: String) {
+        self.app_name = Some(name);
+    }
+
+    /// Get the application name (if set)
+    pub fn app_name(&self) -> Option<&str> {
+        self.app_name.as_deref()
     }
 
     /// Enable strict mode (skip metrics if labels cannot be extracted)
@@ -604,6 +618,7 @@ impl ProcessorMetricsHelper {
         output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
+        query_name: Option<&str>,
         batch_fn: F,
     ) where
         F: Fn(&mut MetricBatch, &MetricAnnotation, &[String], Option<f64>),
@@ -616,6 +631,37 @@ impl ProcessorMetricsHelper {
         if let Some(obs) = observability {
             let obs_lock = obs.read().await;
             if let Some(metrics) = obs_lock.metrics() {
+                // Build context label prefixes for remote-write (job + query).
+                // These are prepended to user-defined labels so remote-write
+                // metrics are disambiguated across apps and queries.
+                // Built once here and reused across all records.
+                let mut context_label_names: Vec<String> = Vec::new();
+                let mut context_label_values: Vec<String> = Vec::new();
+                if let Some(app) = &self.app_name {
+                    context_label_names.push("job".to_string());
+                    context_label_values.push(app.clone());
+                }
+                if let Some(qn) = query_name {
+                    context_label_names.push("query".to_string());
+                    context_label_values.push(qn.to_string());
+                }
+                let has_context_labels = !context_label_names.is_empty();
+
+                // Pre-build effective label *names* per annotation (constant
+                // across all records).  Only the values change per record.
+                let effective_names_per_annotation: Vec<Vec<String>> = annotations
+                    .iter()
+                    .map(|ann| {
+                        if has_context_labels {
+                            let mut names = context_label_names.clone();
+                            names.extend(ann.labels.iter().cloned());
+                            names
+                        } else {
+                            ann.labels.clone()
+                        }
+                    })
+                    .collect();
+
                 // Pre-allocate batch with reasonable capacity
                 let batch_capacity = output_records.len() * annotations.len();
                 let mut batch = MetricBatch::with_capacity(batch_capacity);
@@ -633,7 +679,7 @@ impl ProcessorMetricsHelper {
                     // Dereference Arc for field access
                     let record = &**record_arc;
                     let record_start = Instant::now();
-                    for annotation in &annotations {
+                    for (ann_idx, annotation) in annotations.iter().enumerate() {
                         // Check if metric should be emitted based on condition
                         let cond_start = Instant::now();
                         if !self.should_emit_metric(annotation, record, job_name).await {
@@ -761,13 +807,23 @@ impl ProcessorMetricsHelper {
                                 continue;
                             };
 
+                            // Use precomputed label names; only build values per record
+                            let effective_label_names = &effective_names_per_annotation[ann_idx];
+                            let effective_label_values = if has_context_labels {
+                                let mut values = context_label_values.clone();
+                                values.extend(label_values.iter().cloned());
+                                values
+                            } else {
+                                label_values.clone()
+                            };
+
                             if let Some(value) = numeric_value {
                                 match annotation.metric_type {
                                     MetricType::Counter => {
                                         metrics.push_counter_with_timestamp(
                                             &annotation.name,
-                                            &annotation.labels,
-                                            &label_values,
+                                            &effective_label_names,
+                                            &effective_label_values,
                                             1.0,
                                             timestamp_ms,
                                         );
@@ -779,16 +835,17 @@ impl ProcessorMetricsHelper {
                                         // Prometheus rejects.  Last value wins.
                                         let key = (
                                             annotation.name.clone(),
-                                            label_values.clone(),
+                                            effective_label_values.clone(),
                                             timestamp_ms,
                                         );
-                                        gauge_dedup.insert(key, (annotation.labels.clone(), value));
+                                        gauge_dedup
+                                            .insert(key, (effective_label_names.clone(), value));
                                     }
                                     MetricType::Histogram => {
                                         metrics.push_histogram_with_timestamp(
                                             &annotation.name,
-                                            &annotation.labels,
-                                            &label_values,
+                                            &effective_label_names,
+                                            &effective_label_values,
                                             value,
                                             timestamp_ms,
                                         );
@@ -797,8 +854,8 @@ impl ProcessorMetricsHelper {
                             } else if annotation.metric_type == MetricType::Counter {
                                 metrics.push_counter_with_timestamp(
                                     &annotation.name,
-                                    &annotation.labels,
-                                    &label_values,
+                                    &effective_label_names,
+                                    &effective_label_values,
                                     1.0,
                                     timestamp_ms,
                                 );
@@ -872,12 +929,16 @@ impl ProcessorMetricsHelper {
             }
         };
 
+        // Extract query name for remote-write context labels
+        let query_name = extract_query_name(query);
+
         // Use generic emission logic with counter-specific batch accumulator
         self.emit_metrics_generic(
             counter_annotations,
             output_records,
             observability,
             job_name,
+            query_name.as_deref(),
             |batch, annotation, labels, _value| {
                 debug!(
                     "Job '{}': Accumulated counter '{}' with labels {:?}",
@@ -958,12 +1019,16 @@ impl ProcessorMetricsHelper {
             }
         };
 
+        // Extract query name for remote-write context labels
+        let query_name = extract_query_name(query);
+
         // Use generic emission logic with gauge-specific batch accumulator
         self.emit_metrics_generic(
             gauge_annotations,
             output_records,
             observability,
             job_name,
+            query_name.as_deref(),
             |batch, annotation, labels, value| {
                 if let Some(v) = value {
                     debug!(
@@ -1056,12 +1121,16 @@ impl ProcessorMetricsHelper {
             }
         };
 
+        // Extract query name for remote-write context labels
+        let query_name = extract_query_name(query);
+
         // Use generic emission logic with histogram-specific batch accumulator
         self.emit_metrics_generic(
             histogram_annotations,
             output_records,
             observability,
             job_name,
+            query_name.as_deref(),
             |batch, annotation, labels, value| {
                 if let Some(v) = value {
                     debug!(
@@ -1151,5 +1220,17 @@ pub fn extract_job_name(query: &StreamingQuery) -> String {
         StreamingQuery::CreateTable { name, .. } => name.clone(),
         StreamingQuery::Select { .. } => "select_query".to_string(),
         _ => "unknown_query".to_string(),
+    }
+}
+
+/// Extract query/stream name from a parsed query for the `query` label in remote-write metrics.
+///
+/// Returns the stream or table name from `CREATE STREAM`/`CREATE TABLE` queries,
+/// or `None` for other query types.
+pub fn extract_query_name(query: &StreamingQuery) -> Option<String> {
+    match query {
+        StreamingQuery::CreateStream { name, .. } => Some(name.clone()),
+        StreamingQuery::CreateTable { name, .. } => Some(name.clone()),
+        _ => None,
     }
 }

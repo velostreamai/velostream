@@ -257,6 +257,7 @@ impl JoinJobProcessor {
         shared_stats: Option<SharedJobStats>,
         observability: Option<SharedObservabilityManager>,
         query: Option<Arc<StreamingQuery>>,
+        app_name: Option<String>,
     ) -> Result<JoinJobStats, SqlError> {
         let start_time = Instant::now();
         let mut stats = JoinJobStats::default();
@@ -268,7 +269,10 @@ impl JoinJobProcessor {
         );
 
         // Set up metrics helper and register SQL-annotated metrics if query is provided
-        let metrics_helper = ProcessorMetricsHelper::new();
+        let mut metrics_helper = ProcessorMetricsHelper::new();
+        if let Some(name) = app_name {
+            metrics_helper.set_app_name(name);
+        }
         let job_name_for_metrics = query.as_ref().map(|q| extract_job_name(q));
 
         if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
@@ -653,6 +657,7 @@ mod tests {
                 Some(shared_stats.clone()),
                 None,
                 None,
+                None, // no app name
             )
             .await
             .unwrap();
@@ -693,6 +698,7 @@ mod tests {
                 Some(shared_stats.clone()),
                 None,
                 None,
+                None, // no app name
             )
             .await
             .unwrap();
@@ -732,6 +738,7 @@ mod tests {
                 Some(shared_stats.clone()),
                 None,
                 None,
+                None, // no app name
             )
             .await
             .unwrap();
@@ -824,6 +831,7 @@ mod tests {
                 Some(shared_stats.clone()),
                 None,
                 None,
+                None, // no app name
             )
             .await
             .unwrap();

@@ -295,6 +295,7 @@ impl Default for ObservabilityWrapper {
 pub struct ObservabilityWrapperBuilder {
     observability: Option<SharedObservabilityManager>,
     enable_dlq: bool,
+    app_name: Option<String>,
 }
 
 impl ObservabilityWrapperBuilder {
@@ -303,6 +304,7 @@ impl ObservabilityWrapperBuilder {
         Self {
             observability: None,
             enable_dlq: false,
+            app_name: None,
         }
     }
 
@@ -318,11 +320,21 @@ impl ObservabilityWrapperBuilder {
         self
     }
 
+    /// Set application name for `job` label injection in remote-write metrics
+    pub fn with_app_name(mut self, app_name: Option<String>) -> Self {
+        self.app_name = app_name;
+        self
+    }
+
     /// Build the wrapper
     pub fn build(self) -> ObservabilityWrapper {
+        let mut helper = ProcessorMetricsHelper::new();
+        if let Some(name) = self.app_name {
+            helper.set_app_name(name);
+        }
         ObservabilityWrapper {
             observability: self.observability,
-            metrics_helper: Arc::new(ProcessorMetricsHelper::new()),
+            metrics_helper: Arc::new(helper),
             metrics_collector: Arc::new(MetricsCollector::new()),
             dlq: if self.enable_dlq {
                 Some(Arc::new(DeadLetterQueue::new()))

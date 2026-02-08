@@ -143,6 +143,7 @@ async fn partition_receiver_latency_benchmark() {
         Some(writer.clone()),
         job_config,
         None,
+        None, // no app name
     );
 
     println!("Running benchmark with 10,000 records in 100-record batches\n");

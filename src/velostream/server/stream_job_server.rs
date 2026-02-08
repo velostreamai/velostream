@@ -882,6 +882,7 @@ impl StreamJobServer {
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
         let tables_for_spawn = tables_for_processor;
+        let app_name_for_spawn = app_name.clone();
 
         // Create shared stats for real-time monitoring from test harness
         let shared_stats: SharedJobStats =
@@ -1158,6 +1159,7 @@ impl StreamJobServer {
                                                 Some(shared_stats_for_spawn.clone()),
                                                 observability_for_spawn.clone(),
                                                 Some(Arc::new(parsed_query.clone())),
+                                                app_name_for_spawn.clone(),
                                             )
                                             .await
                                         {
@@ -1205,6 +1207,7 @@ impl StreamJobServer {
                                     &job_name,
                                     tables_for_spawn.clone(),
                                     observability_for_spawn.clone(),
+                                    app_name_for_spawn.clone(),
                                 );
 
                                 // Execute the selected processor (unified API for all three)
@@ -1260,6 +1263,7 @@ impl StreamJobServer {
                             let processor = SimpleJobProcessor::with_observability(
                                 config,
                                 observability_for_spawn.clone(),
+                                app_name_for_spawn.clone(),
                             );
                             info!(
                                 "Job '{}': Created processor with observability: {}",
@@ -1935,6 +1939,16 @@ impl StreamJobServer {
                         }
                     }
 
+                    // Derive effective app_name: @application annotation, or filename fallback
+                    let effective_app_name = app.metadata.application.clone().or_else(|| {
+                        source_filename.as_ref().and_then(|path| {
+                            std::path::Path::new(path)
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .map(String::from)
+                        })
+                    });
+
                     // Deploy the job - fail entire deployment if any single job fails
                     match self
                         .deploy_job(
@@ -1942,7 +1956,7 @@ impl StreamJobServer {
                             app.metadata.version.clone(),
                             merged_sql,
                             topic,
-                            app.metadata.application.clone(),
+                            effective_app_name,
                             Some(get_instance_id()),
                         )
                         .await
@@ -2137,6 +2151,7 @@ impl StreamJobServer {
         job_name: &str,
         table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
         observability: Option<SharedObservabilityManager>,
+        app_name: Option<String>,
     ) -> Arc<dyn JobProcessor> {
         match processor_config {
             JobProcessorConfig::Simple => {
@@ -2150,7 +2165,8 @@ impl StreamJobServer {
                     failure_strategy: FailureStrategy::LogAndContinue,
                     ..Default::default()
                 };
-                let mut processor = SimpleJobProcessor::with_observability(config, observability);
+                let mut processor =
+                    SimpleJobProcessor::with_observability(config, observability, app_name);
                 if let Some(tables) = table_registry {
                     processor.set_table_registry(tables);
                 }
@@ -2168,7 +2184,7 @@ impl StreamJobServer {
                     ..Default::default()
                 };
                 let mut processor =
-                    TransactionalJobProcessor::with_observability(config, observability);
+                    TransactionalJobProcessor::with_observability(config, observability, app_name);
                 if let Some(tables) = table_registry {
                     processor.set_table_registry(tables);
                 }
@@ -2206,6 +2222,7 @@ impl StreamJobServer {
                     1000, // empty_batch_count - production default
                     1000, // wait_on_empty_batch_ms - production default
                     observability,
+                    app_name,
                 )
             }
         }

@@ -160,6 +160,7 @@ impl PartitionReceiver {
         writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
         config: JobProcessingConfig,
         observability: Option<crate::velostream::observability::SharedObservabilityManager>,
+        app_name: Option<String>,
     ) -> Self {
         debug!(
             "PartitionReceiver {}: Created with DLQ support: {}, retry config: max_retries={}, backoff={:?}",
@@ -168,6 +169,7 @@ impl PartitionReceiver {
 
         let observability_wrapper = ObservabilityWrapper::builder()
             .with_observability(observability)
+            .with_app_name(app_name)
             .with_dlq(config.enable_dlq)
             .build();
 
@@ -217,6 +219,7 @@ impl PartitionReceiver {
         writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
         config: JobProcessingConfig,
         observability: Option<crate::velostream::observability::SharedObservabilityManager>,
+        app_name: Option<String>,
     ) -> Self {
         debug!(
             "PartitionReceiver {}: Created for Query: {}",
@@ -225,6 +228,7 @@ impl PartitionReceiver {
 
         let observability_wrapper = ObservabilityWrapper::builder()
             .with_observability(observability)
+            .with_app_name(app_name)
             .with_dlq(config.enable_dlq)
             .build();
 

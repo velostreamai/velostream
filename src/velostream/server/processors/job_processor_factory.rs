@@ -316,6 +316,7 @@ impl JobProcessorFactory {
             empty_batch_count,
             wait_on_empty_batch_ms,
             None,
+            None,
         )
     }
 
@@ -340,6 +341,7 @@ impl JobProcessorFactory {
         empty_batch_count: u32,
         wait_on_empty_batch_ms: u64,
         observability: Option<SharedObservabilityManager>,
+        app_name: Option<String>,
     ) -> Arc<dyn JobProcessor> {
         let partitioned_config = PartitionedJobConfig {
             num_partitions,
@@ -350,6 +352,7 @@ impl JobProcessorFactory {
             empty_batch_count,
             wait_on_empty_batch_ms,
             observability,
+            app_name,
             ..Default::default()
         };
 

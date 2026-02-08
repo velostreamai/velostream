@@ -549,6 +549,7 @@ impl PartitionStateManager {
             None, // No writer in this code path
             job_config,
             None, // No observability manager in this code path
+            None, // No app name in this code path
         )
     }
 }
