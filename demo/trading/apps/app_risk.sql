@@ -87,7 +87,9 @@ SELECT
     trader_id PRIMARY KEY,
     symbol PRIMARY KEY,
     position_size,
+    entry_price,
     current_pnl,
+    position_value,
     timestamp
 FROM in_trading_positions_stream
 WITH (
@@ -270,57 +272,51 @@ WITH (
 CREATE STREAM risk_hierarchy_validation AS
 SELECT
     p.trader_id PRIMARY KEY,
-    p.desk_id,
-    p.position_id,
     p.symbol,
-    p.quantity,
+    p.position_size,
     p.entry_price,
-    p.current_price,
-    p.notional_exposure,
-    p.position_type,
+    p.position_value,
     p._event_time,
     p.timestamp,
 
     -- Hard limits validation (AND logic - all must pass)
     CASE
-        WHEN p.notional_exposure <= f.firm_notional_limit
-            AND p.notional_exposure / f.firm_total_exposure <= f.max_concentration_ratio
+        WHEN p.position_value <= f.firm_notional_limit
+            AND p.position_value / f.firm_total_exposure <= f.max_concentration_ratio
         THEN 'PASSED'
         ELSE 'BREACH'
     END as hierarchy_validation_result,
 
     -- Warning thresholds (OR logic - any triggers warning)
     CASE
-        WHEN p.notional_exposure > f.firm_notional_limit * 0.85
-            OR p.notional_exposure / f.firm_total_exposure > f.max_concentration_ratio * 0.9
+        WHEN p.position_value > f.firm_notional_limit * 0.85
+            OR p.position_value / f.firm_total_exposure > f.max_concentration_ratio * 0.9
         THEN 'WARNING'
         ELSE 'SAFE'
     END as escalation_status,
 
     -- Breach classification
     CASE
-        WHEN p.notional_exposure > f.firm_notional_limit THEN 'FIRM_NOTIONAL_BREACH'
-        WHEN p.notional_exposure / f.firm_total_exposure > f.max_concentration_ratio THEN 'CONCENTRATION_BREACH'
+        WHEN p.position_value > f.firm_notional_limit THEN 'FIRM_NOTIONAL_BREACH'
+        WHEN p.position_value / f.firm_total_exposure > f.max_concentration_ratio THEN 'CONCENTRATION_BREACH'
         ELSE 'NO_BREACH'
     END as breach_type,
 
     -- Breach severity
     CASE
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 1.1 THEN 'CRITICAL'
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 1.0 THEN 'SEVERE'
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 0.9 THEN 'HIGH'
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 0.8 THEN 'MEDIUM'
+        WHEN (p.position_value / f.firm_notional_limit) > 1.1 THEN 'CRITICAL'
+        WHEN (p.position_value / f.firm_notional_limit) > 1.0 THEN 'SEVERE'
+        WHEN (p.position_value / f.firm_notional_limit) > 0.9 THEN 'HIGH'
+        WHEN (p.position_value / f.firm_notional_limit) > 0.8 THEN 'MEDIUM'
         ELSE 'LOW'
     END as breach_severity,
 
     NOW() as validation_time,
     f.firm_name,
-    d.desk_name,
     tl.role_name
 
 FROM trading_positions_ts p
 LEFT JOIN firm_limits f ON true
-LEFT JOIN desk_limits d ON p.desk_id = d.desk_id
 LEFT JOIN trader_limits tl ON p.trader_id = tl.trader_id
 WITH (
     -- Source configuration
@@ -332,9 +328,6 @@ WITH (
     -- Reference tables
     'firm_limits.type' = 'file_source',
     'firm_limits.config_file' = '../configs/firm_limits_table.yaml',
-
-    'desk_limits.type' = 'file_source',
-    'desk_limits.config_file' = '../configs/desk_limits_table.yaml',
 
     'trader_limits.type' = 'file_source',
     'trader_limits.config_file' = '../configs/trader_limits_table.yaml',

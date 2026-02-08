@@ -278,6 +278,8 @@ SELECT
     NOW() as opportunity_time
 FROM in_market_data_stream_a a
 JOIN in_market_data_stream_b b ON a.symbol = b.symbol
+    AND b._event_time BETWEEN a._event_time - INTERVAL '10' SECOND
+                         AND a._event_time + INTERVAL '10' SECOND
 WHERE a.bid_price > b.ask_price
     AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 5
     AND LEAST(a.bid_size, b.ask_size) > 500

@@ -179,8 +179,8 @@ SELECT
     FIRST_VALUE(price) as open_price,
     LAST_VALUE(price) as close_price
 FROM market_data_ts
-WINDOW TUMBLING(_event_time, INTERVAL '1' SECOND)
 GROUP BY symbol
+WINDOW TUMBLING(_event_time, INTERVAL '1' SECOND)
 EMIT CHANGES
 WITH (
     -- Source configuration (from Stage 1)
@@ -207,6 +207,7 @@ WITH (
 -- @metric_type: histogram
 -- @metric_help: "Enrichment latency in seconds"
 -- @metric_field: enrichment_latency_seconds
+-- @metric_buckets: 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0
 
 CREATE STREAM enriched_market_data AS
 SELECT

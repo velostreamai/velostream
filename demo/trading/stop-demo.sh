@@ -60,16 +60,20 @@ kill_processes() {
 # Stop background processes
 echo -e "${YELLOW}🧹 Stopping background processes...${NC}"
 kill_processes "velo-sql"
-kill_processes "velo-sql"
 kill_processes "velo-test"
 
 # Stop Docker services
 echo -e "${YELLOW}🐳 Stopping Docker services...${NC}"
 
 # Check if docker-compose services are running
-if docker-compose ps -q 2>/dev/null | grep -q .; then
-    echo "Stopping docker-compose services..."
-    docker-compose down
+COMPOSE_CMD="docker-compose"
+if docker compose version &>/dev/null; then
+    COMPOSE_CMD="docker compose"
+fi
+
+if $COMPOSE_CMD ps -q 2>/dev/null | grep -q .; then
+    echo "Stopping docker services..."
+    $COMPOSE_CMD down
     echo -e "${GREEN}✓ Main services stopped${NC}"
 fi
 
