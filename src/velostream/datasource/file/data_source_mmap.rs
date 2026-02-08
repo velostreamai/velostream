@@ -379,7 +379,10 @@ impl DataSource for FileMmapDataSource {
     }
 
     fn partition_count(&self) -> Option<usize> {
-        Some(1)
+        // Return None: the mmap source has a single reader, but does NOT constrain
+        // processing parallelism. The Adaptive processor reads from one source and
+        // distributes records across N partition workers via hash routing.
+        None
     }
 
     fn metadata(&self) -> SourceMetadata {

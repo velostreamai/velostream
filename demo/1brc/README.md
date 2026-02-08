@@ -52,6 +52,11 @@ cargo build --release --bin velo-1brc --bin velo-test --no-default-features
 ## SQL Application
 
 ```sql
+-- @job_mode: adaptive
+-- @batch_size: 10000
+-- @num_partitions: 6
+-- @partitioning_strategy: hash
+
 CREATE STREAM results AS
 SELECT
     station,
@@ -77,42 +82,77 @@ Key features:
 - **`EMIT FINAL`** — suppresses per-record output; emits all group results when the source is exhausted
 - **`@job_mode: adaptive`** — overlaps I/O with SQL execution for ~10% throughput gain
 - **`@batch_size: 10000`** — processes 10K records per batch for optimal throughput
+- **`@num_partitions: 6`** — distributes GROUP BY work across 6 parallel workers
+- **`@partitioning_strategy: hash`** — FNV-1a hash on GROUP BY columns routes each station to a dedicated partition
 
 ## Performance
+
+### Partition Parallelism (Adaptive + Hash Partitioning)
+
+The adaptive processor can distribute GROUP BY aggregation across multiple partitions. Each record is hash-routed by its GROUP BY key (station name) to one of N partition workers, each running an independent SQL execution engine. This parallelizes the SQL bottleneck that dominates wall time.
+
+| | Adaptive (1 partition) | Adaptive (6 partitions) | Speedup |
+|---|---|---|---|
+| **1M rows** | 2.66s (377K rows/s) | 0.68s (1.47M rows/s) | **3.9x** |
+
+```
+Single partition:    [read] ──▶ [sql engine] ──▶ [output]
+                                    ▲
+                              all 408 stations
+
+Hash partitioned:    [read] ──▶ [hash route] ──┬──▶ [sql engine 0] ──▶ [merge output]
+                                               ├──▶ [sql engine 1] ──▶
+                                               ├──▶ [sql engine 2] ──▶
+                                               ├──▶ [sql engine 3] ──▶
+                                               ├──▶ [sql engine 4] ──▶
+                                               └──▶ [sql engine 5] ──▶
+                                                    ~68 stations each
+```
+
+Each partition worker processes ~68 stations (408 / 6), reducing per-worker hash map size and enabling parallel CPU utilization. The hash routing overhead is negligible compared to the SQL execution savings.
 
 ### Job Processor Comparison
 
 The adaptive processor overlaps I/O reads with SQL execution, reclaiming the mmap read time that would otherwise block the pipeline. Since SQL execution dominates (~82% of wall time), the improvement is bounded by the I/O fraction.
 
-| | Simple (V1) | Adaptive (V2) | Improvement |
-|---|---|---|---|
-| **1M rows** | 2.92s (343K rows/s) | 2.66s (377K rows/s) | +10% |
-| **10M rows** | 31.1s (322K rows/s) | 27.8s (360K rows/s) | +11% |
-
-The default is `@job_mode: adaptive`.
+| | Simple (V1) | Adaptive (1 part.) | Adaptive (6 part.) | Total Speedup |
+|---|---|---|---|---|
+| **1M rows** | 2.92s (343K rows/s) | 2.66s (377K rows/s) | 0.68s (1.47M rows/s) | **4.3x** |
+| **10M rows** | 31.1s (322K rows/s) | 27.8s (360K rows/s) | — | — |
 
 ### Time Breakdown (Simple mode, 1M rows)
 
 Simple mode reports per-phase timing, showing where time is spent:
 
 ```
-SQL execution:  2.43s  (83%)  ◀ bottleneck — GROUP BY + MIN/AVG/MAX aggregation
+SQL execution:  2.43s  (83%)  ◀ bottleneck — parallelized by hash partitioning
 Mmap I/O read:  0.24s  ( 8%)  ◀ overlapped by adaptive mode
 Overhead:       0.25s  ( 9%)    batch orchestration, EMIT FINAL flush, CSV write
 ─────────────────────────────
 Total:          2.92s (100%)
 ```
 
-### Why Adaptive is Faster
+### Why Adaptive + Partitioning is Fastest
 
 ```
-Simple:    [read]──▶[sql]──▶[read]──▶[sql]──▶[read]──▶[sql]──▶...
-Adaptive:  [read]──▶[sql]──▶[sql]──▶[sql]──▶[sql]──▶...
-                    [read]──▶[read]──▶[read]──▶...
-                    └─ overlapped ──┘
+Simple:          [read]──▶[sql]──▶[read]──▶[sql]──▶...         2.92s
+
+Adaptive:        [read]──▶[sql]──▶[sql]──▶[sql]──▶...          2.66s  (+10%)
+                          [read]──▶[read]──▶...
+                          └─ I/O overlapped ──┘
+
+Adaptive+Hash:   [read]──▶[hash]──▶[sql₀]──▶...               0.68s  (3.9x)
+                          [read]   [sql₁]──▶...
+                                   [sql₂]──▶...
+                                   [sql₃]──▶...
+                                   [sql₄]──▶...
+                                   [sql₅]──▶...
+                                   └─ parallel SQL ──┘
 ```
 
-Adaptive pipelines the next batch read while the current batch is being processed through SQL. This hides the ~8% I/O time, yielding a ~10% wall-time improvement. The remaining ~82% SQL bottleneck is the ceiling for further gains from processor architecture alone.
+1. **Adaptive mode** overlaps I/O with SQL, reclaiming the ~8% I/O time
+2. **Hash partitioning** distributes the ~83% SQL bottleneck across N workers
+3. Combined effect: **4.3x** speedup over simple single-threaded mode
 
 ### Scaling Behavior
 

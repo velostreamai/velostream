@@ -48,17 +48,20 @@ pub trait DataSource: Send + Sync + 'static {
 
     /// Get the number of partitions this source supports for parallel reading.
     ///
-    /// This is used by the job processor to determine how many parallel readers
-    /// to create. Sources that don't support partitioning (e.g., single files)
-    /// should return 1. Kafka sources return the topic partition count.
+    /// Reports source-level reader parallelism constraints.
+    ///
+    /// This controls how many concurrent readers the source supports, NOT
+    /// processing parallelism. The Adaptive processor reads from a single
+    /// source and distributes records across N partition workers via hash
+    /// routing — that parallelism is independent of the source.
     ///
     /// # Returns
-    /// - `Some(n)` - Source supports exactly n partitions
-    /// - `None` - Source supports dynamic partitioning (use system default like CPU count)
+    /// - `None` — No constraint on processing parallelism (default). Use for
+    ///   file sources, transactional sources, and any source where concurrent
+    ///   readers are not applicable.
+    /// - `Some(n)` — Source requires exactly n concurrent readers (e.g., Kafka
+    ///   topic with n partitions where each partition needs its own consumer).
     fn partition_count(&self) -> Option<usize> {
-        // Default: return None to indicate "use system default"
-        // File sources should override to return Some(1)
-        // Kafka sources should return Some(topic_partition_count)
         None
     }
 

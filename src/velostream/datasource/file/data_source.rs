@@ -491,11 +491,10 @@ impl DataSource for FileDataSource {
     }
 
     fn partition_count(&self) -> Option<usize> {
-        // File sources are inherently sequential - only 1 partition supported.
-        // Even with multiple files in a glob pattern, they must be read sequentially
-        // to maintain ordering. The job processor should use this to avoid creating
-        // multiple parallel readers for the same file source.
-        Some(1)
+        // File sources use a single reader, but do NOT constrain processing
+        // parallelism. The Adaptive processor reads from one source and
+        // distributes records across N partition workers via hash routing.
+        None
     }
 
     fn metadata(&self) -> SourceMetadata {

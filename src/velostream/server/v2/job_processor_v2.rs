@@ -151,7 +151,15 @@ impl JobProcessor for AdaptiveJobProcessor {
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
 
-        // Step 1: Wrap query in Arc for partition initialization
+        // Step 1: Extract GROUP BY columns for hash-based partition routing
+        let group_by_columns = Self::extract_group_by_columns(&query);
+        if !group_by_columns.is_empty() {
+            info!(
+                "Job '{}': Routing by GROUP BY columns: {:?}",
+                job_name, group_by_columns
+            );
+        }
+
         let query_arc = Arc::new(query);
 
         // Step 2: Initialize partitions with Phase 6.6 synchronous receivers
@@ -236,7 +244,10 @@ impl JobProcessor for AdaptiveJobProcessor {
 
                     // Route batch to receivers (Phase 6.8 lock-free queue routing)
                     // Records are grouped by partition and pushed to lock-free queues
-                    match self.process_batch_for_receivers(batch, &batch_queues).await {
+                    match self
+                        .process_batch_for_receivers(batch, &batch_queues, &group_by_columns)
+                        .await
+                    {
                         Ok(routed_count) => {
                             aggregated_stats.records_processed += routed_count as u64;
                             aggregated_stats.batches_processed += 1;
@@ -362,6 +373,14 @@ impl JobProcessor for AdaptiveJobProcessor {
             writers.len()
         );
 
+        let group_by_columns = Self::extract_group_by_columns(&query);
+        if !group_by_columns.is_empty() {
+            info!(
+                "Job '{}': Routing by GROUP BY columns: {:?}",
+                job_name, group_by_columns
+            );
+        }
+
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
         let mut writers = writers;
@@ -474,7 +493,10 @@ impl JobProcessor for AdaptiveJobProcessor {
                         let batch_size = batch.len();
 
                         // Route batch to receivers (Phase 6.8 lock-free queue routing)
-                        match self.process_batch_for_receivers(batch, &batch_queues).await {
+                        match self
+                            .process_batch_for_receivers(batch, &batch_queues, &group_by_columns)
+                            .await
+                        {
                             Ok(routed_count) => {
                                 aggregated_stats.records_processed += routed_count as u64;
                                 aggregated_stats.batches_processed += 1;

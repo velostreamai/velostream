@@ -913,7 +913,15 @@ impl StreamJobServer {
         let processor_config_from_query =
             Self::get_processor_config_from_query(&parsed_query, &query, &self.processor_config);
 
-        // Apply source-based partition limits (e.g., file sources only support 1 partition)
+        // Extract @partitioning_strategy annotation from raw SQL before spawn
+        // This is needed because the annotation isn't stored in CREATE STREAM AST
+        // and extract_partitioning_strategy_from_query only checks WITH clause properties
+        let partitioning_strategy_annotation = {
+            let (_, _, _, parsed_strategy) = SqlAnnotationParser::parse_job_annotations(&query);
+            parsed_strategy.map(|s| s.as_str().to_string())
+        };
+
+        // Apply source-based partition limits (e.g., sources with fixed reader limits)
         let processor_config_for_spawn = Self::apply_source_partition_limit(
             processor_config_from_query,
             &analysis.required_sources,
@@ -1226,6 +1234,7 @@ impl StreamJobServer {
                                     tables_for_spawn.clone(),
                                     observability_for_spawn.clone(),
                                     app_name_for_spawn.clone(),
+                                    partitioning_strategy_annotation.as_deref(),
                                 );
 
                                 // Execute the selected processor (unified API for all three)
@@ -2170,6 +2179,7 @@ impl StreamJobServer {
         table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
         observability: Option<SharedObservabilityManager>,
         app_name: Option<String>,
+        partitioning_strategy_override: Option<&str>,
     ) -> Arc<dyn JobProcessor> {
         match processor_config {
             JobProcessorConfig::Simple => {
@@ -2218,9 +2228,10 @@ impl StreamJobServer {
                     num_partitions.unwrap_or_else(|| num_cpus::get().max(1))
                 );
 
-                // Extract partitioning strategy from query properties if specified
-                let partitioning_strategy =
-                    Self::extract_partitioning_strategy_from_query(parsed_query);
+                // Extract partitioning strategy: annotation override > WITH clause properties
+                let partitioning_strategy = partitioning_strategy_override
+                    .map(|s| s.to_string())
+                    .or_else(|| Self::extract_partitioning_strategy_from_query(parsed_query));
 
                 // Enable auto-selection from query if no explicit strategy provided
                 // CRITICAL: User explicit strategy takes priority and is NEVER overridden
@@ -2266,14 +2277,15 @@ impl StreamJobServer {
         properties.get("partitioning_strategy").cloned()
     }
 
-    /// Query data sources for their partition count limits and return the minimum.
+    /// Query data sources for their reader-level parallelism constraints.
     ///
     /// Creates temporary DataSource objects to query their `partition_count()` method.
-    /// The minimum partition count across all sources is returned to ensure compatibility.
+    /// Returns the minimum across all sources. Most sources return `None` (no constraint)
+    /// because processing parallelism is independent of source reader count.
     ///
     /// # Returns
-    /// - `Some(n)` if any source has a fixed partition limit (use the minimum)
-    /// - `None` if all sources support dynamic partitioning (use system default)
+    /// - `Some(n)` if any source requires exactly n concurrent readers
+    /// - `None` if all sources impose no constraint (the common case)
     async fn query_source_partition_limits(sources: &[DataSourceRequirement]) -> Option<usize> {
         use crate::velostream::datasource::DataSource;
         use crate::velostream::datasource::file::FileDataSource;
@@ -2281,24 +2293,18 @@ impl StreamJobServer {
         let mut min_partitions: Option<usize> = None;
 
         for source in sources {
-            // Query partition count from DataSource trait implementation
-            // Note: We create minimal instances just to query the static partition_count property
             let source_partitions: Option<usize> = match source.source_type {
                 DataSourceType::File => {
-                    // FileDataSource::new() requires no arguments
                     let ds = FileDataSource::new();
                     ds.partition_count()
                 }
-                DataSourceType::Kafka => {
-                    // Kafka supports dynamic partitioning (trait default returns None)
-                    None
-                }
-                _ => None, // Unknown source types default to dynamic partitioning
+                DataSourceType::Kafka => None,
+                _ => None,
             };
 
             if let Some(count) = source_partitions {
                 info!(
-                    "Source '{}' ({:?}) supports {} partition(s)",
+                    "Source '{}' ({:?}) reader parallelism limited to {}",
                     source.name, source.source_type, count
                 );
                 min_partitions = Some(min_partitions.map_or(count, |min| min.min(count)));
@@ -2308,10 +2314,12 @@ impl StreamJobServer {
         min_partitions
     }
 
-    /// Adjust processor config to respect source partition limits.
+    /// Adjust processor config to respect source reader-level parallelism constraints.
     ///
-    /// If any source only supports a limited number of partitions (e.g., file sources
-    /// support only 1), the processor config is adjusted accordingly.
+    /// Only applies when a source reports a hard reader limit via `partition_count()`.
+    /// Most sources (file, Kafka, transactional) return `None` because processing
+    /// parallelism is independent of source reader count — the Adaptive processor
+    /// reads from one source and hash-distributes across N partition workers.
     async fn apply_source_partition_limit(
         config: JobProcessorConfig,
         sources: &[DataSourceRequirement],

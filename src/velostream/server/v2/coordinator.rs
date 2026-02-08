@@ -1268,12 +1268,34 @@ impl AdaptiveJobProcessor {
         Ok(output_records)
     }
 
-    /// Extract GROUP BY columns from query
-    fn extract_group_by_columns(_query: &StreamingQuery) -> Vec<String> {
-        // Note: StreamingQuery structure doesn't expose group_by field directly
-        // This is a placeholder - actual implementation would need to be added to StreamingQuery
-        // For now, return empty to allow compilation
-        Vec::new()
+    /// Extract GROUP BY columns from query for partition routing.
+    ///
+    /// Handles `Select`, `CreateStream`, and `CreateTable` — the three query types
+    /// that can carry a GROUP BY clause through the adaptive processor path.
+    pub fn extract_group_by_columns(query: &StreamingQuery) -> Vec<String> {
+        let group_by = match query {
+            StreamingQuery::Select { group_by, .. } => group_by.as_ref(),
+            StreamingQuery::CreateStream { as_select, .. }
+            | StreamingQuery::CreateTable { as_select, .. } => {
+                if let StreamingQuery::Select { group_by, .. } = as_select.as_ref() {
+                    group_by.as_ref()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        group_by
+            .map(|exprs| {
+                exprs
+                    .iter()
+                    .filter_map(|expr| match expr {
+                        crate::velostream::sql::ast::Expr::Column(name) => Some(name.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Route batch to partitions based on GROUP BY keys using configured strategy
@@ -1458,18 +1480,12 @@ impl AdaptiveJobProcessor {
         &self,
         records: Vec<StreamRecord>,
         batch_queues: &[Arc<SegQueue<Vec<StreamRecord>>>],
+        group_by_columns: &[String],
     ) -> Result<usize, SqlError> {
-        // NOTE: group_by_columns should be extracted by the caller (process_job) and passed in via
-        // strategy.route_record(). If the coordinator's group_by_columns are empty, we skip validation
-        // because queries without GROUP BY can route to any partition (simple projections).
-        //
-        // The validation is intentionally skipped when group_by_columns are empty because:
-        // 1. Non-aggregating queries (SELECT without GROUP BY) don't need partitioning
-        // 2. Round-robin or any strategy works fine for simple projections
-        // 3. Validation would incorrectly block valid use cases
-        if !self.group_by_columns.is_empty() {
+        // Validate strategy if GROUP BY columns are present
+        if !group_by_columns.is_empty() {
             let query_metadata = QueryMetadata {
-                group_by_columns: self.group_by_columns.clone(),
+                group_by_columns: group_by_columns.to_vec(),
                 has_window: false,
                 num_partitions: self.num_partitions,
                 num_cpu_slots: self.num_cpu_slots,
@@ -1493,7 +1509,7 @@ impl AdaptiveJobProcessor {
         let routing_context_template = RoutingContext {
             source_partition: None,
             source_partition_key: None,
-            group_by_columns: self.group_by_columns.clone(),
+            group_by_columns: group_by_columns.to_vec(),
             num_partitions: self.num_partitions,
             num_cpu_slots: self.num_cpu_slots,
         };

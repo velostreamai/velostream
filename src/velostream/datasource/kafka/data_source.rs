@@ -812,12 +812,12 @@ impl DataSource for KafkaDataSource {
     }
 
     fn partition_count(&self) -> Option<usize> {
-        // Kafka sources support dynamic partitioning.
-        // Return None to indicate "use system default" (typically CPU count).
-        // The consumer group will automatically balance partitions across consumers.
+        // Kafka uses a single consumer per source. Processing parallelism (how many
+        // partition workers the Adaptive processor creates) is independent of the
+        // source. The consumer group handles rebalancing automatically.
         //
-        // Future enhancement: Could fetch actual topic partition count from broker
-        // and return Some(partition_count) for optimal parallelism alignment.
+        // Transactional Kafka sources also return None — concurrent readers cannot
+        // happen in transactional mode, and processing parallelism is unconstrained.
         None
     }
 
