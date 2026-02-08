@@ -8,7 +8,7 @@ use crate::velostream::config::schema_registry::validate_configuration;
 use crate::velostream::datasource::config_loader::{
     load_config_file_to_properties_with_base, normalize_topic_property,
 };
-use crate::velostream::datasource::file::{FileDataSink, FileDataSource};
+use crate::velostream::datasource::file::{FileDataSink, FileDataSource, FileMmapDataSource};
 use crate::velostream::datasource::kafka::data_sink::KafkaDataSink;
 use crate::velostream::datasource::kafka::data_source::KafkaDataSource;
 use crate::velostream::kafka::serialization_format::SerializationConfig;
@@ -113,6 +113,7 @@ impl QueryAnalyzer {
         // Register all schema providers for validation
         schema_registry.register_source_schema::<KafkaDataSource>();
         schema_registry.register_source_schema::<FileDataSource>();
+        schema_registry.register_source_schema::<FileMmapDataSource>();
         schema_registry.register_sink_schema::<KafkaDataSink>();
         schema_registry.register_sink_schema::<FileDataSink>();
 
@@ -132,6 +133,7 @@ impl QueryAnalyzer {
         // Register all schema providers for validation
         schema_registry.register_source_schema::<KafkaDataSource>();
         schema_registry.register_source_schema::<FileDataSource>();
+        schema_registry.register_source_schema::<FileMmapDataSource>();
         schema_registry.register_sink_schema::<KafkaDataSink>();
         schema_registry.register_sink_schema::<FileDataSink>();
 
@@ -546,18 +548,22 @@ impl QueryAnalyzer {
 
         let source_type = match source_type_str {
             "kafka_source" => DataSourceType::Kafka,
-            "file_source" => DataSourceType::File,
+            "file_source" | "file_source_mmap" => DataSourceType::File,
             "s3_source" => DataSourceType::S3,
             "database_source" => DataSourceType::Database,
             other => {
                 return Err(SqlError::ConfigurationError {
                     message: format!(
-                        "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
+                        "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 'file_source_mmap', 's3_source', 'database_source'",
                         other, table_name
                     ),
                 });
             }
         };
+
+        // Preserve source type in properties so downstream consumers (e.g., common.rs)
+        // can distinguish subtypes like file_source vs file_source_mmap
+        properties.insert("source.type".to_string(), source_type_str.to_string());
 
         // Check if config file failed to load (even though source type was provided)
         if let Some(file_error) = config_file_error {
@@ -611,7 +617,13 @@ impl QueryAnalyzer {
             }
             DataSourceType::File => {
                 // SCHEMA VALIDATION: Validate File source properties
-                self.validate_source_properties("file_source", &properties)?;
+                // Use appropriate schema based on whether this is a mmap or regular file source
+                let file_schema_id = if source_type_str == "file_source_mmap" {
+                    "file_source_mmap"
+                } else {
+                    "file_source"
+                };
+                self.validate_source_properties(file_schema_id, &properties)?;
             }
             _ => {
                 // For other source types, perform basic validation

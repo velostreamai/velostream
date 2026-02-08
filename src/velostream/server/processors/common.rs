@@ -5,7 +5,7 @@
 
 use crate::velostream::datasource::{
     DataReader, DataSink, DataSource, DataWriter, SinkConfig, StdoutWriter,
-    file::{FileDataSink, FileDataSource},
+    file::{FileDataSink, FileDataSource, FileMmapDataSource},
     kafka::{
         KafkaDataSink, KafkaDataSource,
         config_helpers::{
@@ -976,7 +976,19 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
             .await
         }
         DataSourceType::File => {
-            create_file_reader(&requirement.properties, &config.batch_config).await
+            // Check if this is an mmap source based on properties
+            let is_mmap = requirement
+                .properties
+                .get("source.type")
+                .or_else(|| requirement.properties.get("type"))
+                .map(|t| t == "file_source_mmap")
+                .unwrap_or(false);
+
+            if is_mmap {
+                create_file_mmap_reader(&requirement.properties, &config.batch_config).await
+            } else {
+                create_file_reader(&requirement.properties, &config.batch_config).await
+            }
         }
         _ => Err(format!(
             "Unsupported datasource type '{:?}'",
@@ -1102,6 +1114,39 @@ async fn create_file_reader(
                 .create_reader()
                 .await
                 .map_err(|e| format!("Failed to create File reader: {}", e))
+        }
+    }
+}
+
+/// Create a memory-mapped file datasource reader
+async fn create_file_mmap_reader(
+    props: &HashMap<String, String>,
+    batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+) -> DataSourceCreationResult {
+    let mut datasource = FileMmapDataSource::from_properties(props);
+
+    datasource
+        .self_initialize()
+        .await
+        .map_err(|e| format!("Failed to initialize File mmap datasource: {}", e))?;
+
+    match batch_config {
+        Some(batch_config) => {
+            info!(
+                "Creating File mmap reader with batch configuration: {:?}",
+                batch_config
+            );
+            datasource
+                .create_reader_with_batch_config(batch_config.clone())
+                .await
+                .map_err(|e| format!("Failed to create File mmap reader with batch config: {}", e))
+        }
+        None => {
+            debug!("Creating File mmap reader without batch configuration");
+            datasource
+                .create_reader()
+                .await
+                .map_err(|e| format!("Failed to create File mmap reader: {}", e))
         }
     }
 }

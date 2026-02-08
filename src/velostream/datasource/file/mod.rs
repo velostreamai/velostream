@@ -69,10 +69,13 @@
 pub mod config;
 pub mod data_sink;
 pub mod data_source;
+pub mod data_source_mmap;
 pub mod error;
 pub mod reader;
+pub mod reader_mmap;
 pub mod watcher;
 
 // Re-export key types for convenient access
 pub use data_sink::FileDataSink;
 pub use data_source::FileDataSource;
+pub use data_source_mmap::FileMmapDataSource;
