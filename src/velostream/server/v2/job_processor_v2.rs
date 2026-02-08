@@ -326,6 +326,9 @@ impl JobProcessor for AdaptiveJobProcessor {
 
         aggregated_stats.total_processing_time = start_time.elapsed();
 
+        // Final sync so external monitors (e.g., velo-test) can detect completion
+        aggregated_stats.sync_to_shared(&shared_stats);
+
         info!(
             "V2 AdaptiveJobProcessor::process_job: {} completed\n  Records: {} routed in {:?}\n  Phase 6.6 batch-based processing: {} partitions with synchronous receivers (owned engines)",
             job_name,
@@ -562,6 +565,9 @@ impl JobProcessor for AdaptiveJobProcessor {
         }
 
         aggregated_stats.total_processing_time = start_time.elapsed();
+
+        // Final sync so external monitors (e.g., velo-test) can detect completion
+        aggregated_stats.sync_to_shared(&shared_stats);
 
         info!(
             "V2 AdaptiveJobProcessor::process_multi_job: {} completed\n  Records: {}\n  Processing time: {:?}",

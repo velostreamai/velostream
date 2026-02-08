@@ -1,13 +1,18 @@
 //! One Billion Row Challenge (1BRC) — Velostream Edition
 //!
-//! Data generator for the 1BRC challenge. Produces `station;temperature` measurement data.
-//! Processing is handled by Velostream's SQL engine via `deploy-app --file demo/1brc/1brc.sql`.
+//! Data generator for the 1BRC challenge. Produces `station;temperature` measurement data
+//! and an `expected.csv` with correct MIN/AVG/MAX per station for validation.
+//!
+//! Processing is handled by Velostream's SQL engine via `velo-test run demo/1brc/1brc.sql`.
 //!
 //! ## Usage
 //!
 //! ```bash
-//! # Generate 1M rows (default)
-//! velo-1brc generate --rows 1
+//! # Generate 1M rows + expected results (default)
+//! velo-1brc generate --rows 1 --expected-output expected.csv
+//!
+//! # Reproducible generation with seed
+//! velo-1brc generate --rows 1 --seed 42
 //!
 //! # Generate 1B rows
 //! velo-1brc generate --rows 1000
@@ -17,6 +22,7 @@ use clap::{Parser, Subcommand};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::Instant;
@@ -41,6 +47,14 @@ enum Commands {
         /// Output file path
         #[arg(short, long, default_value = "measurements.txt")]
         output: String,
+
+        /// Path for expected results CSV (station,min_temp,avg_temp,max_temp)
+        #[arg(short, long, default_value = "expected.csv")]
+        expected_output: String,
+
+        /// Random seed for reproducible generation (default: random)
+        #[arg(short, long)]
+        seed: Option<u64>,
     },
 }
 
@@ -461,7 +475,12 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate { rows, output } => cmd_generate(rows, &output),
+        Commands::Generate {
+            rows,
+            output,
+            expected_output,
+            seed,
+        } => cmd_generate(rows, &output, &expected_output, seed),
     }
 }
 
@@ -469,7 +488,37 @@ fn main() {
 // GENERATE SUBCOMMAND
 // =============================================================================
 
-fn cmd_generate(rows_millions: u64, output_path: &str) {
+/// Per-station aggregation tracker used during data generation
+struct StationStats {
+    min: f64,
+    max: f64,
+    sum: f64,
+    count: u64,
+}
+
+impl StationStats {
+    fn new(temp: f64) -> Self {
+        Self {
+            min: temp,
+            max: temp,
+            sum: temp,
+            count: 1,
+        }
+    }
+
+    fn update(&mut self, temp: f64) {
+        self.min = self.min.min(temp);
+        self.max = self.max.max(temp);
+        self.sum += temp;
+        self.count += 1;
+    }
+
+    fn avg(&self) -> f64 {
+        self.sum / self.count as f64
+    }
+}
+
+fn cmd_generate(rows_millions: u64, output_path: &str, expected_path: &str, seed: Option<u64>) {
     let total_rows = rows_millions * 1_000_000;
     eprintln!(
         "Generating {} rows ({} million) to {}",
@@ -480,8 +529,14 @@ fn cmd_generate(rows_millions: u64, output_path: &str) {
     let file = File::create(output_path).expect("Failed to create output file");
     let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, file);
 
-    let mut rng = SmallRng::from_entropy();
+    let mut rng = match seed {
+        Some(s) => SmallRng::seed_from_u64(s),
+        None => SmallRng::from_entropy(),
+    };
     let normal = Normal::new(0.0, 10.0).unwrap();
+
+    // Track per-station stats for expected output
+    let mut stats: BTreeMap<String, StationStats> = BTreeMap::new();
 
     // Write CSV header
     writeln!(writer, "station;temperature").unwrap();
@@ -489,6 +544,15 @@ fn cmd_generate(rows_millions: u64, output_path: &str) {
     for _ in 0..total_rows {
         let (station, mean) = STATIONS[rng.gen_range(0..STATIONS.len())];
         let temp = (mean + normal.sample(&mut rng)).clamp(-99.9, 99.9);
+        // Round to 1 decimal (matches the written precision)
+        let temp = (temp * 10.0).round() / 10.0;
+
+        // Track stats
+        stats
+            .entry(station.to_string())
+            .and_modify(|s| s.update(temp))
+            .or_insert_with(|| StationStats::new(temp));
+
         // Write with exactly one decimal place
         writeln!(writer, "{};{:.1}", station, temp).unwrap();
     }
@@ -502,5 +566,34 @@ fn cmd_generate(rows_millions: u64, output_path: &str) {
         elapsed.as_secs_f64(),
         file_size as f64 / (1024.0 * 1024.0),
         total_rows as f64 / elapsed.as_secs_f64() / 1_000_000.0,
+    );
+
+    // Write expected results CSV (sorted by station name via BTreeMap)
+    let expected_file = File::create(expected_path).expect("Failed to create expected output file");
+    let mut expected_writer = BufWriter::new(expected_file);
+    writeln!(expected_writer, "station,min_temp,avg_temp,max_temp").unwrap();
+    for (station, s) in &stats {
+        // CSV-quote station names containing commas (matches SQL engine's CSV sink quoting)
+        let station_csv = if station.contains(',') || station.contains('"') {
+            format!("\"{}\"", station.replace('"', "\"\""))
+        } else {
+            station.clone()
+        };
+        // Use default f64 formatting (no trailing .0) to match SQL engine's f.to_string()
+        writeln!(
+            expected_writer,
+            "{},{},{},{}",
+            station_csv,
+            s.min,
+            s.avg(),
+            s.max
+        )
+        .unwrap();
+    }
+    expected_writer.flush().unwrap();
+    eprintln!(
+        "Expected results written to {} ({} stations)",
+        expected_path,
+        stats.len()
     );
 }

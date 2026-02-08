@@ -481,22 +481,10 @@ impl SelectProcessor {
                 .map_err(|e| e.to_sql_error())?;
 
                 // Validate EMIT clause usage
-                if let Some(emit) = emit_mode {
-                    match emit {
-                        crate::velostream::sql::ast::EmitMode::Final => {
-                            // EMIT FINAL only makes sense with windowed queries
-                            if window.is_none() {
-                                return Err(SqlError::ExecutionError {
-                                    message: "EMIT FINAL can only be used with windowed aggregations (queries with WINDOW clause)".to_string(),
-                                    query: Some(format!("{:?}", query)),
-                                });
-                            }
-                        }
-                        crate::velostream::sql::ast::EmitMode::Changes => {
-                            // EMIT CHANGES is always valid
-                        }
-                    }
-                }
+                // EMIT FINAL without WINDOW is valid for bounded sources:
+                // accumulates GROUP BY state and emits on source exhaustion.
+                // EMIT CHANGES is always valid.
+                // No validation error needed — both modes work in all contexts.
 
                 // Determine effective emit mode
                 let effective_emit_mode = if let Some(emit) = emit_mode {
@@ -1916,7 +1904,7 @@ impl SelectProcessor {
     /// Compute aggregate value from accumulator for a given aggregate function
     /// This is the centralized dispatcher that replaces duplicated code patterns
     /// across COUNT, SUM, AVG, MIN, MAX, VARIANCE, STDDEV, FIRST, LAST, STRING_AGG, COUNT_DISTINCT
-    fn compute_aggregate_from_accumulator(
+    pub(crate) fn compute_aggregate_from_accumulator(
         name: &str,
         args: &[Expr],
         alias: &Option<String>,
@@ -3887,6 +3875,32 @@ impl SubqueryExecutor for SelectProcessor {
                     .to_string(),
                 query: None,
             }),
+        }
+    }
+}
+
+impl SelectProcessor {
+    /// Evaluate HAVING clause against an accumulator during final aggregation flush.
+    ///
+    /// Creates a dummy record from pre-computed result_fields so the existing
+    /// HAVING evaluator can work. Returns true if the group passes the filter.
+    pub(crate) fn evaluate_having_with_accumulator(
+        having_expr: &Expr,
+        accumulator: &super::super::internal::GroupAccumulator,
+        fields: &[SelectField],
+        result_fields: &HashMap<String, FieldValue>,
+    ) -> bool {
+        let dummy_record = StreamRecord::new(result_fields.clone());
+        let context = ProcessorContext::new("flush_having");
+        match Self::evaluate_having_expression(
+            having_expr,
+            accumulator,
+            fields,
+            &dummy_record,
+            &context,
+        ) {
+            Ok(result) => result,
+            Err(_) => true, // On error, include the record
         }
     }
 }

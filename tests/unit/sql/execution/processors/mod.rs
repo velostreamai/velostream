@@ -3,6 +3,7 @@
 //! Tests for specialized query processing including windows, joins, and limits.
 
 pub mod dml;
+pub mod emit_final_flush_test;
 pub mod graceful_degradation_test;
 pub mod join;
 pub mod limit;

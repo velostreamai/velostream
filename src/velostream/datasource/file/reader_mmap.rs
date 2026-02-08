@@ -224,7 +224,8 @@ impl FileMmapReader {
             .unwrap_or(remaining.len());
 
         let line_bytes = &remaining[..line_end];
-        self.position += line_end + 1; // +1 to skip the newline
+        // +1 to skip the newline; cap at mmap length for final line without trailing \n
+        self.position = (self.position + line_end + 1).min(mmap.len());
         self.line_number += 1;
 
         // Handle \r\n line endings
@@ -281,7 +282,8 @@ impl FileMmapReader {
                         .unwrap_or(remaining.len());
 
                     let line_bytes = &remaining[..line_end];
-                    self.position += line_end + 1;
+                    // +1 to skip the newline; cap at mmap length for final line without trailing \n
+                    self.position = (self.position + line_end + 1).min(mmap.len());
                     self.line_number += 1;
 
                     // Handle \r\n

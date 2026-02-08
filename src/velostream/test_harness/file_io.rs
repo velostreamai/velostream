@@ -75,8 +75,8 @@ impl FileSourceFactory {
         // Get headers
         let headers: Vec<String> = if *format == FileFormat::Csv {
             match lines.next() {
-                Some(Ok(header_line)) => header_line
-                    .split(',')
+                Some(Ok(header_line)) => split_csv_line(&header_line)
+                    .iter()
                     .map(|s| s.trim().to_string())
                     .collect(),
                 Some(Err(e)) => {
@@ -107,7 +107,7 @@ impl FileSourceFactory {
                 continue;
             }
 
-            let values: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            let values = split_csv_line(&line);
             let mut fields = HashMap::new();
 
             for (i, value) in values.iter().enumerate() {
@@ -344,6 +344,42 @@ impl FileSinkFactory {
     }
 }
 
+/// Split a CSV line into fields, respecting double-quoted fields that may contain commas.
+fn split_csv_line(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if in_quotes {
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    // Escaped quote ("")
+                    current.push('"');
+                    chars.next();
+                } else {
+                    // End of quoted field
+                    in_quotes = false;
+                    current.push('"');
+                }
+            } else {
+                current.push(c);
+            }
+        } else if c == '"' {
+            in_quotes = true;
+            current.push('"');
+        } else if c == ',' {
+            fields.push(current.clone());
+            current.clear();
+        } else {
+            current.push(c);
+        }
+    }
+    fields.push(current);
+    fields
+}
+
 /// Parse a CSV value into a FieldValue
 fn parse_csv_value(value: &str) -> FieldValue {
     let trimmed = value.trim();
@@ -466,6 +502,61 @@ mod tests {
         assert_eq!(
             parse_csv_value("\"quoted\""),
             FieldValue::String("quoted".to_string())
+        );
+    }
+
+    #[test]
+    fn test_split_csv_line_with_quoted_commas() {
+        // Simple fields
+        let fields = split_csv_line("a,b,c");
+        assert_eq!(fields, vec!["a", "b", "c"]);
+
+        // Quoted field containing comma (the bug this function was written to fix)
+        let fields = split_csv_line("\"Washington, D.C.\",10.5,20.3,15.0");
+        assert_eq!(fields.len(), 4);
+        assert_eq!(fields[0], "\"Washington, D.C.\"");
+        assert_eq!(fields[1], "10.5");
+
+        // Escaped quotes inside quoted field
+        let fields = split_csv_line("\"He said \"\"hello\"\"\",42");
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0], "\"He said \"hello\"\"");
+        assert_eq!(fields[1], "42");
+
+        // Empty fields
+        let fields = split_csv_line(",b,");
+        assert_eq!(fields, vec!["", "b", ""]);
+
+        // Single field
+        let fields = split_csv_line("alone");
+        assert_eq!(fields, vec!["alone"]);
+    }
+
+    #[test]
+    fn test_csv_load_quoted_fields_with_commas() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "station,min_temp,max_temp").unwrap();
+        writeln!(temp_file, "\"Washington, D.C.\",10.5,20.3").unwrap();
+        writeln!(temp_file, "London,5.0,15.0").unwrap();
+
+        let records =
+            FileSourceFactory::load_records(temp_file.path(), &super::FileFormat::Csv).unwrap();
+        assert_eq!(records.len(), 2);
+
+        let r1 = &records[0];
+        assert_eq!(
+            r1.fields.get("station"),
+            Some(&FieldValue::String("Washington, D.C.".to_string()))
+        );
+        assert_eq!(r1.fields.get("min_temp"), Some(&FieldValue::Float(10.5)));
+
+        let r2 = &records[1];
+        assert_eq!(
+            r2.fields.get("station"),
+            Some(&FieldValue::String("London".to_string()))
         );
     }
 

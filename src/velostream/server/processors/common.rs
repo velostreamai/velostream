@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc};
 
 /// Serialize Duration as milliseconds (f64)
 fn serialize_duration_as_ms<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
@@ -851,6 +851,53 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
 /// Note: Does NOT log cumulative stats - those are shown at the end by log_final_stats.
 pub fn log_idle_transition(job_name: &str) {
     debug!("Job '{}' ⏸️  IDLE: waiting for more records...", job_name);
+}
+
+/// Flush final aggregations for EMIT FINAL queries on bounded source exhaustion.
+///
+/// Safe to call on any query — returns 0 records unless the query has
+/// `EMIT FINAL` + `GROUP BY` without `WINDOW`.
+pub async fn flush_final_aggregations_to_sinks(
+    engine: &Arc<RwLock<StreamExecutionEngine>>,
+    query: &StreamingQuery,
+    context: &mut ProcessorContext,
+    job_name: &str,
+    stats: &mut JobExecutionStats,
+) {
+    let mut engine_lock = engine.write().await;
+    match engine_lock.flush_final_aggregations(query) {
+        Ok(final_records) if !final_records.is_empty() => {
+            let record_count = final_records.len();
+            info!(
+                "Job '{}': Flushing {} final aggregation records",
+                job_name, record_count
+            );
+            let output_records: Vec<Arc<StreamRecord>> =
+                final_records.into_iter().map(Arc::new).collect();
+            let sink_names = context.list_sinks();
+            for sink_name in &sink_names {
+                if let Err(e) = context
+                    .write_batch_to_shared(sink_name, &output_records)
+                    .await
+                {
+                    error!(
+                        "Job '{}': Failed to write final aggregations to sink '{}': {}",
+                        job_name, sink_name, e
+                    );
+                }
+            }
+            stats.records_processed += record_count as u64;
+        }
+        Ok(_) => {
+            debug!("Job '{}': No final aggregation records to flush", job_name);
+        }
+        Err(e) => {
+            warn!(
+                "Job '{}': Failed to flush final aggregations: {}",
+                job_name, e
+            );
+        }
+    }
 }
 
 /// Result type for datasource operations

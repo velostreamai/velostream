@@ -129,13 +129,13 @@ use super::config::{MessagePassingMode, StreamingConfig};
 use super::internal::{ExecutionMessage, ExecutionState, QueryExecution, WindowState};
 // Processor imports for Phase 5B integration
 use super::processors::{
-    HeaderMutation, HeaderOperation, JoinContext, ProcessorContext, QueryProcessor, WindowContext,
-    WindowProcessor,
+    HeaderMutation, HeaderOperation, JoinContext, ProcessorContext, QueryProcessor,
+    SelectProcessor, WindowContext, WindowProcessor,
 };
 use super::types::{FieldValue, StreamRecord};
 // FieldValueConverter no longer needed since we use StreamRecord directly
 use crate::velostream::datasource::{DataReader, DataWriter, create_sink, create_source};
-use crate::velostream::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
+use crate::velostream::sql::ast::{EmitMode, Expr, SelectField, StreamSource, StreamingQuery};
 use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1306,6 +1306,169 @@ impl StreamExecutionEngine {
             }
         }
         Ok(())
+    }
+
+    /// Flush final aggregation results for non-windowed EMIT FINAL GROUP BY queries.
+    ///
+    /// Called on source exhaustion (bounded source EOF). Iterates all accumulated
+    /// GROUP BY states and builds one result record per group, applying HAVING filters.
+    /// Returns the final aggregation records for writing to the sink.
+    pub fn flush_final_aggregations(
+        &mut self,
+        query: &StreamingQuery,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        // Use the ORIGINAL query for query_id (must match what apply_query used during execution)
+        let query_id = self.generate_query_id(query);
+
+        // Extract SELECT components from query (unwrapping CreateStream/CreateTable)
+        let inner_select = match query {
+            StreamingQuery::Select { .. } => query,
+            StreamingQuery::CreateStream { as_select, .. }
+            | StreamingQuery::CreateTable { as_select, .. } => as_select.as_ref(),
+            _ => return Ok(Vec::new()),
+        };
+
+        let (fields, group_exprs, having, emit_mode, window) = match inner_select {
+            StreamingQuery::Select {
+                fields,
+                group_by,
+                having,
+                emit_mode,
+                window,
+                ..
+            } => (fields, group_by, having, emit_mode, window),
+            _ => return Ok(Vec::new()),
+        };
+
+        // Only flush for EMIT FINAL without WINDOW and with GROUP BY
+        let is_emit_final = matches!(emit_mode, Some(EmitMode::Final));
+        let is_non_windowed = window.is_none();
+        let has_group_by = group_exprs.is_some();
+
+        if !is_emit_final || !is_non_windowed || !has_group_by {
+            return Ok(Vec::new());
+        }
+
+        let group_exprs = group_exprs.as_ref().unwrap();
+
+        // Access the processor context to read accumulated group states
+        let results = if self.active_queries.contains_key(&query_id) {
+            let context = self.get_processor_context(&query_id);
+            let mut results = Vec::new();
+
+            // Iterate all group_by_states (there may be multiple query keys)
+            let state_keys: Vec<String> = context.group_by_states.keys().cloned().collect();
+            for state_key in state_keys {
+                if let Some(group_state) = context.group_by_states.get(&state_key) {
+                    // Iterate each group and build a result record
+                    let group_state = group_state.clone();
+                    for (_group_key, accumulator) in group_state.groups.iter() {
+                        // Build result fields from accumulator (same pattern as select.rs:1710-1790)
+                        let mut result_fields = HashMap::new();
+
+                        // Add GROUP BY column values
+                        for group_expr in group_exprs.iter() {
+                            if let Expr::Column(col_name) = group_expr {
+                                if let Some(value) = accumulator.first_values.get(col_name) {
+                                    result_fields.insert(col_name.clone(), value.clone());
+                                }
+                            }
+                        }
+
+                        // Process SELECT fields to compute aggregates
+                        for field in fields {
+                            match field {
+                                SelectField::Expression { expr, alias } => {
+                                    if let Expr::Function { name, args } = expr {
+                                        let field_name = if let Some(alias_name) = alias {
+                                            alias_name.clone()
+                                        } else {
+                                            name.to_lowercase()
+                                        };
+
+                                        let aggregate_value =
+                                            super::processors::SelectProcessor::compute_aggregate_from_accumulator(
+                                                name,
+                                                args,
+                                                alias,
+                                                accumulator,
+                                            )?;
+
+                                        if let Some(value) = aggregate_value {
+                                            result_fields.insert(field_name, value);
+                                        }
+                                    } else {
+                                        // Non-function expression: use column value from first_values
+                                        let field_name = if let Some(alias_name) = alias {
+                                            alias_name.clone()
+                                        } else {
+                                            super::processors::SelectProcessor::get_expression_name(
+                                                expr,
+                                            )
+                                        };
+                                        if let Expr::Column(col_name) = expr {
+                                            if let Some(value) =
+                                                accumulator.first_values.get(col_name)
+                                            {
+                                                result_fields.insert(field_name, value.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                                SelectField::Column(name) => {
+                                    if let Some(value) = accumulator.first_values.get(name) {
+                                        result_fields.insert(name.clone(), value.clone());
+                                    }
+                                }
+                                SelectField::AliasedColumn { column, alias } => {
+                                    if let Some(value) = accumulator.first_values.get(column) {
+                                        result_fields.insert(alias.clone(), value.clone());
+                                    }
+                                }
+                                SelectField::Wildcard => {
+                                    for group_expr in group_exprs {
+                                        if let Expr::Column(col_name) = group_expr {
+                                            if let Some(value) =
+                                                accumulator.first_values.get(col_name)
+                                            {
+                                                result_fields
+                                                    .insert(col_name.clone(), value.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Apply HAVING filter using accumulated aggregate values
+                        if let Some(having_expr) = having {
+                            let having_passed = SelectProcessor::evaluate_having_with_accumulator(
+                                having_expr,
+                                accumulator,
+                                fields,
+                                &result_fields,
+                            );
+                            if !having_passed {
+                                continue; // filtered out by HAVING
+                            }
+                        }
+
+                        results.push(StreamRecord::new(result_fields));
+                    }
+                }
+            }
+            results
+        } else {
+            Vec::new()
+        };
+
+        log::info!(
+            "flush_final_aggregations: emitted {} final group results for query '{}'",
+            results.len(),
+            query_id
+        );
+
+        Ok(results)
     }
 
     fn query_matches_stream(&self, query: &StreamingQuery, stream_name: &str) -> bool {

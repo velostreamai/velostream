@@ -155,9 +155,10 @@ pub enum EmitMode {
     /// Usage: SELECT ... GROUP BY ... EMIT CHANGES
     Changes,
 
-    /// Emit results only when windows close (requires WINDOW clause)
-    /// Accumulates results and emits complete windows
-    /// Usage: SELECT ... GROUP BY ... WINDOW ... EMIT FINAL
+    /// Emit results on source exhaustion or when windows close
+    /// Without WINDOW: accumulates and emits when bounded source is exhausted
+    /// With WINDOW: accumulates and emits when windows close
+    /// Usage: SELECT ... GROUP BY ... EMIT FINAL
     Final,
 }
 

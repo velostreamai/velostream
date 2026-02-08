@@ -752,6 +752,24 @@ impl StreamJobServer {
         // Extract batch configuration from WITH clauses
         let batch_config = Self::extract_batch_config_from_query(&parsed_query)?;
 
+        // If no batch config from WITH clause, check @batch_size annotation
+        let batch_config = if batch_config.is_none() {
+            let (_, annotation_batch_size, _, _) =
+                SqlAnnotationParser::parse_job_annotations(&query);
+            if let Some(size) = annotation_batch_size {
+                info!("Using @batch_size annotation: {} records per batch", size);
+                Some(crate::velostream::datasource::BatchConfig {
+                    strategy: crate::velostream::datasource::BatchStrategy::FixedSize(size),
+                    max_batch_size: size,
+                    ..Default::default()
+                })
+            } else {
+                None
+            }
+        } else {
+            batch_config
+        };
+
         // Extract StreamingConfig from WITH clauses (Phase 1B-4 features)
         let streaming_config = Self::extract_streaming_config_from_query(&parsed_query)?;
 
