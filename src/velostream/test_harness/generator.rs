@@ -20,6 +20,9 @@ use rand::prelude::*;
 use rand_distr::StandardNormal;
 use std::collections::HashMap;
 
+/// Conventional field name for wall-clock production time in generated records.
+const WALL_CLOCK_FIELD_NAME: &str = "timestamp";
+
 // =============================================================================
 // Time Simulation State
 // =============================================================================
@@ -245,6 +248,12 @@ pub struct SchemaDataGenerator {
 
     /// Current schema name being generated
     current_schema: Option<String>,
+
+    /// Simulated event times (one per record) — used as Kafka message timestamps.
+    /// Populated when time simulation is active; the executor drains these after
+    /// `generate()` and sets them as Kafka header timestamps, keeping event time
+    /// separate from the `timestamp` payload field (wall-clock production time).
+    event_times: Vec<i64>,
 }
 
 impl SchemaDataGenerator {
@@ -264,6 +273,7 @@ impl SchemaDataGenerator {
             random_walk_state: HashMap::new(),
             current_record: None,
             current_schema: None,
+            event_times: Vec::new(),
         }
     }
 
@@ -316,6 +326,16 @@ impl SchemaDataGenerator {
     /// Clear time simulation state
     pub fn clear_time_simulation(&mut self) {
         self.time_state = None;
+        self.event_times.clear();
+    }
+
+    /// Drain the accumulated simulated event times (one per generated record).
+    ///
+    /// The executor calls this after `generate()` to get the per-record event times
+    /// that should be set as Kafka message timestamps (header), keeping event time
+    /// separate from the `timestamp` payload field.
+    pub fn take_event_times(&mut self) -> Vec<i64> {
+        std::mem::take(&mut self.event_times)
     }
 
     /// Check if time simulation is active
@@ -408,6 +428,10 @@ impl SchemaDataGenerator {
         schema: &Schema,
         count: usize,
     ) -> TestHarnessResult<Vec<HashMap<String, FieldValue>>> {
+        self.event_times.clear();
+        if self.time_state.is_some() {
+            self.event_times.reserve(count);
+        }
         let mut records = Vec::with_capacity(count);
 
         for _ in 0..count {
@@ -424,6 +448,14 @@ impl SchemaDataGenerator {
         schema: &Schema,
     ) -> TestHarnessResult<HashMap<String, FieldValue>> {
         let mut record = HashMap::new();
+
+        // If time simulation is active, advance to the next event time.
+        // This goes to the Kafka message header (_event_time), NOT into the JSON payload.
+        // The `timestamp` field in the payload will be wall-clock production time.
+        if let Some(ref mut time_state) = self.time_state {
+            let event_time = time_state.next_timestamp();
+            self.event_times.push(event_time.timestamp_millis());
+        }
 
         // Set current schema for random walk state tracking
         self.current_schema = Some(schema.name.clone());
@@ -507,7 +539,9 @@ impl SchemaDataGenerator {
             }
             FieldType::Simple(simple) => match simple {
                 SimpleFieldType::String => self.generate_string_value(&field.constraints),
-                SimpleFieldType::Integer => self.generate_integer_value(&field.constraints),
+                SimpleFieldType::Integer => {
+                    self.generate_integer_value(&field.name, &field.constraints)
+                }
                 SimpleFieldType::Float => self.generate_float_value(&field.constraints),
                 SimpleFieldType::Boolean => Ok(FieldValue::Boolean(self.rng.gen_bool(0.5))),
                 SimpleFieldType::Timestamp => self.generate_timestamp_value(&field.constraints),
@@ -647,15 +681,19 @@ impl SchemaDataGenerator {
     /// which survives JSON serialization round-trips (unlike FieldValue::Timestamp).
     fn generate_integer_value(
         &mut self,
+        field_name: &str,
         constraints: &FieldConstraints,
     ) -> TestHarnessResult<FieldValue> {
         // Check for timestamp_epoch_ms constraint first - this generates epoch millis as Integer
         if let Some(ref range) = constraints.timestamp_epoch_ms {
-            return self.generate_epoch_millis_value(range);
+            return self.generate_epoch_millis_value(field_name, range);
         }
 
         let value = if let Some(ref range) = constraints.range {
             self.generate_with_distribution(range.min, range.max, &constraints.distribution) as i64
+        } else if field_name == WALL_CLOCK_FIELD_NAME {
+            // The `timestamp` field is wall-clock production time by convention
+            Utc::now().timestamp_millis()
         } else {
             self.rng.gen_range(0..1000)
         };
@@ -672,14 +710,22 @@ impl SchemaDataGenerator {
     /// - Simple arithmetic: NOW() - event_time just works
     fn generate_epoch_millis_value(
         &mut self,
+        field_name: &str,
         range: &super::schema::TimestampRange,
     ) -> TestHarnessResult<FieldValue> {
-        // If time simulation is active, use it
-        if let Some(ref mut time_state) = self.time_state {
-            let timestamp = time_state.next_timestamp();
-            return Ok(FieldValue::Integer(timestamp.timestamp_millis()));
+        // When time simulation is active, separate the two time paths:
+        // - `timestamp` payload field → wall-clock "now" (production time)
+        // - Other epoch_millis fields → the simulated event time (already advanced in generate_record)
+        if self.time_state.is_some() {
+            if field_name == WALL_CLOCK_FIELD_NAME {
+                return Ok(FieldValue::Integer(Utc::now().timestamp_millis()));
+            }
+            if let Some(&event_time) = self.event_times.last() {
+                return Ok(FieldValue::Integer(event_time));
+            }
         }
 
+        // Without time simulation, generate from the range constraint
         let timestamp = self.generate_random_timestamp_in_range(range);
         Ok(FieldValue::Integer(timestamp.timestamp_millis()))
     }

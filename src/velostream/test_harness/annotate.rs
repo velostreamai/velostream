@@ -1454,6 +1454,15 @@ overrides:
                 .find(|m| matches!(m.metric_type, MetricType::Histogram));
 
             if let Some(metric) = latency_metric {
+                // Use histogram_quantile with rate on _bucket series for proper percentiles
+                let hist_unit = if metric.name.contains("seconds")
+                    || metric.name.contains("latency")
+                    || metric.name.contains("time_lag")
+                {
+                    "s"
+                } else {
+                    "short"
+                };
                 panels.push(self.create_gauge_panel(
                     panel_id,
                     &format!("P95 {}", metric.help),
@@ -1462,7 +1471,7 @@ overrides:
                     y_pos,
                     6,
                     6,
-                    "s",
+                    hist_unit,
                     1.0,
                 ));
                 panel_id += 1;
@@ -1475,7 +1484,7 @@ overrides:
                     y_pos,
                     6,
                     6,
-                    "s",
+                    hist_unit,
                     2.0,
                 ));
                 panel_id += 1;
@@ -1503,7 +1512,16 @@ overrides:
             let unit = match metric.metric_type {
                 MetricType::Counter => "reqps",
                 MetricType::Gauge => "short",
-                MetricType::Histogram => "s",
+                MetricType::Histogram => {
+                    if metric.name.contains("seconds")
+                        || metric.name.contains("latency")
+                        || metric.name.contains("time_lag")
+                    {
+                        "s"
+                    } else {
+                        "short"
+                    }
+                }
             };
 
             // Vary panel type based on position and metric type
@@ -1622,7 +1640,7 @@ overrides:
         json!({
             "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "prometheus"
             },
             "description": title,
             "fieldConfig": {
@@ -1668,7 +1686,7 @@ overrides:
             "targets": [{
                 "datasource": {
                     "type": "prometheus",
-                    "uid": "PBFA97CFB590B2093"
+                    "uid": "prometheus"
                 },
                 "expr": expr,
                 "interval": "",
@@ -1724,7 +1742,7 @@ overrides:
         json!({
             "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "prometheus"
             },
             "description": title,
             "fieldConfig": {
@@ -1772,7 +1790,7 @@ overrides:
             "targets": [{
                 "datasource": {
                     "type": "prometheus",
-                    "uid": "PBFA97CFB590B2093"
+                    "uid": "prometheus"
                 },
                 "expr": expr,
                 "interval": "",
@@ -1800,7 +1818,7 @@ overrides:
         json!({
             "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "prometheus"
             },
             "description": title,
             "fieldConfig": {
@@ -1837,7 +1855,7 @@ overrides:
             "targets": [{
                 "datasource": {
                     "type": "prometheus",
-                    "uid": "PBFA97CFB590B2093"
+                    "uid": "prometheus"
                 },
                 "expr": expr,
                 "interval": "",
@@ -1865,7 +1883,7 @@ overrides:
         json!({
             "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "prometheus"
             },
             "description": title,
             "fieldConfig": {
@@ -1900,7 +1918,7 @@ overrides:
             "targets": [{
                 "datasource": {
                     "type": "prometheus",
-                    "uid": "PBFA97CFB590B2093"
+                    "uid": "prometheus"
                 },
                 "expr": expr,
                 "interval": "",
@@ -1927,7 +1945,7 @@ overrides:
         json!({
             "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "prometheus"
             },
             "description": title,
             "fieldConfig": {
@@ -1962,7 +1980,7 @@ overrides:
             "targets": [{
                 "datasource": {
                     "type": "prometheus",
-                    "uid": "PBFA97CFB590B2093"
+                    "uid": "prometheus"
                 },
                 "expr": expr,
                 "instant": true,
@@ -1989,7 +2007,7 @@ overrides:
         json!({
             "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "prometheus"
             },
             "description": title,
             "fieldConfig": {
@@ -2026,7 +2044,7 @@ overrides:
             "targets": [{
                 "datasource": {
                     "type": "prometheus",
-                    "uid": "PBFA97CFB590B2093"
+                    "uid": "prometheus"
                 },
                 "expr": expr,
                 "format": "table",
@@ -2041,7 +2059,7 @@ overrides:
                 "options": {
                     "excludeByName": {"Time": true, "__name__": true},
                     "indexByName": {},
-                    "renameByName": {"Value": "Count"}
+                    "renameByName": {}
                 }
             }],
             "type": "table"

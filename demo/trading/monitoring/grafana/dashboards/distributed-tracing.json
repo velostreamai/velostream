@@ -16,7 +16,7 @@
       "type": "row"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Current records per second across all pipelines",
       "fieldConfig": {
         "defaults": {
@@ -46,7 +46,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "sum(rate(velo_pipeline_operation_duration_seconds_count[1m]))",
           "legendFormat": "Total RPS",
           "refId": "A"
@@ -56,7 +56,7 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Active streaming jobs",
       "fieldConfig": {
         "defaults": {
@@ -85,7 +85,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "sum(velo_active_jobs)",
           "legendFormat": "Active Jobs",
           "refId": "A"
@@ -95,7 +95,7 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Average processing latency (p50)",
       "fieldConfig": {
         "defaults": {
@@ -125,7 +125,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "histogram_quantile(0.50, sum(rate(velo_pipeline_operation_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "p50 Latency",
           "refId": "A"
@@ -135,7 +135,7 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "99th percentile latency",
       "fieldConfig": {
         "defaults": {
@@ -165,7 +165,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "histogram_quantile(0.99, sum(rate(velo_pipeline_operation_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "p99 Latency",
           "refId": "A"
@@ -175,7 +175,7 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Throughput per job over time",
       "fieldConfig": {
         "defaults": {
@@ -211,7 +211,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "sum by (job_name) (rate(velo_pipeline_operation_duration_seconds_count{operation=\"sql_processing\"}[1m]))",
           "legendFormat": "{{job_name}}",
           "refId": "A"
@@ -221,7 +221,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Processing latency distribution",
       "fieldConfig": {
         "defaults": {
@@ -257,19 +257,19 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "histogram_quantile(0.50, sum by (le) (rate(velo_pipeline_operation_duration_seconds_bucket[5m])))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "histogram_quantile(0.90, sum by (le) (rate(velo_pipeline_operation_duration_seconds_bucket[5m])))",
           "legendFormat": "p90",
           "refId": "B"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "histogram_quantile(0.99, sum by (le) (rate(velo_pipeline_operation_duration_seconds_bucket[5m])))",
           "legendFormat": "p99",
           "refId": "C"
@@ -307,7 +307,7 @@
       "type": "row"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Time spent in each processing phase",
       "fieldConfig": {
         "defaults": {
@@ -343,7 +343,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "sum by (phase) (rate(velo_profiling_phase_duration_seconds_sum[5m]))",
           "legendFormat": "{{phase}}",
           "refId": "A"
@@ -353,7 +353,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Operations per phase",
       "fieldConfig": {
         "defaults": {
@@ -389,7 +389,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "sum by (phase) (rate(velo_profiling_phase_duration_seconds_count[5m]))",
           "legendFormat": "{{phase}}",
           "refId": "A"
@@ -405,7 +405,7 @@
       "type": "row"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "CPU usage by node",
       "fieldConfig": {
         "defaults": {
@@ -443,7 +443,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_cpu_usage_percent",
           "legendFormat": "{{node_name}}",
           "refId": "A"
@@ -453,7 +453,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "description": "Memory usage by node",
       "fieldConfig": {
         "defaults": {
@@ -489,7 +489,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_memory_usage_bytes",
           "legendFormat": "{{node_name}}",
           "refId": "A"

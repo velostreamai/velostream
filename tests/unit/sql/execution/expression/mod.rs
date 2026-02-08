@@ -5,5 +5,7 @@
 
 pub mod arithmetic;
 pub mod enhanced_window_functions_test;
+pub mod event_time_resolution_test;
 pub mod expression_evaluation_test;
+pub mod expression_name_test;
 pub mod tumble_functions_test;

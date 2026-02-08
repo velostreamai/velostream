@@ -119,7 +119,6 @@ SELECT
     symbol PRIMARY KEY,
     exchange,
     timestamp,
-    timestamp as _event_time,
     price,
     bid_price,
     ask_price,
@@ -129,11 +128,8 @@ SELECT
     vwap,
     market_cap
 FROM in_market_data_stream
-EMIT CHANGES
 WITH (
-    -- Event-time processing configuration
-    'event.time.field' = 'timestamp',
-    'event.time.format' = 'epoch_millis',
+    -- Watermark configuration (event_time comes from Kafka message timestamp)
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '5s',
     'late.data.strategy' = 'dead_letter',
@@ -183,8 +179,8 @@ SELECT
     FIRST_VALUE(price) as open_price,
     LAST_VALUE(price) as close_price
 FROM market_data_ts
-WINDOW TUMBLING(_event_time, INTERVAL '1' SECOND)
 GROUP BY symbol
+WINDOW TUMBLING(_event_time, INTERVAL '1' SECOND)
 EMIT CHANGES
 WITH (
     -- Source configuration (from Stage 1)
@@ -211,6 +207,7 @@ WITH (
 -- @metric_type: histogram
 -- @metric_help: "Enrichment latency in seconds"
 -- @metric_field: enrichment_latency_seconds
+-- @metric_buckets: 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0
 
 CREATE STREAM enriched_market_data AS
 SELECT
@@ -245,8 +242,6 @@ SELECT
 
 FROM market_data_ts m
 LEFT JOIN instrument_reference r ON m.symbol = r.symbol
-
-EMIT CHANGES
 WITH (
     -- Source configuration (from Stage 1)
     'market_data_ts.type' = 'kafka_source',

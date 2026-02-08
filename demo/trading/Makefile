@@ -23,13 +23,16 @@ run-short: build
 	./start-demo.sh -q
 
 # Validate SQL syntax
-validate:
+validate: build
 	@echo "🔍 Validating SQL files..."
-	@../../target/release/velo-test validate apps/app_market_data.sql
+	@for sql in apps/app_*.sql; do \
+		echo "  Validating $$sql..."; \
+		../../target/release/velo-test validate "$$sql"; \
+	done
 	@echo "✅ Validation complete"
 
 # Run tests
-test:
+test: build
 	@echo "🧪 Running tests..."
 	@./velo-test.sh
 	@echo "✅ Tests complete"
@@ -38,6 +41,7 @@ test:
 clean:
 	@echo "🧹 Cleaning demo artifacts..."
 	@rm -f velo-cli
+	@rm -rf deploy/
 	@echo "✅ Clean complete"
 
 # Show help

@@ -364,6 +364,9 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Start resource monitor (logs CPU/memory stats every 5 minutes)
+    let _resource_monitor = velostream::velostream::observability::resource_monitor::spawn();
+
     // Print version info at startup
     print_version_info();
     println!();

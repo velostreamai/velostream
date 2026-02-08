@@ -561,3 +561,111 @@ fn test_file_source_inference() {
     assert_eq!(file_source.name, "file:///data/test.csv");
     assert_eq!(file_source.source_type, DataSourceType::File);
 }
+
+/// Test that top-level event-time configuration properties are included in source properties.
+///
+/// This verifies the fix for event-time propagation to metrics remote-write:
+/// - event.time.field, event.time.format, and watermark properties defined at the top-level
+///   of the WITH clause should be included in the source's properties
+/// - Without this fix, record.event_time would be None, causing metrics remote-write
+///   to use current time instead of event time
+#[test]
+fn test_event_time_properties_included_in_source() {
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+
+    // Create properties with:
+    // 1. Source-specific properties (prefixed with source name)
+    // 2. Top-level event-time properties (no prefix)
+    let mut properties = HashMap::new();
+
+    // Source-specific properties
+    properties.insert("market_data.type".to_string(), "kafka_source".to_string());
+    properties.insert(
+        "market_data.topic".to_string(),
+        "in_market_data".to_string(),
+    );
+    properties.insert(
+        "market_data.bootstrap.servers".to_string(),
+        "localhost:9092".to_string(),
+    );
+
+    // Top-level event-time properties (the fix should include these in source properties)
+    properties.insert("event.time.field".to_string(), "timestamp".to_string());
+    properties.insert("event.time.format".to_string(), "epoch_millis".to_string());
+    properties.insert(
+        "watermark.strategy".to_string(),
+        "bounded_out_of_orderness".to_string(),
+    );
+    properties.insert(
+        "watermark.max_out_of_orderness".to_string(),
+        "5s".to_string(),
+    );
+    properties.insert("late.data.strategy".to_string(), "dead_letter".to_string());
+
+    let query = StreamingQuery::Select {
+        distinct: false,
+        fields: vec![SelectField::Wildcard],
+        key_fields: None,
+        from: StreamSource::Stream("market_data".to_string()),
+        from_alias: None,
+        joins: None,
+        where_clause: None,
+        group_by: None,
+        having: None,
+        window: None,
+        order_by: None,
+        limit: None,
+        emit_mode: None,
+        properties: Some(properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
+    };
+
+    let analysis = analyzer.analyze(&query).unwrap();
+
+    // Should have one source
+    assert_eq!(analysis.required_sources.len(), 1);
+    let source = &analysis.required_sources[0];
+    assert_eq!(source.name, "market_data");
+    assert_eq!(source.source_type, DataSourceType::Kafka);
+
+    // CRITICAL: Verify event-time properties are included in source properties
+    // This is the key assertion that verifies the fix works
+    assert_eq!(
+        source.properties.get("event.time.field"),
+        Some(&"timestamp".to_string()),
+        "event.time.field should be included in source properties for EventTimeConfig extraction"
+    );
+    assert_eq!(
+        source.properties.get("event.time.format"),
+        Some(&"epoch_millis".to_string()),
+        "event.time.format should be included in source properties"
+    );
+    assert_eq!(
+        source.properties.get("watermark.strategy"),
+        Some(&"bounded_out_of_orderness".to_string()),
+        "watermark.strategy should be included in source properties"
+    );
+    assert_eq!(
+        source.properties.get("watermark.max_out_of_orderness"),
+        Some(&"5s".to_string()),
+        "watermark.max_out_of_orderness should be included in source properties"
+    );
+    assert_eq!(
+        source.properties.get("late.data.strategy"),
+        Some(&"dead_letter".to_string()),
+        "late.data.strategy should be included in source properties"
+    );
+
+    println!("✅ Event-time properties correctly propagated to source properties!");
+    println!(
+        "   event.time.field = {}",
+        source.properties.get("event.time.field").unwrap()
+    );
+    println!(
+        "   event.time.format = {}",
+        source.properties.get("event.time.format").unwrap()
+    );
+}

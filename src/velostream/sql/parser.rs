@@ -2013,7 +2013,14 @@ impl<'a> TokenParser<'a> {
                 if is_key {
                     let field_name = alias.clone().or_else(|| {
                         if let Expr::Column(name) = &expr {
-                            Some(name.clone())
+                            // Strip table alias prefix (e.g., "a.symbol" → "symbol")
+                            // so PRIMARY KEY field names match output field names
+                            let base_name = if let Some(pos) = name.rfind('.') {
+                                name[pos + 1..].to_string()
+                            } else {
+                                name.clone()
+                            };
+                            Some(base_name)
                         } else {
                             None
                         }

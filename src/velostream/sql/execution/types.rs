@@ -446,6 +446,31 @@ pub mod system_columns {
     use super::HashSet;
     use std::sync::OnceLock;
 
+    /// Controls behavior when _EVENT_TIME is accessed but record.event_time is None.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum EventTimeFallback {
+        /// Silently use _TIMESTAMP (processing time). Default.
+        ProcessingTime,
+        /// Use _TIMESTAMP but log a warning per-record (diagnostic mode).
+        Warn,
+        /// Return FieldValue::Null — query handles it via COALESCE/WHERE/etc.
+        Null,
+    }
+
+    static EVENT_TIME_FALLBACK: OnceLock<EventTimeFallback> = OnceLock::new();
+
+    /// Read `VELOSTREAM_EVENT_TIME_FALLBACK` env var once.
+    /// Values: `processing_time` (default), `warn`, `null`.
+    pub fn event_time_fallback() -> EventTimeFallback {
+        *EVENT_TIME_FALLBACK.get_or_init(|| {
+            match std::env::var("VELOSTREAM_EVENT_TIME_FALLBACK").as_deref() {
+                Ok("warn") => EventTimeFallback::Warn,
+                Ok("null") => EventTimeFallback::Null,
+                _ => EventTimeFallback::ProcessingTime,
+            }
+        })
+    }
+
     /// Processing time in milliseconds since Unix epoch (UPPERCASE internal form)
     pub const TIMESTAMP: &str = "_TIMESTAMP";
     /// Kafka partition offset for the record (UPPERCASE internal form)
@@ -1634,8 +1659,21 @@ impl StreamRecord {
 
         // Extract event time: use config if provided, otherwise use Kafka timestamp
         let event_time = if let Some(config) = event_time_config {
+            static WARNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             extract_event_time(&fields, config)
-                .inspect_err(|e| log::trace!("Event time extraction failed: {}", e))
+                .inspect_err(|e| {
+                    if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        log::warn!(
+                            "Event time extraction failed for field '{}': {}. \
+                             Falling back to Kafka message timestamp. \
+                             This may cause metrics to use processing time instead of event time. \
+                             This warning is logged once.",
+                            config.field_name,
+                            e
+                        );
+                    }
+                })
                 .ok()
         } else {
             timestamp_ms.and_then(DateTime::from_timestamp_millis)

@@ -10,6 +10,9 @@ use tokio::sync::mpsc;
 use velostream::velostream::sql::ast::{
     BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
+use velostream::velostream::sql::execution::expression::evaluator::{
+    ExpressionEvaluator, SelectAliasContext,
+};
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 
 fn create_test_record(
@@ -186,9 +189,6 @@ async fn test_complex_expression_evaluation() {
 
 #[tokio::test]
 async fn test_in_operator_with_alias_in_case_when() {
-    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
-    use velostream::velostream::sql::execution::expression::evaluator::SelectAliasContext;
-
     // Test IN operator with column alias in CASE WHEN
     // This tests the fix for: spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
     let record = {
@@ -236,9 +236,6 @@ async fn test_in_operator_with_alias_in_case_when() {
 
 #[tokio::test]
 async fn test_in_operator_with_alias_false_case() {
-    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
-    use velostream::velostream::sql::execution::expression::evaluator::SelectAliasContext;
-
     let record = {
         let mut fields = HashMap::new();
         fields.insert("price".to_string(), FieldValue::Float(100.0));
@@ -283,9 +280,6 @@ async fn test_in_operator_with_alias_false_case() {
 
 #[tokio::test]
 async fn test_not_in_operator_with_alias() {
-    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
-    use velostream::velostream::sql::execution::expression::evaluator::SelectAliasContext;
-
     let record = {
         let mut fields = HashMap::new();
         fields.insert("price".to_string(), FieldValue::Float(100.0));
@@ -337,8 +331,6 @@ async fn test_not_in_operator_with_alias() {
 /// This matches Flink/ksqlDB semantics where event time is always available.
 #[test]
 fn test_event_time_fallback_to_timestamp() {
-    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
-
     // Create a record WITHOUT explicit event_time (simulates default case)
     let record_without_event_time = {
         let mut fields = HashMap::new();
@@ -401,8 +393,6 @@ fn test_event_time_fallback_to_timestamp() {
 /// Test that _TIMESTAMP and _EVENT_TIME are both always available
 #[test]
 fn test_system_timestamp_columns_always_available() {
-    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
-
     let record = {
         let mut fields = HashMap::new();
         fields.insert("data".to_string(), FieldValue::String("test".to_string()));
@@ -463,10 +453,6 @@ fn test_system_timestamp_columns_always_available() {
 /// 3. Event time extracted via UDF or expression
 #[tokio::test]
 async fn test_event_time_aliasing_in_select() {
-    use tokio::sync::mpsc;
-    use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
-    use velostream::velostream::sql::execution::StreamExecutionEngine;
-
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
 
@@ -527,11 +513,11 @@ async fn test_event_time_aliasing_in_select() {
 
     let output = rx.try_recv().unwrap();
 
-    // Verify the output record has _EVENT_TIME in fields
-    assert_eq!(
-        output.fields.get("_EVENT_TIME"),
-        Some(&FieldValue::Integer(derived_event_time_ms)),
-        "_EVENT_TIME should be in output fields"
+    // _EVENT_TIME is a system column — it should NOT be in output fields.
+    // It is stripped from the HashMap and only stored as record.event_time metadata.
+    assert!(
+        !output.fields.contains_key("_EVENT_TIME"),
+        "_EVENT_TIME is a system column and should be stripped from output fields"
     );
 
     // Verify the event_time struct field was set from the alias
@@ -549,10 +535,6 @@ async fn test_event_time_aliasing_in_select() {
 /// Test _EVENT_TIME aliasing preserves input event_time when not explicitly set
 #[tokio::test]
 async fn test_event_time_preserved_when_not_aliased() {
-    use tokio::sync::mpsc;
-    use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
-    use velostream::velostream::sql::execution::StreamExecutionEngine;
-
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
 

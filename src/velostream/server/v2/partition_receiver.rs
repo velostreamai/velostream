@@ -63,6 +63,8 @@
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::JobProcessingConfig;
+use crate::velostream::server::processors::metrics_helper::extract_job_name;
+use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
@@ -158,6 +160,7 @@ impl PartitionReceiver {
         writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
         config: JobProcessingConfig,
         observability: Option<crate::velostream::observability::SharedObservabilityManager>,
+        app_name: Option<String>,
     ) -> Self {
         debug!(
             "PartitionReceiver {}: Created with DLQ support: {}, retry config: max_retries={}, backoff={:?}",
@@ -166,11 +169,12 @@ impl PartitionReceiver {
 
         let observability_wrapper = ObservabilityWrapper::builder()
             .with_observability(observability)
+            .with_app_name(app_name)
             .with_dlq(config.enable_dlq)
             .build();
 
         // Extract job name from query for metric emission
-        let job_name = Self::extract_job_name(&query);
+        let job_name = extract_job_name(&query);
 
         Self {
             partition_id,
@@ -215,6 +219,7 @@ impl PartitionReceiver {
         writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
         config: JobProcessingConfig,
         observability: Option<crate::velostream::observability::SharedObservabilityManager>,
+        app_name: Option<String>,
     ) -> Self {
         debug!(
             "PartitionReceiver {}: Created for Query: {}",
@@ -223,6 +228,7 @@ impl PartitionReceiver {
 
         let observability_wrapper = ObservabilityWrapper::builder()
             .with_observability(observability)
+            .with_app_name(app_name)
             .with_dlq(config.enable_dlq)
             .build();
 
@@ -231,7 +237,7 @@ impl PartitionReceiver {
         let (_, rx) = tokio::sync::mpsc::channel::<Vec<StreamRecord>>(1);
 
         // Extract job name from query for metric emission
-        let job_name = Self::extract_job_name(&query);
+        let job_name = extract_job_name(&query);
 
         Self {
             partition_id,
@@ -246,16 +252,6 @@ impl PartitionReceiver {
             queue: Some(queue),
             eof_flag: Some(eof_flag),
             job_name,
-        }
-    }
-
-    /// Extract job name from query for metric emission
-    fn extract_job_name(query: &StreamingQuery) -> String {
-        match query {
-            StreamingQuery::CreateStream { name, .. } => name.clone(),
-            StreamingQuery::CreateTable { name, .. } => name.clone(),
-            StreamingQuery::Select { .. } => "select_query".to_string(),
-            _ => "unknown_query".to_string(),
         }
     }
 
@@ -373,9 +369,11 @@ impl PartitionReceiver {
             self.queue.is_some()
         );
 
-        // Register @metric annotations with Prometheus before processing
-        // This must happen before any emit_sql_metrics() calls
-        self.register_sql_metrics().await;
+        // Register @metric annotations with Prometheus only on partition 0
+        // to avoid N×partition duplicate registration spam (16 partitions = 16× attempts)
+        if self.partition_id == 0 {
+            self.register_sql_metrics().await;
+        }
 
         let mut total_records = 0u64;
         let mut batch_count = 0u64;
@@ -448,7 +446,7 @@ impl PartitionReceiver {
                 while retry_count <= self.config.max_retries {
                     // Process batch synchronously (Phase 6.7: no async overhead)
                     match self.process_batch(&batch) {
-                        Ok((processed, output_records, pending_dlq_entries)) => {
+                        Ok((processed, mut output_records, pending_dlq_entries)) => {
                             total_records += processed as u64;
                             batch_count += 1;
 
@@ -475,6 +473,29 @@ impl PartitionReceiver {
                             if !output_records.is_empty() {
                                 self.emit_sql_metrics(&output_records).await;
                             }
+
+                            // Inject distributed trace context into output records
+                            // so downstream consumers can link their traces
+                            let mut batch_span = ObservabilityHelper::start_batch_span(
+                                self.observability_wrapper.observability_ref(),
+                                &self.job_name,
+                                batch_count,
+                                &batch,
+                            );
+                            if !output_records.is_empty() {
+                                ObservabilityHelper::inject_trace_context_into_records(
+                                    &batch_span,
+                                    &mut output_records,
+                                    &self.job_name,
+                                );
+                            }
+
+                            // Complete batch span with success
+                            ObservabilityHelper::complete_batch_span_success(
+                                &mut batch_span,
+                                &start,
+                                processed as u64,
+                            );
 
                             // Write output records to sink if available
                             if !output_records.is_empty() {
@@ -548,6 +569,20 @@ impl PartitionReceiver {
                                 debug!(
                                     "PartitionReceiver {}: Max retries ({}) exceeded, sending batch to DLQ",
                                     self.partition_id, self.config.max_retries
+                                );
+
+                                // Complete batch span with error for the failed batch
+                                let mut error_batch_span = ObservabilityHelper::start_batch_span(
+                                    self.observability_wrapper.observability_ref(),
+                                    &self.job_name,
+                                    batch_count,
+                                    &batch,
+                                );
+                                ObservabilityHelper::complete_batch_span_error(
+                                    &mut error_batch_span,
+                                    &start,
+                                    0,
+                                    batch_size,
                                 );
 
                                 // Send to DLQ if enabled

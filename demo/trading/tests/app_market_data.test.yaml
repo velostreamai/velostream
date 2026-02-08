@@ -12,7 +12,7 @@ description: |
   Validates event-time processing, OHLCV aggregation, and instrument enrichment.
 
 default_timeout_ms: 60000
-default_records: 100
+default_records: 1000
 
 queries:
   # Stage 1: Event-time processed market data
@@ -20,12 +20,12 @@ queries:
     description: Test market data ingestion with event-time processing
     inputs:
       - source: in_market_data_stream
-        records: 100
+        records: 1000
         time_simulation:
-          start_time: "-1h"
+          start_time: "-1h"  # Remote-write uses event timestamps, so historical data works
           end_time: "now"
           sequential: true
-          events_per_second: 50
+          events_per_second: 500
     outputs:
       - sink: market_data_ts
         assertions:
@@ -37,7 +37,6 @@ queries:
             fields:
               - exchange
               - timestamp
-              - _event_time
               - price
               - volume
               - bid_price

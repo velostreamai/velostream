@@ -92,11 +92,18 @@ impl ObservabilityHelper {
                         output_records.len()
                     );
 
+                    // Pre-compute trace headers once per batch to avoid
+                    // redundant format!/to_string() allocations per record
+                    let precomputed = trace_propagation::precompute_trace_headers(&span_ctx);
+
                     // Use Arc::make_mut for copy-on-write mutation
                     // Clones only if refcount > 1 (shared ownership)
                     for record_arc in output_records.iter_mut() {
                         let record = std::sync::Arc::make_mut(record_arc);
-                        trace_propagation::inject_trace_context(&span_ctx, &mut record.headers);
+                        trace_propagation::inject_precomputed_trace_context(
+                            &precomputed,
+                            &mut record.headers,
+                        );
                     }
                 } else {
                     warn!(

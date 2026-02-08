@@ -263,16 +263,7 @@ impl AsyncPolledProducer {
         poll_stop: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
-            log::debug!("AsyncPolledProducer: Poll thread started");
-            while !poll_stop.load(Ordering::Relaxed) {
-                // poll(0) = process callbacks immediately
-                producer.poll(Duration::from_millis(0));
-                // Sleep 1ms to prevent tight CPU spinning (~1-5% CPU instead of 100%)
-                thread::sleep(Duration::from_millis(1));
-            }
-            // Drain any remaining callbacks before exiting
-            producer.poll(Duration::from_millis(50));
-            log::debug!("AsyncPolledProducer: Poll thread stopped (callbacks drained)");
+            super::utils::adaptive_poll_loop(producer, poll_stop, "AsyncPolledProducer");
         })
     }
 

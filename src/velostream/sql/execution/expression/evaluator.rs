@@ -4,6 +4,8 @@
 //! SQL expressions against streaming data records.
 
 use super::super::processors::ProcessorContext;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use super::super::types::{FieldValue, StreamRecord, system_columns};
 use super::functions::BuiltinFunctions;
 use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
@@ -105,14 +107,32 @@ impl ExpressionEvaluator {
 
     /// Get the _EVENT_TIME value for a record
     ///
-    /// Returns the event time as milliseconds since epoch, falling back to
-    /// processing time (_TIMESTAMP) if event_time is not set.
-    /// This matches Flink/ksqlDB semantics where event time is always available.
+    /// Returns the event time as milliseconds since epoch. When event_time is not set,
+    /// behavior is controlled by the `VELOSTREAM_EVENT_TIME_FALLBACK` env var:
+    /// - `processing_time` (default): silently fall back to _TIMESTAMP
+    /// - `warn`: fall back to _TIMESTAMP but log a warning
+    /// - `null`: return FieldValue::Null
     #[inline]
     pub fn get_event_time_value(record: &StreamRecord) -> FieldValue {
+        static WARNED: AtomicBool = AtomicBool::new(false);
+
         match record.event_time {
             Some(event_time) => FieldValue::Integer(event_time.timestamp_millis()),
-            None => FieldValue::Integer(record.timestamp),
+            None => match system_columns::event_time_fallback() {
+                system_columns::EventTimeFallback::Null => FieldValue::Null,
+                system_columns::EventTimeFallback::Warn => {
+                    if !WARNED.swap(true, Ordering::Relaxed) {
+                        log::warn!(
+                            "_EVENT_TIME accessed but record.event_time is None; \
+                             falling back to _TIMESTAMP. This warning is logged once."
+                        );
+                    }
+                    FieldValue::Integer(record.timestamp)
+                }
+                system_columns::EventTimeFallback::ProcessingTime => {
+                    FieldValue::Integer(record.timestamp)
+                }
+            },
         }
     }
 

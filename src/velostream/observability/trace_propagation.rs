@@ -29,10 +29,10 @@ const TRACESTATE_HEADER: &str = "tracestate";
 /// * `Some(SpanContext)` if valid trace context found in headers
 /// * `None` if no trace context or invalid format
 pub fn extract_trace_context(headers: &HashMap<String, String>) -> Option<SpanContext> {
-    // Look for traceparent header (case-insensitive)
+    // Look for traceparent header (case-insensitive, allocation-free comparison)
     let traceparent_value = headers
         .iter()
-        .find(|(k, _)| k.to_lowercase() == TRACEPARENT_HEADER)
+        .find(|(k, _)| k.eq_ignore_ascii_case(TRACEPARENT_HEADER))
         .map(|(_, v)| v.as_str())?;
 
     log::debug!("🔍 Found traceparent header: {}", traceparent_value);
@@ -63,10 +63,10 @@ pub fn extract_trace_context(headers: &HashMap<String, String>) -> Option<SpanCo
     let trace_flags = u8::from_str_radix(parts[3], 16).ok()?;
     let flags = TraceFlags::new(trace_flags);
 
-    // Extract tracestate if present
+    // Extract tracestate if present (allocation-free comparison)
     let trace_state = headers
         .iter()
-        .find(|(k, _)| k.to_lowercase() == TRACESTATE_HEADER)
+        .find(|(k, _)| k.eq_ignore_ascii_case(TRACESTATE_HEADER))
         .and_then(|(_, v)| TraceState::from_str(v.as_str()).ok())
         .unwrap_or_else(TraceState::default);
 
@@ -120,6 +120,65 @@ pub fn inject_trace_context(span_context: &SpanContext, headers: &mut HashMap<St
         span_context.trace_id(),
         span_context.span_id()
     );
+}
+
+/// Pre-computed trace header values for efficient batch injection.
+///
+/// Created once per batch via [`precompute_trace_headers`], then applied to each
+/// record via [`inject_precomputed_trace_context`]. This avoids redundant `format!`
+/// and `to_string()` allocations in the per-record hot loop.
+pub struct PrecomputedTraceHeaders {
+    pub traceparent_key: String,
+    pub traceparent_value: String,
+    pub tracestate: Option<(String, String)>,
+}
+
+/// Pre-compute trace header values for batch injection (call once per batch).
+///
+/// This performs the expensive `format!` and string allocations once, producing
+/// a [`PrecomputedTraceHeaders`] that can be cheaply cloned into each record.
+///
+/// # Arguments
+/// * `span_context` - The span context to serialize into W3C traceparent format
+pub fn precompute_trace_headers(span_context: &SpanContext) -> PrecomputedTraceHeaders {
+    let traceparent_value = format!(
+        "00-{}-{}-{:02x}",
+        span_context.trace_id(),
+        span_context.span_id(),
+        span_context.trace_flags().to_u8()
+    );
+    let tracestate_header = span_context.trace_state().header();
+    let tracestate = if tracestate_header.is_empty() {
+        None
+    } else {
+        Some((TRACESTATE_HEADER.to_string(), tracestate_header.to_string()))
+    };
+    PrecomputedTraceHeaders {
+        traceparent_key: TRACEPARENT_HEADER.to_string(),
+        traceparent_value,
+        tracestate,
+    }
+}
+
+/// Inject pre-computed trace headers into a record's header map (call per record).
+///
+/// This performs only `String::clone` per record instead of `format!` + `to_string()`,
+/// eliminating the dominant allocation overhead in the per-record hot loop.
+///
+/// # Arguments
+/// * `precomputed` - Pre-computed headers from [`precompute_trace_headers`]
+/// * `headers` - Mutable reference to the record's Kafka message headers
+pub fn inject_precomputed_trace_context(
+    precomputed: &PrecomputedTraceHeaders,
+    headers: &mut HashMap<String, String>,
+) {
+    headers.insert(
+        precomputed.traceparent_key.clone(),
+        precomputed.traceparent_value.clone(),
+    );
+    if let Some((ref key, ref value)) = precomputed.tracestate {
+        headers.insert(key.clone(), value.clone());
+    }
 }
 
 #[cfg(test)]

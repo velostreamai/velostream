@@ -75,21 +75,25 @@
 -- @metric_help: "Current position size"
 -- @metric_labels: trader_id, symbol
 -- @metric_field: position_size
+--
+-- @metric: velo_position_pnl
+-- @metric_type: gauge
+-- @metric_help: "Current P&L per position"
+-- @metric_labels: trader_id, symbol
+-- @metric_field: current_pnl
 
 CREATE STREAM trading_positions_ts AS
 SELECT
     trader_id PRIMARY KEY,
     symbol PRIMARY KEY,
     position_size,
+    entry_price,
     current_pnl,
-    timestamp,
-    timestamp as _event_time
+    position_value,
+    timestamp
 FROM in_trading_positions_stream
-EMIT CHANGES
 WITH (
-    -- Event-time processing
-    'event.time.field' = 'timestamp',
-    'event.time.format' = 'epoch_millis',
+    -- Watermark configuration (event_time comes from Kafka message timestamp)
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '2s',
     'late.data.strategy' = 'update_previous',
@@ -109,6 +113,40 @@ WITH (
 -- @name: comprehensive_risk_monitor
 -- @description: Joins positions with market data for real-time risk calculations
 -- -----------------------------------------------------------------------------
+-- @metric: velo_risk_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Total risk alerts by classification"
+-- @metric_labels: risk_classification
+--
+-- @metric: velo_risk_position_value
+-- @metric_type: gauge
+-- @metric_help: "Position value triggering risk alert"
+-- @metric_labels: risk_classification
+-- @metric_field: position_value
+--
+-- @metric: velo_risk_cumulative_pnl
+-- @metric_type: gauge
+-- @metric_help: "Cumulative P&L per trader"
+-- @metric_labels: trader_id
+-- @metric_field: cumulative_pnl
+--
+-- @metric: velo_risk_total_exposure
+-- @metric_type: gauge
+-- @metric_help: "Total risk exposure per trader"
+-- @metric_labels: trader_id
+-- @metric_field: total_exposure
+--
+-- @metric: velo_risk_pnl_volatility
+-- @metric_type: gauge
+-- @metric_help: "P&L volatility per trader (rolling stddev)"
+-- @metric_labels: trader_id
+-- @metric_field: pnl_volatility
+--
+-- @metric: velo_risk_time_lag
+-- @metric_type: histogram
+-- @metric_help: "Position-to-market data time lag in seconds"
+-- @metric_field: time_lag_seconds
+-- @metric_buckets: 0.1, 0.5, 1.0, 5.0, 10.0, 30.0
 
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
@@ -180,7 +218,6 @@ LEFT JOIN market_data_ts m
 WHERE ABS(p.position_size * COALESCE(m.price, 0)) > 100000
    OR p.current_pnl < -10000
 
-EMIT CHANGES
 WITH (
     -- Source configurations
     'trading_positions_ts.type' = 'kafka_source',
@@ -217,63 +254,70 @@ WITH (
 -- @name: risk_hierarchy_validation
 -- @description: Multi-tier hierarchical risk limit validation (firm → desk → trader)
 -- -----------------------------------------------------------------------------
+-- @metric: velo_risk_hierarchy_validation_total
+-- @metric_type: counter
+-- @metric_help: "Total hierarchy validation checks"
+-- @metric_labels: hierarchy_validation_result
+--
+-- @metric: velo_risk_breach_total
+-- @metric_type: counter
+-- @metric_help: "Total risk limit breaches by type and severity"
+-- @metric_labels: breach_type, breach_severity
+--
+-- @metric: velo_risk_escalation_total
+-- @metric_type: counter
+-- @metric_help: "Risk escalation events by status"
+-- @metric_labels: escalation_status
 
 CREATE STREAM risk_hierarchy_validation AS
 SELECT
     p.trader_id PRIMARY KEY,
-    p.desk_id,
-    p.position_id,
     p.symbol,
-    p.quantity,
+    p.position_size,
     p.entry_price,
-    p.current_price,
-    p.notional_exposure,
-    p.position_type,
+    p.position_value,
     p._event_time,
     p.timestamp,
 
     -- Hard limits validation (AND logic - all must pass)
     CASE
-        WHEN p.notional_exposure <= f.firm_notional_limit
-            AND p.notional_exposure / f.firm_total_exposure <= f.max_concentration_ratio
+        WHEN p.position_value <= f.firm_notional_limit
+            AND p.position_value / f.firm_total_exposure <= f.max_concentration_ratio
         THEN 'PASSED'
         ELSE 'BREACH'
     END as hierarchy_validation_result,
 
     -- Warning thresholds (OR logic - any triggers warning)
     CASE
-        WHEN p.notional_exposure > f.firm_notional_limit * 0.85
-            OR p.notional_exposure / f.firm_total_exposure > f.max_concentration_ratio * 0.9
+        WHEN p.position_value > f.firm_notional_limit * 0.85
+            OR p.position_value / f.firm_total_exposure > f.max_concentration_ratio * 0.9
         THEN 'WARNING'
         ELSE 'SAFE'
     END as escalation_status,
 
     -- Breach classification
     CASE
-        WHEN p.notional_exposure > f.firm_notional_limit THEN 'FIRM_NOTIONAL_BREACH'
-        WHEN p.notional_exposure / f.firm_total_exposure > f.max_concentration_ratio THEN 'CONCENTRATION_BREACH'
+        WHEN p.position_value > f.firm_notional_limit THEN 'FIRM_NOTIONAL_BREACH'
+        WHEN p.position_value / f.firm_total_exposure > f.max_concentration_ratio THEN 'CONCENTRATION_BREACH'
         ELSE 'NO_BREACH'
     END as breach_type,
 
     -- Breach severity
     CASE
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 1.1 THEN 'CRITICAL'
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 1.0 THEN 'SEVERE'
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 0.9 THEN 'HIGH'
-        WHEN (p.notional_exposure / f.firm_notional_limit) > 0.8 THEN 'MEDIUM'
+        WHEN (p.position_value / f.firm_notional_limit) > 1.1 THEN 'CRITICAL'
+        WHEN (p.position_value / f.firm_notional_limit) > 1.0 THEN 'SEVERE'
+        WHEN (p.position_value / f.firm_notional_limit) > 0.9 THEN 'HIGH'
+        WHEN (p.position_value / f.firm_notional_limit) > 0.8 THEN 'MEDIUM'
         ELSE 'LOW'
     END as breach_severity,
 
     NOW() as validation_time,
     f.firm_name,
-    d.desk_name,
     tl.role_name
 
 FROM trading_positions_ts p
 LEFT JOIN firm_limits f ON true
-LEFT JOIN desk_limits d ON p.desk_id = d.desk_id
 LEFT JOIN trader_limits tl ON p.trader_id = tl.trader_id
-EMIT CHANGES
 WITH (
     -- Source configuration
     'trading_positions_ts.type' = 'kafka_source',
@@ -284,9 +328,6 @@ WITH (
     -- Reference tables
     'firm_limits.type' = 'file_source',
     'firm_limits.config_file' = '../configs/firm_limits_table.yaml',
-
-    'desk_limits.type' = 'file_source',
-    'desk_limits.config_file' = '../configs/desk_limits_table.yaml',
 
     'trader_limits.type' = 'file_source',
     'trader_limits.config_file' = '../configs/trader_limits_table.yaml',

@@ -2420,3 +2420,124 @@ fn test_state_store_memory_tracking() {
         left_stats.current_memory_bytes, left_stats.peak_memory_bytes, left_stats.current_size
     );
 }
+
+// =============================================================================
+// merge_records header propagation tests
+// =============================================================================
+
+#[test]
+fn test_merge_records_preserves_headers_from_both_sides() {
+    let config = JoinConfig::interval(
+        "orders",
+        "shipments",
+        vec![("order_id".to_string(), "order_id".to_string())],
+        Duration::ZERO,
+        Duration::from_secs(3600),
+    );
+
+    let mut coordinator = JoinCoordinator::new(config);
+
+    // Left record with traceparent header
+    let mut left = make_test_record(
+        vec![
+            ("order_id", FieldValue::Integer(1)),
+            ("amount", FieldValue::Float(100.0)),
+            ("event_time", FieldValue::Integer(1000)),
+        ],
+        1000,
+    );
+    left.headers.insert(
+        "traceparent".to_string(),
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_string(),
+    );
+    left.headers
+        .insert("x-left-only".to_string(), "left-value".to_string());
+
+    // Right record with a different header
+    let mut right = make_test_record(
+        vec![
+            ("order_id", FieldValue::Integer(1)),
+            ("tracking", FieldValue::String("TRACK001".to_string())),
+            ("event_time", FieldValue::Integer(2000)),
+        ],
+        2000,
+    );
+    right
+        .headers
+        .insert("x-right-only".to_string(), "right-value".to_string());
+
+    // Process left, then right — should produce a joined result
+    let left_results = coordinator.process_left(left).unwrap();
+    assert!(left_results.is_empty(), "No match yet");
+
+    let results = coordinator.process_right(right).unwrap();
+    assert_eq!(results.len(), 1, "Should produce one joined record");
+
+    let joined = &results[0];
+
+    // Verify: left-side header is preserved
+    assert_eq!(
+        joined.headers.get("traceparent").map(|s| s.as_str()),
+        Some("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
+        "Left-side traceparent header should be preserved"
+    );
+    assert_eq!(
+        joined.headers.get("x-left-only").map(|s| s.as_str()),
+        Some("left-value"),
+        "Left-only header should be preserved"
+    );
+
+    // Verify: right-side header is also preserved
+    assert_eq!(
+        joined.headers.get("x-right-only").map(|s| s.as_str()),
+        Some("right-value"),
+        "Right-side header should be preserved in merged output"
+    );
+}
+
+#[test]
+fn test_merge_records_right_header_takes_precedence_on_collision() {
+    let config = JoinConfig::interval(
+        "orders",
+        "shipments",
+        vec![("order_id".to_string(), "order_id".to_string())],
+        Duration::ZERO,
+        Duration::from_secs(3600),
+    );
+
+    let mut coordinator = JoinCoordinator::new(config);
+
+    // Left record with a shared header key
+    let mut left = make_test_record(
+        vec![
+            ("order_id", FieldValue::Integer(1)),
+            ("event_time", FieldValue::Integer(1000)),
+        ],
+        1000,
+    );
+    left.headers
+        .insert("traceparent".to_string(), "left-trace".to_string());
+
+    // Right record with same header key but different value
+    let mut right = make_test_record(
+        vec![
+            ("order_id", FieldValue::Integer(1)),
+            ("event_time", FieldValue::Integer(2000)),
+        ],
+        2000,
+    );
+    right
+        .headers
+        .insert("traceparent".to_string(), "right-trace".to_string());
+
+    coordinator.process_left(left).unwrap();
+    let results = coordinator.process_right(right).unwrap();
+    assert_eq!(results.len(), 1);
+
+    // Right-side header should take precedence on collision
+    assert_eq!(
+        results[0].headers.get("traceparent").map(|s| s.as_str()),
+        Some("right-trace"),
+        "Right-side header should take precedence on collision (like right-side field values)"
+    );
+}

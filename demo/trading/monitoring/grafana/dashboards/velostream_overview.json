@@ -12,7 +12,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Number of active streaming jobs",
       "fieldConfig": {
@@ -46,7 +46,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_active_jobs",
           "legendFormat": "Active Jobs",
           "refId": "A"
@@ -58,7 +58,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Number of active SQL queries",
       "fieldConfig": {
@@ -90,7 +90,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_sql_active_queries",
           "legendFormat": "Active Queries",
           "refId": "A"
@@ -102,7 +102,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Total streaming records processed",
       "fieldConfig": {
@@ -130,7 +130,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_streaming_records_total",
           "legendFormat": "Records",
           "refId": "A"
@@ -142,7 +142,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Current streaming throughput",
       "fieldConfig": {
@@ -174,7 +174,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_streaming_throughput_rps",
           "legendFormat": "Throughput",
           "refId": "A"
@@ -186,7 +186,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Query errors",
       "fieldConfig": {
@@ -217,7 +217,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_sql_query_errors_total OR on() vector(0)",
           "legendFormat": "Errors",
           "refId": "A"
@@ -229,7 +229,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Compliant records processed",
       "fieldConfig": {
@@ -257,7 +257,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_compliant_market_data_records_total",
           "legendFormat": "Compliant",
           "refId": "A"
@@ -269,7 +269,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Streaming records over time",
       "fieldConfig": {
@@ -306,13 +306,13 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_streaming_records_total",
           "legendFormat": "Total Records",
           "refId": "A"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_compliant_market_data_records_total",
           "legendFormat": "Compliant Records",
           "refId": "B"
@@ -324,7 +324,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Streaming throughput over time",
       "fieldConfig": {
@@ -361,13 +361,13 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_streaming_throughput_rps",
           "legendFormat": "Throughput RPS",
           "refId": "A"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "rate(velo_streaming_records_total[1m])",
           "legendFormat": "Calculated Rate",
           "refId": "B"
@@ -379,7 +379,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "SQL query processing duration",
       "fieldConfig": {
@@ -416,8 +416,8 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
-          "expr": "rate(velo_pipeline_operation_duration_seconds_sum[5m]) / rate(velo_pipeline_operation_duration_seconds_count[5m])",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "velo_pipeline_operation_duration_seconds",
           "legendFormat": "{{job_name}} - {{operation}}",
           "refId": "A"
         }
@@ -428,7 +428,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "System resource usage",
       "fieldConfig": {
@@ -465,7 +465,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_cpu_usage_percent",
           "legendFormat": "CPU {{node_name}}",
           "refId": "A"
@@ -477,7 +477,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Service health status",
       "fieldConfig": {
@@ -514,8 +514,8 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
-          "expr": "up{job=\"velo-sql-telemetry\"}",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "up{job=~\"app_.*\"}",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
@@ -526,7 +526,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "prometheus"
       },
       "description": "Memory usage",
       "fieldConfig": {
@@ -563,7 +563,7 @@
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "velo_memory_usage_bytes",
           "legendFormat": "Memory {{node_name}}",
           "refId": "A"

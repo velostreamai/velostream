@@ -28,7 +28,7 @@ pub use job_processor_factory::JobProcessorFactory;
 pub use job_processor_trait::{JobProcessor, LifecycleState, ProcessorMetrics, SharedJobStats};
 pub use metrics_collector::MetricsCollector;
 pub use metrics_helper::{
-    LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper,
+    LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper, extract_job_name,
 };
 pub use mock::MockJobProcessor;
 pub use observability_helper::ObservabilityHelper;

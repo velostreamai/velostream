@@ -664,7 +664,9 @@ impl KafkaDataWriter {
 
     /// Spawn a new poll thread for async delivery confirmation
     ///
-    /// The poll thread runs poll(0) in a tight loop to process delivery callbacks.
+    /// The poll thread runs poll(0) to process delivery callbacks with adaptive
+    /// backoff based on `in_flight_count()`: tight-loops when messages are in
+    /// flight, backs off to 1ms then 10ms sleep when idle.
     /// This is stopped during flush() to avoid contention, then restarted after.
     fn spawn_poll_thread(
         producer: Arc<BaseProducer<DefaultProducerContext>>,
@@ -672,14 +674,8 @@ impl KafkaDataWriter {
         topic: String,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
-            log::debug!("KafkaDataWriter: Poll thread started for topic '{}'", topic);
-            while !poll_stop.load(Ordering::Relaxed) {
-                // poll(0) = process callbacks immediately, no blocking
-                // This runs at 100% CPU but is required for maximum throughput
-                // to keep up with high-speed message production.
-                producer.poll(Duration::from_millis(0));
-            }
-            log::debug!("KafkaDataWriter: Poll thread stopped for topic '{}'", topic);
+            let label = format!("KafkaDataWriter[{}]", topic);
+            crate::velostream::kafka::utils::adaptive_poll_loop(producer, poll_stop, &label);
         })
     }
 
@@ -758,6 +754,7 @@ impl KafkaDataWriter {
         topic: &str,
         key: Option<&str>,
         payload: &[u8],
+        timestamp_ms: Option<i64>,
     ) -> Result<(), rdkafka::error::KafkaError> {
         match &self.producer_kind {
             ProducerKind::Transactional(txn_producer) => {
@@ -765,6 +762,9 @@ impl KafkaDataWriter {
                 let mut record = BaseRecord::to(topic).payload(payload);
                 if let Some(k) = key {
                     record = record.key(k);
+                }
+                if let Some(ts) = timestamp_ms {
+                    record = record.timestamp(ts);
                 }
                 match txn_producer.send(record) {
                     Ok(()) => Ok(()),
@@ -1190,6 +1190,13 @@ impl DataWriter for KafkaDataWriter {
         // Build Kafka record using BaseRecord for high-performance sync send
         let mut kafka_record = BaseRecord::to(&self.topic).payload(&payload);
 
+        // Propagate event_time as the Kafka message timestamp so downstream
+        // consumers receive the correct event time via the message metadata.
+        // Without this, consumers default to the broker's CreateTime (wall clock).
+        if let Some(event_time) = record.event_time {
+            kafka_record = kafka_record.timestamp(event_time.timestamp_millis());
+        }
+
         if let Some(key_str) = &key {
             kafka_record = kafka_record.key(key_str);
         }
@@ -1218,8 +1225,13 @@ impl DataWriter for KafkaDataWriter {
         // Send record - different handling for async vs transactional modes
         let send_result = if self.is_transactional() {
             // Transactional mode: use dedicated send method
-            self.send_transactional(&self.topic.clone(), key.as_deref(), &payload)
-                .map_err(|e| (e, ()))
+            self.send_transactional(
+                &self.topic,
+                key.as_deref(),
+                &payload,
+                record.event_time.map(|et| et.timestamp_millis()),
+            )
+            .map_err(|e| (e, ()))
         } else {
             // Async mode: use BaseProducer directly
             match &self.producer_kind {
@@ -1302,6 +1314,12 @@ impl DataWriter for KafkaDataWriter {
 
             // Build BaseRecord for high-performance sync send
             let mut kafka_record = BaseRecord::to(&self.topic).payload(&payload);
+
+            // Propagate event_time as Kafka message timestamp
+            if let Some(event_time) = record_arc.event_time {
+                kafka_record = kafka_record.timestamp(event_time.timestamp_millis());
+            }
+
             if let Some(key_str) = &key {
                 kafka_record = kafka_record.key(key_str);
             }
@@ -1323,7 +1341,12 @@ impl DataWriter for KafkaDataWriter {
             // Different handling for async vs transactional modes
             let send_result = if self.is_transactional() {
                 // Transactional mode: use dedicated send method
-                self.send_transactional(&self.topic.clone(), key.as_deref(), &payload)
+                self.send_transactional(
+                    &self.topic,
+                    key.as_deref(),
+                    &payload,
+                    record_arc.event_time.map(|et| et.timestamp_millis()),
+                )
             } else {
                 // Async mode: use BaseProducer directly
                 match &self.producer_kind {
@@ -1437,7 +1460,7 @@ impl DataWriter for KafkaDataWriter {
         // Different handling for async vs transactional modes
         let send_result = if self.is_transactional() {
             // Transactional mode: use dedicated send method
-            self.send_transactional(&self.topic.clone(), Some(key), empty_payload)
+            self.send_transactional(&self.topic, Some(key), empty_payload, None)
         } else {
             // Async mode: use BaseProducer directly
             let kafka_record = BaseRecord::to(&self.topic).key(key).payload(empty_payload);

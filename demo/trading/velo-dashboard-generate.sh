@@ -34,7 +34,13 @@ APPS_DIR="$SCRIPT_DIR/apps"
 DEPLOY_DIR="$SCRIPT_DIR/deploy"
 DEPLOY_MONITORING_DIR="$DEPLOY_DIR/monitoring"
 DEPLOY_APPS_DIR="$DEPLOY_DIR/apps"
-VELO_TEST="$PROJECT_ROOT/target/release/velo-test"
+if [[ -f "$PROJECT_ROOT/target/release/velo-test" ]]; then
+    VELO_TEST="$PROJECT_ROOT/target/release/velo-test"
+elif [[ -f "$PROJECT_ROOT/target/debug/velo-test" ]]; then
+    VELO_TEST="$PROJECT_ROOT/target/debug/velo-test"
+else
+    VELO_TEST="$PROJECT_ROOT/target/release/velo-test"
+fi
 
 METRICS_BASE_PORT=9101
 
@@ -67,9 +73,9 @@ mkdir -p "$DEPLOY_APPS_DIR"
 mkdir -p "$DEPLOY_MONITORING_DIR/grafana/dashboards"
 
 # Symlink configs/ so relative paths in SQL files (../configs/) resolve correctly
-ln -s "$SCRIPT_DIR/configs" "$DEPLOY_DIR/configs"
+ln -s ../configs "$DEPLOY_DIR/configs"
 # Symlink schemas/ for the same reason
-ln -s "$SCRIPT_DIR/schemas" "$DEPLOY_DIR/schemas"
+ln -s ../schemas "$DEPLOY_DIR/schemas"
 
 # Clean up any leftover annotated SQL files from previous runs
 rm -f "$APPS_DIR"/*.annotated.sql 2>/dev/null || true
@@ -129,17 +135,15 @@ PROMETHEUS_YML="global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+storage:
+  tsdb:
+    out_of_order_time_window: 2h  # Accept samples up to 2h old for historical event-time data
+
 scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: 'velo-sql'
-    static_configs:
-      - targets: ['host.docker.internal:8080']
-    metrics_path: /metrics
-    scrape_interval: 10s
-    scrape_timeout: 5s
 ${APP_SCRAPE_CONFIGS}"
 
 echo "$PROMETHEUS_YML" > "$DEPLOY_MONITORING_DIR/prometheus.yml"

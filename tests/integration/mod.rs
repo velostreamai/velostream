@@ -38,6 +38,8 @@ pub mod datasource;
 // Observability integration tests
 pub mod observability_job_processor_trace_test;
 pub mod observability_trace_propagation_test;
+pub mod processor_trace_patterns_test;
+pub mod trace_chain_kafka_test;
 
 // Watermark implementation verification tests
 pub mod watermark_debug_test;

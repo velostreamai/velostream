@@ -72,6 +72,23 @@
 -- @metric_help: "Average volume in window"
 -- @metric_labels: symbol
 -- @metric_field: avg_volume
+--
+-- @metric: velo_volume_max
+-- @metric_type: gauge
+-- @metric_help: "Peak volume in sliding window"
+-- @metric_labels: symbol
+-- @metric_field: max_volume
+--
+-- @metric: velo_volume_stddev
+-- @metric_type: gauge
+-- @metric_help: "Volume volatility (standard deviation)"
+-- @metric_labels: symbol
+-- @metric_field: stddev_volume
+--
+-- @metric: velo_circuit_breaker_total
+-- @metric_type: counter
+-- @metric_help: "Circuit breaker state transitions"
+-- @metric_labels: symbol, circuit_state
 
 CREATE STREAM volume_spike_analysis AS
 SELECT
@@ -167,6 +184,22 @@ WITH (
 -- @name: order_flow_imbalance
 -- @description: Detects institutional trading patterns from order book data
 -- -----------------------------------------------------------------------------
+-- @metric: velo_order_flow_imbalance_total
+-- @metric_type: counter
+-- @metric_help: "Total order flow imbalance signals detected"
+-- @metric_labels: symbol
+--
+-- @metric: velo_order_buy_ratio
+-- @metric_type: gauge
+-- @metric_help: "Buy-side ratio of total volume"
+-- @metric_labels: symbol
+-- @metric_field: buy_ratio
+--
+-- @metric: velo_order_total_volume
+-- @metric_type: gauge
+-- @metric_help: "Total order volume per symbol per window"
+-- @metric_labels: symbol
+-- @metric_field: total_volume
 
 CREATE STREAM order_flow_imbalance AS
 SELECT
@@ -188,6 +221,10 @@ HAVING
     )
 EMIT CHANGES
 WITH (
+    -- Watermark configuration (event_time comes from Kafka message timestamp)
+    'watermark.strategy' = 'bounded_out_of_orderness',
+    'watermark.max_out_of_orderness' = '5s',
+
     -- Source configuration
     'in_order_book_stream.type' = 'kafka_source',
     'in_order_book_stream.topic.name' = 'in_order_book_stream',
@@ -203,6 +240,29 @@ WITH (
 -- @name: arbitrage_detection
 -- @description: Cross-exchange price discrepancy detection
 -- -----------------------------------------------------------------------------
+-- @metric: velo_arbitrage_opportunities_total
+-- @metric_type: counter
+-- @metric_help: "Total arbitrage opportunities detected"
+-- @metric_labels: symbol
+--
+-- @metric: velo_arbitrage_spread_bps
+-- @metric_type: gauge
+-- @metric_help: "Arbitrage spread in basis points"
+-- @metric_labels: symbol
+-- @metric_field: spread_bps
+--
+-- @metric: velo_arbitrage_profit
+-- @metric_type: gauge
+-- @metric_help: "Potential arbitrage profit per opportunity"
+-- @metric_labels: symbol
+-- @metric_field: potential_profit
+--
+-- @metric: velo_arbitrage_spread_distribution
+-- @metric_type: histogram
+-- @metric_help: "Distribution of arbitrage spreads in basis points"
+-- @metric_labels: symbol
+-- @metric_field: spread_bps
+-- @metric_buckets: 5, 10, 25, 50, 100, 250
 
 CREATE STREAM arbitrage_detection AS
 SELECT
@@ -218,10 +278,11 @@ SELECT
     NOW() as opportunity_time
 FROM in_market_data_stream_a a
 JOIN in_market_data_stream_b b ON a.symbol = b.symbol
+    AND b._event_time BETWEEN a._event_time - INTERVAL '10' SECOND
+                         AND a._event_time + INTERVAL '10' SECOND
 WHERE a.bid_price > b.ask_price
-    AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 10
-    AND LEAST(a.bid_size, b.ask_size) > 50000
-EMIT CHANGES
+    AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 5
+    AND LEAST(a.bid_size, b.ask_size) > 500
 WITH (
     -- Source configuration - Exchange A
     'in_market_data_stream_a.type' = 'kafka_source',

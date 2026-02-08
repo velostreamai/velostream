@@ -321,8 +321,9 @@ fn test_key_annotation_qualified_column() {
             assert!(key_fields.is_some());
             let keys = key_fields.unwrap();
             assert_eq!(keys.len(), 1);
-            // Should extract "t.symbol" as the key field
-            assert_eq!(keys[0], "t.symbol");
+            // Should extract base column name "symbol" (table alias stripped)
+            // so key_fields match the output field names in JOIN results
+            assert_eq!(keys[0], "symbol");
         }
         _ => panic!("Expected Select query"),
     }

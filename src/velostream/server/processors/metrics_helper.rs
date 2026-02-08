@@ -23,6 +23,7 @@ use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::execution::FieldValue;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
 use log::{debug, info, warn};
@@ -213,6 +214,9 @@ pub struct ProcessorMetricsHelper {
     /// Lock-free performance telemetry using atomic counters (Phase 2 optimization)
     /// Replaces RwLock-based telemetry for 99% overhead reduction on hot paths
     telemetry: AtomicMetricsPerformanceTelemetry,
+    /// Application name for injecting `job` label into remote-write metrics.
+    /// Set from `@application` annotation or derived from source filename.
+    app_name: Option<String>,
 }
 
 impl ProcessorMetricsHelper {
@@ -229,7 +233,18 @@ impl ProcessorMetricsHelper {
             label_config,
             label_extraction_config: LabelExtractionConfig::default(),
             telemetry: AtomicMetricsPerformanceTelemetry::new(),
+            app_name: None,
         }
+    }
+
+    /// Set the application name for `job` label injection in remote-write metrics
+    pub fn set_app_name(&mut self, name: String) {
+        self.app_name = Some(name);
+    }
+
+    /// Get the application name (if set)
+    pub fn app_name(&self) -> Option<&str> {
+        self.app_name.as_deref()
     }
 
     /// Enable strict mode (skip metrics if labels cannot be extracted)
@@ -603,6 +618,7 @@ impl ProcessorMetricsHelper {
         output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
+        query_name: Option<&str>,
         batch_fn: F,
     ) where
         F: Fn(&mut MetricBatch, &MetricAnnotation, &[String], Option<f64>),
@@ -615,15 +631,55 @@ impl ProcessorMetricsHelper {
         if let Some(obs) = observability {
             let obs_lock = obs.read().await;
             if let Some(metrics) = obs_lock.metrics() {
+                // Build context label prefixes for remote-write (job + query).
+                // These are prepended to user-defined labels so remote-write
+                // metrics are disambiguated across apps and queries.
+                // Built once here and reused across all records.
+                let mut context_label_names: Vec<String> = Vec::new();
+                let mut context_label_values: Vec<String> = Vec::new();
+                if let Some(app) = &self.app_name {
+                    context_label_names.push("job".to_string());
+                    context_label_values.push(app.clone());
+                }
+                if let Some(qn) = query_name {
+                    context_label_names.push("query".to_string());
+                    context_label_values.push(qn.to_string());
+                }
+                let has_context_labels = !context_label_names.is_empty();
+
+                // Pre-build effective label *names* per annotation (constant
+                // across all records).  Only the values change per record.
+                let effective_names_per_annotation: Vec<Vec<String>> = annotations
+                    .iter()
+                    .map(|ann| {
+                        if has_context_labels {
+                            let mut names = context_label_names.clone();
+                            names.extend(ann.labels.iter().cloned());
+                            names
+                        } else {
+                            ann.labels.clone()
+                        }
+                    })
+                    .collect();
+
                 // Pre-allocate batch with reasonable capacity
                 let batch_capacity = output_records.len() * annotations.len();
                 let mut batch = MetricBatch::with_capacity(batch_capacity);
+
+                // Gauge deduplication for remote-write: Prometheus rejects
+                // duplicate samples with different values for the same
+                // (metric_name, labels, timestamp).  Keep the LAST value per
+                // unique key so that only one sample is sent per timestamp.
+                let mut gauge_dedup: std::collections::HashMap<
+                    (String, Vec<String>, i64),
+                    (Vec<String>, f64),
+                > = std::collections::HashMap::new();
 
                 for record_arc in output_records {
                     // Dereference Arc for field access
                     let record = &**record_arc;
                     let record_start = Instant::now();
-                    for annotation in &annotations {
+                    for (ann_idx, annotation) in annotations.iter().enumerate() {
                         // Check if metric should be emitted based on condition
                         let cond_start = Instant::now();
                         if !self.should_emit_metric(annotation, record, job_name).await {
@@ -645,8 +701,8 @@ impl ProcessorMetricsHelper {
 
                         // Validate labels based on configuration
                         if !self.validate_labels(annotation, label_values.len()) {
-                            debug!(
-                                "Job '{}': Skipping metric '{}' - strict mode: missing label values (expected {}, got {})",
+                            warn!(
+                                "Job '{}': Skipping metric '{}' - strict mode: missing label values (expected {}, got {}) - check label extraction",
                                 job_name,
                                 annotation.name,
                                 annotation.labels.len(),
@@ -702,8 +758,8 @@ impl ProcessorMetricsHelper {
 
                         // Skip if labels are empty but expected
                         if label_values.is_empty() && !annotation.labels.is_empty() {
-                            debug!(
-                                "Job '{}': Skipping metric '{}' - missing label values (expected {}, got {})",
+                            warn!(
+                                "Job '{}': Skipping metric '{}' - missing label values (expected {}, got {}) - check record fields match label names",
                                 job_name,
                                 annotation.name,
                                 annotation.labels.len(),
@@ -712,66 +768,134 @@ impl ProcessorMetricsHelper {
                             continue;
                         }
 
-                        // Accumulate metric into batch (no lock acquired yet)
-                        batch_fn(&mut batch, annotation, &label_values, numeric_value);
+                        // Accumulate metric into batch for scrape-based emission
+                        // (skipped when remote-write is active since emit_batch is not called)
+                        if !metrics.has_remote_write() {
+                            batch_fn(&mut batch, annotation, &label_values, numeric_value);
+                        }
 
-                        // Push to remote-write with event timestamp if available
-                        // This enables proper time-series visualization in Grafana using
-                        // the actual event time rather than scrape time
+                        // Push to remote-write with event timestamp if available.
+                        // Fallback behavior controlled by VELOSTREAM_EVENT_TIME_FALLBACK:
+                        //   processing_time (default) / warn → use _TIMESTAMP
+                        //   null → skip remote-write (no timestamp available)
                         if metrics.has_remote_write() {
-                            if let Some(event_time) = record.event_time {
-                                let timestamp_ms = event_time.timestamp_millis();
-                                if let Some(value) = numeric_value {
-                                    // Determine metric type and push accordingly
-                                    match annotation.metric_type {
-                                        MetricType::Counter => {
-                                            // For counters, we push a value of 1 (the increment)
-                                            metrics.push_counter_with_timestamp(
-                                                &annotation.name,
-                                                &annotation.labels,
-                                                &label_values,
-                                                1.0,
-                                                timestamp_ms,
+                            let timestamp_ms = if let Some(event_time) = record.event_time {
+                                Some(event_time.timestamp_millis())
+                            } else {
+                                match system_columns::event_time_fallback() {
+                                    system_columns::EventTimeFallback::Null => None,
+                                    system_columns::EventTimeFallback::Warn => {
+                                        use std::sync::atomic::{AtomicBool, Ordering};
+                                        static WARNED: AtomicBool = AtomicBool::new(false);
+                                        if !WARNED.swap(true, Ordering::Relaxed) {
+                                            warn!(
+                                                "_EVENT_TIME not set for remote-write metric '{}'; \
+                                                 falling back to _TIMESTAMP. This warning is logged once.",
+                                                annotation.name
                                             );
                                         }
-                                        MetricType::Gauge => {
-                                            metrics.push_gauge_with_timestamp(
-                                                &annotation.name,
-                                                &annotation.labels,
-                                                &label_values,
-                                                value,
-                                                timestamp_ms,
-                                            );
-                                        }
-                                        MetricType::Histogram => {
-                                            metrics.push_histogram_with_timestamp(
-                                                &annotation.name,
-                                                &annotation.labels,
-                                                &label_values,
-                                                value,
-                                                timestamp_ms,
-                                            );
-                                        }
+                                        Some(record.timestamp)
                                     }
-                                } else if annotation.metric_type == MetricType::Counter {
-                                    // Counters without a field just increment by 1
-                                    metrics.push_counter_with_timestamp(
-                                        &annotation.name,
-                                        &annotation.labels,
-                                        &label_values,
-                                        1.0,
-                                        timestamp_ms,
-                                    );
+                                    system_columns::EventTimeFallback::ProcessingTime => {
+                                        Some(record.timestamp)
+                                    }
                                 }
+                            };
+
+                            // In Null mode with no event_time, skip remote-write emission
+                            let Some(timestamp_ms) = timestamp_ms else {
+                                continue;
+                            };
+
+                            // Use precomputed label names; only build values per record
+                            let effective_label_names = &effective_names_per_annotation[ann_idx];
+                            let effective_label_values = if has_context_labels {
+                                let mut values = context_label_values.clone();
+                                values.extend(label_values.iter().cloned());
+                                values
+                            } else {
+                                label_values.clone()
+                            };
+
+                            if let Some(value) = numeric_value {
+                                match annotation.metric_type {
+                                    MetricType::Counter => {
+                                        metrics.push_counter_with_timestamp(
+                                            &annotation.name,
+                                            &effective_label_names,
+                                            &effective_label_values,
+                                            1.0,
+                                            timestamp_ms,
+                                        );
+                                    }
+                                    MetricType::Gauge => {
+                                        // Defer gauge emission for deduplication.
+                                        // Multiple records with same labels+timestamp
+                                        // would produce duplicate samples that
+                                        // Prometheus rejects.  Last value wins.
+                                        let key = (
+                                            annotation.name.clone(),
+                                            effective_label_values.clone(),
+                                            timestamp_ms,
+                                        );
+                                        gauge_dedup
+                                            .insert(key, (effective_label_names.clone(), value));
+                                    }
+                                    MetricType::Histogram => {
+                                        metrics.push_histogram_with_timestamp(
+                                            &annotation.name,
+                                            &effective_label_names,
+                                            &effective_label_values,
+                                            value,
+                                            timestamp_ms,
+                                        );
+                                    }
+                                }
+                            } else if annotation.metric_type == MetricType::Counter {
+                                metrics.push_counter_with_timestamp(
+                                    &annotation.name,
+                                    &effective_label_names,
+                                    &effective_label_values,
+                                    1.0,
+                                    timestamp_ms,
+                                );
                             }
                         }
                     }
                     self.record_emission_overhead(record_start.elapsed().as_micros() as u64);
                 }
 
-                // Phase 4: SINGLE LOCK ACQUISITION for all accumulated metrics
-                if let Err(e) = metrics.emit_batch(batch) {
-                    debug!("Job '{}': Failed to emit metric batch: {:?}", job_name, e);
+                // Flush deduplicated gauge samples to remote-write.
+                // Each unique (name, labels, timestamp) gets exactly one sample.
+                for ((name, label_values, ts), (label_names, value)) in gauge_dedup {
+                    metrics.push_gauge_with_timestamp(
+                        &name,
+                        &label_names,
+                        &label_values,
+                        value,
+                        ts,
+                    );
+                }
+
+                // Phase 4: Emit metrics via the appropriate path
+                //
+                // When remote-write is enabled, ONLY push via remote-write with event
+                // timestamps.  Updating the scrape registry would cause Prometheus to
+                // record the same metric at scrape-time ("now"), which poisons the
+                // time series and causes remote-write samples with historical event
+                // timestamps to be rejected as out-of-order.
+                if metrics.has_remote_write() {
+                    if let Err(e) = metrics.flush_remote_write().await {
+                        debug!(
+                            "Job '{}': Failed to flush remote-write metrics: {:?}",
+                            job_name, e
+                        );
+                    }
+                } else {
+                    // No remote-write: fall back to scrape-based emission
+                    if let Err(e) = metrics.emit_batch(batch) {
+                        debug!("Job '{}': Failed to emit metric batch: {:?}", job_name, e);
+                    }
                 }
             }
         }
@@ -805,12 +929,16 @@ impl ProcessorMetricsHelper {
             }
         };
 
+        // Extract query name for remote-write context labels
+        let query_name = extract_query_name(query);
+
         // Use generic emission logic with counter-specific batch accumulator
         self.emit_metrics_generic(
             counter_annotations,
             output_records,
             observability,
             job_name,
+            query_name.as_deref(),
             |batch, annotation, labels, _value| {
                 debug!(
                     "Job '{}': Accumulated counter '{}' with labels {:?}",
@@ -891,12 +1019,16 @@ impl ProcessorMetricsHelper {
             }
         };
 
+        // Extract query name for remote-write context labels
+        let query_name = extract_query_name(query);
+
         // Use generic emission logic with gauge-specific batch accumulator
         self.emit_metrics_generic(
             gauge_annotations,
             output_records,
             observability,
             job_name,
+            query_name.as_deref(),
             |batch, annotation, labels, value| {
                 if let Some(v) = value {
                     debug!(
@@ -989,12 +1121,16 @@ impl ProcessorMetricsHelper {
             }
         };
 
+        // Extract query name for remote-write context labels
+        let query_name = extract_query_name(query);
+
         // Use generic emission logic with histogram-specific batch accumulator
         self.emit_metrics_generic(
             histogram_annotations,
             output_records,
             observability,
             job_name,
+            query_name.as_deref(),
             |batch, annotation, labels, value| {
                 if let Some(v) = value {
                     debug!(
@@ -1012,10 +1148,89 @@ impl ProcessorMetricsHelper {
         )
         .await
     }
+
+    /// Register all SQL-annotated metrics (@metric annotations) with Prometheus.
+    ///
+    /// Convenience method that calls register_counter_metrics, register_gauge_metrics,
+    /// and register_histogram_metrics. Errors are logged as warnings but do not fail.
+    pub async fn register_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+    ) {
+        if let Err(e) = self
+            .register_counter_metrics(query, observability, job_name)
+            .await
+        {
+            warn!(
+                "Failed to register counter metrics for '{}': {}",
+                job_name, e
+            );
+        }
+        if let Err(e) = self
+            .register_gauge_metrics(query, observability, job_name)
+            .await
+        {
+            warn!("Failed to register gauge metrics for '{}': {}", job_name, e);
+        }
+        if let Err(e) = self
+            .register_histogram_metrics(query, observability, job_name)
+            .await
+        {
+            warn!(
+                "Failed to register histogram metrics for '{}': {}",
+                job_name, e
+            );
+        }
+    }
+
+    /// Emit all SQL-annotated metrics for a batch of output records.
+    ///
+    /// Convenience method that calls emit_counter_metrics, emit_gauge_metrics,
+    /// and emit_histogram_metrics.
+    pub async fn emit_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        records: &[std::sync::Arc<StreamRecord>],
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+    ) {
+        self.emit_counter_metrics(query, records, observability, job_name)
+            .await;
+        self.emit_gauge_metrics(query, records, observability, job_name)
+            .await;
+        self.emit_histogram_metrics(query, records, observability, job_name)
+            .await;
+    }
 }
 
 impl Default for ProcessorMetricsHelper {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Extract job name from a parsed query for metric emission.
+///
+/// Shared utility used by JoinJobProcessor and PartitionReceiver to avoid duplication.
+pub fn extract_job_name(query: &StreamingQuery) -> String {
+    match query {
+        StreamingQuery::CreateStream { name, .. } => name.clone(),
+        StreamingQuery::CreateTable { name, .. } => name.clone(),
+        StreamingQuery::Select { .. } => "select_query".to_string(),
+        _ => "unknown_query".to_string(),
+    }
+}
+
+/// Extract query/stream name from a parsed query for the `query` label in remote-write metrics.
+///
+/// Returns the stream or table name from `CREATE STREAM`/`CREATE TABLE` queries,
+/// or `None` for other query types.
+pub fn extract_query_name(query: &StreamingQuery) -> Option<String> {
+    match query {
+        StreamingQuery::CreateStream { name, .. } => Some(name.clone()),
+        StreamingQuery::CreateTable { name, .. } => Some(name.clone()),
+        _ => None,
     }
 }

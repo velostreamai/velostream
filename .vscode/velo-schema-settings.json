@@ -1,0 +1,13 @@
+{
+  "yaml.completion": true,
+  "yaml.hover": true,
+  "yaml.schemas": {
+    "./velostream-config.schema.json": [
+      "velo-config.yaml",
+      "velo-config.yml",
+      "**/config/velo*.yaml",
+      "**/config/velo*.yml"
+    ]
+  },
+  "yaml.validate": true
+}

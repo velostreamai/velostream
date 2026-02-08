@@ -25,3 +25,6 @@ pub use uuid::Uuid;
 // Re-export test utilities and messages
 pub use crate::unit::test_messages::*;
 pub use crate::unit::test_utils::*;
+
+// Re-export observability test helpers
+pub use crate::unit::observability_test_helpers::*;

@@ -713,7 +713,14 @@ impl SelectProcessor {
 
             // FR-081: Detect if any field was aliased as _EVENT_TIME for SQL-based event-time assignment
             // This allows queries like: SELECT timestamp as _event_time FROM stream
+            // Also detects direct _event_time column selection like: SELECT m._event_time FROM stream
+            //
+            // _EVENT_TIME is a system column — it sets record.event_time metadata and is
+            // stripped from output fields so it doesn't leak into serialized payloads.
+            // This ensures the event time survives Kafka round-trips via the message timestamp
+            // rather than as a stale field in the JSON payload.
             let mut event_time_value: Option<FieldValue> = None;
+            let mut event_time_field_key: Option<String> = None;
             for field in fields {
                 match field {
                     SelectField::AliasedColumn { alias, .. }
@@ -726,12 +733,59 @@ impl SelectProcessor {
                             // Found _event_time assignment, get the corresponding value
                             if let Some(value) = result_fields.get(alias) {
                                 event_time_value = Some(value.clone());
+                                event_time_field_key = Some(alias.clone());
+                            }
+                            break;
+                        }
+                    }
+                    // Check for direct _event_time column selection without alias
+                    // (e.g., SELECT _event_time FROM stream or SELECT m._event_time FROM stream m)
+                    SelectField::Expression {
+                        expr: Expr::Column(column_name),
+                        alias: None,
+                    } => {
+                        // Extract the column name without table prefix (e.g., "m._event_time" -> "_event_time")
+                        let base_name = column_name.rsplit('.').next().unwrap_or(column_name);
+                        if system_columns::normalize_if_system_column(base_name)
+                            == Some(system_columns::EVENT_TIME)
+                        {
+                            // Found direct _event_time selection, get the value
+                            // Try both qualified name and base name since output field naming may vary
+                            if let Some(value) = result_fields.get(column_name) {
+                                event_time_value = Some(value.clone());
+                                event_time_field_key = Some(column_name.clone());
+                            } else if let Some(value) = result_fields.get(base_name) {
+                                event_time_value = Some(value.clone());
+                                event_time_field_key = Some(base_name.to_string());
+                            }
+                            break;
+                        }
+                    }
+                    // Also check for SelectField::Column (though parser may not produce this)
+                    SelectField::Column(column_name) => {
+                        let base_name = column_name.rsplit('.').next().unwrap_or(column_name);
+                        if system_columns::normalize_if_system_column(base_name)
+                            == Some(system_columns::EVENT_TIME)
+                        {
+                            if let Some(value) = result_fields.get(column_name) {
+                                event_time_value = Some(value.clone());
+                                event_time_field_key = Some(column_name.clone());
+                            } else if let Some(value) = result_fields.get(base_name) {
+                                event_time_value = Some(value.clone());
+                                event_time_field_key = Some(base_name.to_string());
                             }
                             break;
                         }
                     }
                     _ => {}
                 }
+            }
+
+            // Strip _event_time from output fields — it's a system column, not a data field.
+            // The value is preserved in record.event_time metadata and propagated via
+            // Kafka message timestamps, not as a JSON field.
+            if let Some(key) = &event_time_field_key {
+                result_fields.remove(key);
             }
 
             // Validate SELECT expressions with alias_context only once per query for performance
@@ -2248,7 +2302,15 @@ impl SelectProcessor {
     /// Get expression name for result field
     pub fn get_expression_name(expr: &Expr) -> String {
         match expr {
-            Expr::Column(name) => name.clone(),
+            Expr::Column(name) => {
+                // Strip table alias prefix (e.g., "a.symbol" → "symbol")
+                // to match SQL semantics where SELECT a.id outputs field named "id"
+                if let Some(pos) = name.rfind('.') {
+                    name[pos + 1..].to_string()
+                } else {
+                    name.clone()
+                }
+            }
             Expr::Function { name, .. } => name.clone(),
             Expr::Literal(lit) => format!("{:?}", lit),
             Expr::BinaryOp { left, op, right } => {

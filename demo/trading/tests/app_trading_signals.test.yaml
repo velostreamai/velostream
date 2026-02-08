@@ -8,7 +8,7 @@ description: |
   Tests trading signal generation including volume spike detection.
 
 default_timeout_ms: 60000
-default_records: 100
+default_records: 1000
 
 queries:
   # Test volume spike analysis
@@ -16,12 +16,12 @@ queries:
     description: Test volume spike detection with sliding window
     inputs:
       - source: market_data_ts
-        records: 100
+        records: 1000
         time_simulation:
           start_time: "-1h"
           end_time: "now"
           sequential: true
-          events_per_second: 50
+          events_per_second: 500
     outputs:
       - sink: volume_spikes
         assertions:
@@ -86,3 +86,50 @@ queries:
         name: velo_avg_volume
         operator: greater_than
         value: 0
+
+  # Test order flow imbalance detection
+  - name: order_flow_imbalance
+    description: Test institutional trading pattern detection from order book data
+    inputs:
+      - source: in_order_book_stream
+        records: 1000
+        time_simulation:
+          start_time: "-5m"
+          end_time: "now"
+          sequential: true
+          events_per_second: 500
+    outputs:
+      - sink: order_imbalance
+        assertions:
+          - type: record_count
+            greater_than: 0
+          - type: schema_contains
+            key_field: symbol
+            fields:
+              - buy_volume
+              - sell_volume
+              - buy_ratio
+
+  # Test cross-exchange arbitrage detection
+  - name: arbitrage_detection
+    description: Test cross-exchange price discrepancy detection
+    inputs:
+      - source: in_market_data_stream_a
+        records: 1000
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 500
+      - source: in_market_data_stream_b
+        records: 1000
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 500
+    outputs:
+      - sink: arbitrage_opportunities
+        assertions:
+          - type: record_count
+            greater_than: 0

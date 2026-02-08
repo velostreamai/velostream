@@ -1,10 +1,10 @@
-# Market Data Stream Schema for Trading Demo
+# Market Data Stream Schema for Trading Demo - Exchange A
 #
 # Uses Geometric Brownian Motion (GBM) for realistic price paths.
 # Each symbol has its own independent price trajectory.
 
-name: in_market_data_stream
-description: Raw market data feed with GBM-based realistic price simulation
+name: in_market_data_stream_a
+description: Exchange A market data feed with GBM-based realistic price simulation
 record_count: 100
 
 fields:
@@ -27,10 +27,7 @@ fields:
   - name: timestamp
     type: integer
     nullable: false
-    constraints:
-      timestamp_epoch_ms:
-        start: "-1h"
-        end: "now"
+    description: Wall-clock production time (epoch ms). Event time is in the Kafka header (_event_time).
 
   - name: price
     type: float

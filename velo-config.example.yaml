@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=./velostream-config.schema.json
+
+# Velostream Configuration Example
+# This file demonstrates the configuration schema with IDE support
+
+global:
+  environment: development
+  log_level: debug
+  compression:
+    type: lz4
+
+sources:
+  kafka_source:
+    brokers: "localhost:9092"
+    topic: "input-events"
+    group.id: "velo-processor"
+    auto.offset.reset: "earliest"
+  
+  file_source:
+    path: "./data/input.jsonl"
+    format: "jsonlines"
+    watch: true
+
+sinks:
+  kafka_sink:
+    brokers: "localhost:9092" 
+    topic: "output-events"
+    acks: "all"
+    
+  file_sink:
+    path: "./output/processed.jsonl"
+    format: "jsonlines"
+
+batch:
+  batch_config:
+    strategy: "time_based"
+    max_size: 1000
+    timeout_ms: 5000

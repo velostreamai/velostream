@@ -12,15 +12,21 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use tokio::sync::Mutex;
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::SharedJobStats;
 use crate::velostream::server::processors::common::JobExecutionStats;
+use crate::velostream::server::processors::metrics_helper::{
+    ProcessorMetricsHelper, extract_job_name,
+};
+use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::server::v2::source_coordinator::{
     SourceCoordinator, SourceCoordinatorConfig,
 };
+use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::SelectField;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::StreamRecord;
@@ -159,6 +165,76 @@ impl JoinJobProcessor {
         })
     }
 
+    /// Flush the output buffer: emit metrics, inject traces, write records, optionally flush the writer.
+    async fn flush_output_buffer(
+        output_buffer: &mut Vec<Arc<StreamRecord>>,
+        writer: &Option<Arc<Mutex<Box<dyn DataWriter>>>>,
+        metrics_helper: &ProcessorMetricsHelper,
+        query: &Option<Arc<StreamingQuery>>,
+        observability: &Option<SharedObservabilityManager>,
+        job_name_for_metrics: &Option<String>,
+        stats: &mut JoinJobStats,
+        flush_writer: bool,
+        flush_count: u64,
+    ) -> Result<(), SqlError> {
+        // Emit metrics for the batch
+        if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
+            metrics_helper
+                .emit_all_metrics(q, output_buffer, observability, jn)
+                .await;
+        }
+
+        // Inject distributed trace context into output records.
+        // Creates a batch span that downstream consumers can link to.
+        if !output_buffer.is_empty() {
+            let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
+            // Use first output record to extract any upstream trace context
+            let first_records: Vec<StreamRecord> = output_buffer
+                .first()
+                .map(|r| vec![(**r).clone()])
+                .unwrap_or_default();
+            let mut batch_span = ObservabilityHelper::start_batch_span(
+                observability,
+                job_name,
+                flush_count,
+                &first_records,
+            );
+            ObservabilityHelper::inject_trace_context_into_records(
+                &batch_span,
+                output_buffer,
+                job_name,
+            );
+            // Complete batch span with record count and success
+            if let Some(ref mut span) = batch_span {
+                span.set_total_records(output_buffer.len() as u64);
+                span.set_success();
+            }
+        }
+
+        if let Some(writer) = writer {
+            let mut w = writer.lock().await;
+            for rec in output_buffer.drain(..) {
+                let owned = Arc::try_unwrap(rec).unwrap_or_else(|arc| (*arc).clone());
+                w.write(owned).await.map_err(|e| SqlError::ExecutionError {
+                    message: format!("Write error: {}", e),
+                    query: None,
+                })?;
+                stats.records_written += 1;
+            }
+            if flush_writer {
+                w.flush().await.map_err(|e| SqlError::ExecutionError {
+                    message: format!("Flush error: {}", e),
+                    query: None,
+                })?;
+            }
+        } else {
+            stats.records_written += output_buffer.len() as u64;
+            output_buffer.clear();
+        }
+
+        Ok(())
+    }
+
     /// Process a stream-stream join job
     ///
     /// # Arguments
@@ -166,6 +242,8 @@ impl JoinJobProcessor {
     /// * `right_reader` - Reader for the right source
     /// * `writer` - Writer for join output (optional)
     /// * `shared_stats` - Shared stats for real-time monitoring (optional)
+    /// * `observability` - Optional observability manager for Prometheus metrics
+    /// * `query` - Optional parsed query with @metric annotations
     ///
     /// # Returns
     /// Statistics about the join execution
@@ -177,6 +255,9 @@ impl JoinJobProcessor {
         right_reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
         shared_stats: Option<SharedJobStats>,
+        observability: Option<SharedObservabilityManager>,
+        query: Option<Arc<StreamingQuery>>,
+        app_name: Option<String>,
     ) -> Result<JoinJobStats, SqlError> {
         let start_time = Instant::now();
         let mut stats = JoinJobStats::default();
@@ -186,6 +267,19 @@ impl JoinJobProcessor {
             "JoinJobProcessor: Starting join between '{}' and '{}'",
             left_name, right_name
         );
+
+        // Set up metrics helper and register SQL-annotated metrics if query is provided
+        let mut metrics_helper = ProcessorMetricsHelper::new();
+        if let Some(name) = app_name {
+            metrics_helper.set_app_name(name);
+        }
+        let job_name_for_metrics = query.as_ref().map(|q| extract_job_name(q));
+
+        if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
+            metrics_helper
+                .register_all_metrics(q, &observability, jn)
+                .await;
+        }
 
         // Create the interval join processor
         let mut join_processor = IntervalJoinProcessor::new(self.config.join_config.clone());
@@ -218,9 +312,10 @@ impl JoinJobProcessor {
         // Wrap writer for async access
         let writer = writer.map(|w| Arc::new(Mutex::new(w)));
 
-        // Output buffer for batching writes
-        let mut output_buffer: Vec<StreamRecord> =
+        // Output buffer for batching writes — stored as Arc to avoid cloning for metrics emission
+        let mut output_buffer: Vec<Arc<StreamRecord>> =
             Vec::with_capacity(self.config.output_batch_size);
+        let mut flush_count: u64 = 0;
 
         // Process records as they arrive
         loop {
@@ -269,25 +364,25 @@ impl JoinJobProcessor {
 
                     stats.join_matches += joined.len() as u64;
 
-                    // Buffer output
+                    // Buffer output (wrap in Arc once — avoids clone for metrics emission)
                     for record in joined {
-                        output_buffer.push(record);
+                        output_buffer.push(Arc::new(record));
 
                         // Flush when buffer is full
                         if output_buffer.len() >= self.config.output_batch_size {
-                            if let Some(ref writer) = writer {
-                                let mut w = writer.lock().await;
-                                for rec in output_buffer.drain(..) {
-                                    w.write(rec).await.map_err(|e| SqlError::ExecutionError {
-                                        message: format!("Write error: {}", e),
-                                        query: None,
-                                    })?;
-                                    stats.records_written += 1;
-                                }
-                            } else {
-                                stats.records_written += output_buffer.len() as u64;
-                                output_buffer.clear();
-                            }
+                            flush_count += 1;
+                            Self::flush_output_buffer(
+                                &mut output_buffer,
+                                &writer,
+                                &metrics_helper,
+                                &query,
+                                &observability,
+                                &job_name_for_metrics,
+                                &mut stats,
+                                false,
+                                flush_count,
+                            )
+                            .await?;
                         }
                     }
                 }
@@ -300,27 +395,23 @@ impl JoinJobProcessor {
                     // Timeout - flush any pending output then continue polling
                     // This ensures data is written even when batch size isn't reached
                     if !output_buffer.is_empty() {
-                        if let Some(ref writer) = writer {
-                            let mut w = writer.lock().await;
-                            debug!(
-                                "JoinJobProcessor: Flushing {} buffered records on idle",
-                                output_buffer.len()
-                            );
-                            for rec in output_buffer.drain(..) {
-                                w.write(rec).await.map_err(|e| SqlError::ExecutionError {
-                                    message: format!("Write error: {}", e),
-                                    query: None,
-                                })?;
-                                stats.records_written += 1;
-                            }
-                            w.flush().await.map_err(|e| SqlError::ExecutionError {
-                                message: format!("Flush error: {}", e),
-                                query: None,
-                            })?;
-                        } else {
-                            stats.records_written += output_buffer.len() as u64;
-                            output_buffer.clear();
-                        }
+                        debug!(
+                            "JoinJobProcessor: Flushing {} buffered records on idle",
+                            output_buffer.len()
+                        );
+                        flush_count += 1;
+                        Self::flush_output_buffer(
+                            &mut output_buffer,
+                            &writer,
+                            &metrics_helper,
+                            &query,
+                            &observability,
+                            &job_name_for_metrics,
+                            &mut stats,
+                            true,
+                            flush_count,
+                        )
+                        .await?;
                     }
 
                     // Update shared_stats on idle too, so the test harness can detect
@@ -343,22 +434,19 @@ impl JoinJobProcessor {
 
         // Flush remaining output
         if !output_buffer.is_empty() {
-            if let Some(ref writer) = writer {
-                let mut w = writer.lock().await;
-                for rec in output_buffer.drain(..) {
-                    w.write(rec).await.map_err(|e| SqlError::ExecutionError {
-                        message: format!("Write error: {}", e),
-                        query: None,
-                    })?;
-                    stats.records_written += 1;
-                }
-                w.flush().await.map_err(|e| SqlError::ExecutionError {
-                    message: format!("Flush error: {}", e),
-                    query: None,
-                })?;
-            } else {
-                stats.records_written += output_buffer.len() as u64;
-            }
+            flush_count += 1;
+            Self::flush_output_buffer(
+                &mut output_buffer,
+                &writer,
+                &metrics_helper,
+                &query,
+                &observability,
+                &job_name_for_metrics,
+                &mut stats,
+                true,
+                flush_count,
+            )
+            .await?;
         }
 
         // Wait for coordinator to finish
@@ -567,6 +655,9 @@ mod tests {
                 right_reader,
                 None,
                 Some(shared_stats.clone()),
+                None,
+                None,
+                None, // no app name
             )
             .await
             .unwrap();
@@ -605,6 +696,9 @@ mod tests {
                 right_reader,
                 Some(Box::new(writer)),
                 Some(shared_stats.clone()),
+                None,
+                None,
+                None, // no app name
             )
             .await
             .unwrap();
@@ -642,6 +736,9 @@ mod tests {
                 right_reader,
                 None,
                 Some(shared_stats.clone()),
+                None,
+                None,
+                None, // no app name
             )
             .await
             .unwrap();
@@ -732,6 +829,9 @@ mod tests {
                 right_reader,
                 Some(Box::new(writer)),
                 Some(shared_stats.clone()),
+                None,
+                None,
+                None, // no app name
             )
             .await
             .unwrap();
@@ -777,5 +877,148 @@ mod tests {
                 record.fields.keys().collect::<Vec<_>>()
             );
         }
+    }
+
+    /// Helper to create a test observability manager with in-memory span collection
+    async fn create_test_observability_manager() -> SharedObservabilityManager {
+        use crate::velostream::observability::ObservabilityManager;
+        use crate::velostream::sql::execution::config::{StreamingConfig, TracingConfig};
+
+        let tracing_config = TracingConfig {
+            service_name: "join-flush-test".to_string(),
+            otlp_endpoint: None,
+            ..Default::default()
+        };
+
+        let streaming_config = StreamingConfig::default().with_tracing_config(tracing_config);
+
+        let mut manager = ObservabilityManager::from_streaming_config(streaming_config);
+        manager
+            .initialize()
+            .await
+            .expect("Failed to initialize observability manager");
+
+        Arc::new(tokio::sync::RwLock::new(manager))
+    }
+
+    /// Helper to create a StreamRecord with an upstream traceparent
+    fn create_record_with_traceparent(traceparent: &str) -> StreamRecord {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(1));
+        let mut headers = HashMap::new();
+        headers.insert("traceparent".to_string(), traceparent.to_string());
+        StreamRecord {
+            fields,
+            timestamp: 1700000000000,
+            offset: 0,
+            partition: 0,
+            event_time: None,
+            headers,
+            topic: None,
+            key: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_flush_output_buffer_injects_trace_context() {
+        let obs_manager = create_test_observability_manager().await;
+        let observability: Option<SharedObservabilityManager> = Some(obs_manager.clone());
+        let metrics_helper = ProcessorMetricsHelper::new();
+        let mut stats = JoinJobStats::default();
+
+        let upstream_traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+        // Create output buffer with first record carrying upstream traceparent
+        let mut output_buffer: Vec<Arc<StreamRecord>> = vec![
+            Arc::new(create_record_with_traceparent(upstream_traceparent)),
+            Arc::new(StreamRecord::new(HashMap::from([(
+                "id".to_string(),
+                FieldValue::Integer(2),
+            )]))),
+        ];
+
+        // Call flush_output_buffer with writer=None, observability=Some
+        JoinJobProcessor::flush_output_buffer(
+            &mut output_buffer,
+            &None, // no writer
+            &metrics_helper,
+            &None, // no query
+            &observability,
+            &Some("test-flush-job".to_string()),
+            &mut stats,
+            false,
+            1,
+        )
+        .await
+        .expect("flush_output_buffer should succeed");
+
+        // Since writer=None, records_written should be updated and buffer cleared
+        assert_eq!(stats.records_written, 2, "Should count 2 written records");
+        assert!(output_buffer.is_empty(), "Buffer should be cleared");
+    }
+
+    #[tokio::test]
+    async fn test_flush_output_buffer_no_observability_skips_trace() {
+        let metrics_helper = ProcessorMetricsHelper::new();
+        let mut stats = JoinJobStats::default();
+
+        // Create output buffer without any trace context
+        let mut output_buffer: Vec<Arc<StreamRecord>> = vec![Arc::new(StreamRecord::new(
+            HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+        ))];
+
+        // Call flush_output_buffer with observability=None
+        JoinJobProcessor::flush_output_buffer(
+            &mut output_buffer,
+            &None, // no writer
+            &metrics_helper,
+            &None, // no query
+            &None, // no observability
+            &Some("test-no-obs-job".to_string()),
+            &mut stats,
+            false,
+            1,
+        )
+        .await
+        .expect("flush_output_buffer should succeed without observability");
+
+        // Should process records without panic
+        assert_eq!(stats.records_written, 1, "Should count 1 written record");
+    }
+
+    #[tokio::test]
+    async fn test_flush_output_buffer_job_name_fallback() {
+        let obs_manager = create_test_observability_manager().await;
+        let observability: Option<SharedObservabilityManager> = Some(obs_manager.clone());
+        let metrics_helper = ProcessorMetricsHelper::new();
+        let mut stats = JoinJobStats::default();
+
+        let upstream_traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+        // Create output buffer with a record carrying upstream traceparent
+        let mut output_buffer: Vec<Arc<StreamRecord>> = vec![Arc::new(
+            create_record_with_traceparent(upstream_traceparent),
+        )];
+
+        // Call flush_output_buffer with job_name_for_metrics=None
+        // This should use "join" as the default job name
+        JoinJobProcessor::flush_output_buffer(
+            &mut output_buffer,
+            &None, // no writer
+            &metrics_helper,
+            &None, // no query
+            &observability,
+            &None, // no job name — should fall back to "join"
+            &mut stats,
+            false,
+            1,
+        )
+        .await
+        .expect("flush_output_buffer should succeed with None job_name");
+
+        assert_eq!(
+            stats.records_written, 1,
+            "Should count 1 written record with fallback job name"
+        );
     }
 }

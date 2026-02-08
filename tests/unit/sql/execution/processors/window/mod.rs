@@ -27,5 +27,6 @@ pub mod window_boundaries_group_by_sql_test;
 pub mod window_edge_cases_sql_test;
 pub mod window_gaps_sql_test;
 pub mod window_processing_sql_test;
+pub mod window_timestamp_bounds_test;
 pub mod window_v2_validation_test;
 pub mod windowing_test;

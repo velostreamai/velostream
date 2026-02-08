@@ -526,3 +526,164 @@ fn test_event_time_config_is_none_when_not_specified() {
         "event_time_config should be None when event.time.field is not specified"
     );
 }
+
+/// Test that event_time is correctly extracted from _event_time field.
+/// This simulates the scenario in the trading demo where:
+/// - tick_buckets and enriched_market_data queries read from market_data_ts topic
+/// - The market_data_ts topic has _event_time as a field containing epoch_millis
+/// - The Kafka reader should extract event_time from this field
+#[test]
+fn test_event_time_extraction_from_event_time_field() {
+    use chrono::{DateTime, Utc};
+    use velostream::velostream::datasource::event_time::{
+        EventTimeConfig, TimestampFormat, extract_event_time,
+    };
+    use velostream::velostream::sql::execution::types::FieldValue;
+
+    // Given: A historical timestamp (1 hour in the past)
+    let one_hour_ago_ms = Utc::now().timestamp_millis() - 3600_000;
+
+    // Given: Fields from a deserialized Kafka message containing _event_time
+    let mut fields = HashMap::new();
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("price".to_string(), FieldValue::Float(150.50));
+    fields.insert(
+        "_event_time".to_string(),
+        FieldValue::Integer(one_hour_ago_ms),
+    );
+
+    // Given: EventTimeConfig configured to read from _event_time field
+    let config = EventTimeConfig::new(
+        "_event_time".to_string(),
+        Some(TimestampFormat::EpochMillis),
+    );
+
+    // When: Extracting event_time
+    let result = extract_event_time(&fields, &config);
+
+    // Then: Should successfully extract event_time
+    assert!(
+        result.is_ok(),
+        "extract_event_time should succeed. Error: {:?}",
+        result.err()
+    );
+
+    let event_time: DateTime<Utc> = result.unwrap();
+
+    // Then: Extracted event_time should match the input timestamp
+    assert_eq!(
+        event_time.timestamp_millis(),
+        one_hour_ago_ms,
+        "Extracted event_time should match the input _event_time field value"
+    );
+
+    // Then: Event time should be in the past (not in the future!)
+    let now_ms = Utc::now().timestamp_millis();
+    assert!(
+        event_time.timestamp_millis() <= now_ms,
+        "BUG DETECTED: Event time is in the FUTURE! This would cause Prometheus to reject metrics.\n\
+         event_time_ms={}, now_ms={}, diff_ms={}",
+        event_time.timestamp_millis(),
+        now_ms,
+        event_time.timestamp_millis() - now_ms
+    );
+}
+
+/// Test that event_time extraction fails gracefully when field is missing.
+/// This verifies the error path that can cause issues if silently ignored.
+#[test]
+fn test_event_time_extraction_missing_field_error() {
+    use velostream::velostream::datasource::event_time::{
+        EventTimeConfig, EventTimeError, TimestampFormat, extract_event_time,
+    };
+    use velostream::velostream::sql::execution::types::FieldValue;
+
+    // Given: Fields WITHOUT _event_time (simulates a record missing the expected field)
+    let mut fields = HashMap::new();
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("price".to_string(), FieldValue::Float(150.50));
+    // _event_time is intentionally MISSING
+
+    // Given: EventTimeConfig expecting _event_time field
+    let config = EventTimeConfig::new(
+        "_event_time".to_string(),
+        Some(TimestampFormat::EpochMillis),
+    );
+
+    // When: Extracting event_time
+    let result = extract_event_time(&fields, &config);
+
+    // Then: Should fail with MissingField error
+    assert!(
+        result.is_err(),
+        "extract_event_time should fail when _event_time field is missing"
+    );
+
+    match result.unwrap_err() {
+        EventTimeError::MissingField {
+            field,
+            available_fields,
+        } => {
+            assert_eq!(field, "_event_time");
+            assert!(
+                available_fields.contains(&"symbol".to_string()),
+                "Error should list available fields for debugging"
+            );
+        }
+        other => panic!("Expected MissingField error, got: {:?}", other),
+    }
+}
+
+/// Test event_time extraction with type mismatch (String instead of Integer).
+/// This can happen if the upstream query writes a formatted timestamp string
+/// instead of epoch_millis integer.
+#[test]
+fn test_event_time_extraction_type_mismatch_error() {
+    use velostream::velostream::datasource::event_time::{
+        EventTimeConfig, EventTimeError, TimestampFormat, extract_event_time,
+    };
+    use velostream::velostream::sql::execution::types::FieldValue;
+
+    // Given: Fields with _event_time as String (wrong type for epoch_millis format)
+    let mut fields = HashMap::new();
+    fields.insert(
+        "_event_time".to_string(),
+        FieldValue::String("2024-01-01T00:00:00Z".to_string()),
+    );
+
+    // Given: EventTimeConfig expecting epoch_millis (Integer)
+    let config = EventTimeConfig::new(
+        "_event_time".to_string(),
+        Some(TimestampFormat::EpochMillis),
+    );
+
+    // When: Extracting event_time
+    let result = extract_event_time(&fields, &config);
+
+    // Then: Should fail with TypeMismatch error
+    assert!(
+        result.is_err(),
+        "extract_event_time should fail when _event_time is String but format is epoch_millis"
+    );
+
+    match result.unwrap_err() {
+        EventTimeError::TypeMismatch {
+            field,
+            expected,
+            actual,
+        } => {
+            assert_eq!(field, "_event_time");
+            assert!(
+                expected.contains("epoch"),
+                "Expected type should mention epoch millis"
+            );
+            // Type name is returned in uppercase by FieldValue::type_name()
+            assert!(
+                actual.to_uppercase() == "STRING",
+                "actual type should be String, got: {}",
+                actual
+            );
+        }
+        other => panic!("Expected TypeMismatch error, got: {:?}", other),
+    }
+}

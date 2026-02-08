@@ -27,10 +27,7 @@ fields:
   - name: timestamp
     type: integer
     nullable: false
-    constraints:
-      timestamp_epoch_ms:
-        start: "-1h"
-        end: "now"
+    description: Wall-clock production time (epoch ms). Event time is in the Kafka header (_event_time).
 
   - name: price
     type: float

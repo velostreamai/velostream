@@ -25,7 +25,7 @@ This enables powerful analytics that combine business data with metadata context
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `_event_time` | `TIMESTAMP` | Event-time watermark (requires watermarking configuration) |
+| `_event_time` | `INT64` | Event time in milliseconds since Unix epoch. Propagated via Kafka message timestamp (header), not as a JSON payload field. See [Event Time Guide](../user-guides/event-time-guide.md). |
 
 ### Window Metadata
 

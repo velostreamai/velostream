@@ -52,8 +52,10 @@ services:
       KAFKA_CLUSTERS_0_READONLY: "false"
 
   prometheus:
-    image: prom/prometheus:v2.51.2
+    image: prom/prometheus:v3.1.0
     container_name: velo-prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "9090:9090"
     volumes:
@@ -66,7 +68,7 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
-      - '--web.enable-remote-write-receiver'  # Enable Tempo metrics ingestion
+      - '--web.enable-remote-write-receiver'  # Enable remote-write for event-time metrics
 
   grafana:
     image: grafana/grafana:10.4.2
