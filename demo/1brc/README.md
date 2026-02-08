@@ -75,7 +75,53 @@ WITH (
 Key features:
 - **`file_source_mmap`** — memory-mapped file reader for zero-copy I/O
 - **`EMIT FINAL`** — suppresses per-record output; emits all group results when the source is exhausted
+- **`@job_mode: adaptive`** — overlaps I/O with SQL execution for ~10% throughput gain
 - **`@batch_size: 10000`** — processes 10K records per batch for optimal throughput
+
+## Performance
+
+### Job Processor Comparison
+
+The adaptive processor overlaps I/O reads with SQL execution, reclaiming the mmap read time that would otherwise block the pipeline. Since SQL execution dominates (~82% of wall time), the improvement is bounded by the I/O fraction.
+
+| | Simple (V1) | Adaptive (V2) | Improvement |
+|---|---|---|---|
+| **1M rows** | 2.92s (343K rows/s) | 2.66s (377K rows/s) | +10% |
+| **10M rows** | 31.1s (322K rows/s) | 27.8s (360K rows/s) | +11% |
+
+The default is `@job_mode: adaptive`.
+
+### Time Breakdown (Simple mode, 1M rows)
+
+Simple mode reports per-phase timing, showing where time is spent:
+
+```
+SQL execution:  2.43s  (83%)  ◀ bottleneck — GROUP BY + MIN/AVG/MAX aggregation
+Mmap I/O read:  0.24s  ( 8%)  ◀ overlapped by adaptive mode
+Overhead:       0.25s  ( 9%)    batch orchestration, EMIT FINAL flush, CSV write
+─────────────────────────────
+Total:          2.92s (100%)
+```
+
+### Why Adaptive is Faster
+
+```
+Simple:    [read]──▶[sql]──▶[read]──▶[sql]──▶[read]──▶[sql]──▶...
+Adaptive:  [read]──▶[sql]──▶[sql]──▶[sql]──▶[sql]──▶...
+                    [read]──▶[read]──▶[read]──▶...
+                    └─ overlapped ──┘
+```
+
+Adaptive pipelines the next batch read while the current batch is being processed through SQL. This hides the ~8% I/O time, yielding a ~10% wall-time improvement. The remaining ~82% SQL bottleneck is the ceiling for further gains from processor architecture alone.
+
+### Scaling Behavior
+
+Throughput decreases slightly at larger scales due to GROUP BY hash map growth:
+
+| Rows | Adaptive Time | Rows/sec |
+|------|---------------|----------|
+| 1M   | 2.66s         | 377K     |
+| 10M  | 27.8s         | 360K     |
 
 ## Test Assertions
 

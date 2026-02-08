@@ -12,7 +12,7 @@
 --   velo-1brc generate --rows 1 --output measurements.txt --expected-output expected.csv
 --   velo-test run demo/1brc/1brc.sql --spec demo/1brc/test_spec.yaml -y
 
--- @job_mode: simple
+-- @job_mode: adaptive
 -- @batch_size: 10000
 -- @num_partitions: 6
 -- @partitioning_strategy: hash
