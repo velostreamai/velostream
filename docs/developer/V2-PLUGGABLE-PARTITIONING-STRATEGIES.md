@@ -24,6 +24,10 @@ Different data sources and queries have different characteristics. StickyPartiti
 
 **Key Insight**: StickyPartitionStrategy (the default) provides zero-overhead routing for ALL scenarios by maintaining records in their source partitions. It works with every query type and data source, and automatic strategy selection only overrides it for specific optimizations (e.g., GROUP BY without ORDER BY prefers hash-based routing for better aggregation locality).
 
+### Source vs Processing Parallelism
+
+All data sources return `partition_count() → None`, meaning they do **not** constrain processing parallelism. The number of processing workers (Adaptive partition workers that hash-distribute GROUP BY work) is controlled independently via `@num_partitions` in SQL annotations or the `num_partitions` config key. This separation ensures that source reader count (e.g., Kafka topic partitions, file reader count) never limits processing throughput.
+
 ---
 
 ## Architecture: Pluggable Strategy Pattern

@@ -563,6 +563,8 @@ async fn run_file_only_execution(
     sql_file: &PathBuf,
     validation_result: &velostream::velostream::sql::validator::ApplicationValidationResult,
     timeout_ms: u64,
+    test_spec: Option<&velostream::velostream::test_harness::spec::TestSpec>,
+    spec_dir: Option<&std::path::Path>,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // Check if all sources and sinks are file-based
     // Note: .all() returns true for empty iterators, so we must check for non-empty sources/sinks
@@ -644,22 +646,38 @@ async fn run_file_only_execution(
         }
 
         let jobs = server.list_jobs().await;
-        let all_done = jobs
-            .iter()
-            .all(|j| matches!(j.status, JobStatus::Stopped | JobStatus::Failed(_)));
+        // For file-based jobs, completion is signaled by:
+        // 1. Status transitions to Stopped/Failed, OR
+        // 2. Processing has finished (records_processed > 0 and total_processing_time > 0)
+        let all_done = !jobs.is_empty()
+            && jobs.iter().all(|j| {
+                matches!(j.status, JobStatus::Stopped | JobStatus::Failed(_))
+                    || (j.stats.records_processed > 0
+                        && j.stats.total_processing_time > Duration::ZERO)
+            });
 
-        if all_done && !jobs.is_empty() {
+        if all_done {
             for job in &jobs {
-                let (icon, status_str) = match &job.status {
-                    JobStatus::Stopped => ("✅", "completed"),
-                    JobStatus::Failed(_) => ("❌", "failed"),
-                    JobStatus::Running => ("🔄", "running"),
-                    JobStatus::Starting => ("🚀", "starting"),
-                    JobStatus::Paused => ("⏸️", "paused"),
+                let (icon, status_str) = if job.stats.total_processing_time > Duration::ZERO
+                    && job.stats.records_processed > 0
+                {
+                    ("✅", "completed")
+                } else {
+                    match &job.status {
+                        JobStatus::Stopped => ("✅", "completed"),
+                        JobStatus::Failed(_) => ("❌", "failed"),
+                        JobStatus::Running => ("🔄", "running"),
+                        JobStatus::Starting => ("🚀", "starting"),
+                        JobStatus::Paused => ("⏸️", "paused"),
+                    }
                 };
                 println!(
-                    "   {} {}: {} records ({})",
-                    icon, job.name, job.stats.records_processed, status_str
+                    "   {} {}: {} records in {:.2}s ({})",
+                    icon,
+                    job.name,
+                    job.stats.records_processed,
+                    job.stats.total_processing_time.as_secs_f64(),
+                    status_str
                 );
             }
             break;
@@ -699,6 +717,84 @@ async fn run_file_only_execution(
                     println!("   ⚠️  {} (not found)", output_path.display());
                 }
             }
+        }
+    }
+
+    // Run assertions from test spec (if provided)
+    if let Some(spec) = test_spec {
+        use velostream::velostream::test_harness::assertions::AssertionRunner;
+        use velostream::velostream::test_harness::executor::CapturedOutput;
+
+        let assertion_base_dir = spec_dir.unwrap_or(&sql_dir);
+        let assertion_runner =
+            AssertionRunner::new().with_base_dir(assertion_base_dir.to_path_buf());
+
+        println!();
+        println!("🔍 Running assertions...");
+
+        let mut total_assertions = 0;
+        let mut passed_assertions = 0;
+        let mut failed_assertions = 0;
+
+        for query_spec in &spec.queries {
+            if query_spec.skip {
+                continue;
+            }
+
+            let all_assertions = query_spec.all_assertions();
+            if all_assertions.is_empty() {
+                continue;
+            }
+
+            println!(
+                "   Query '{}': {} assertions",
+                query_spec.name,
+                all_assertions.len()
+            );
+
+            // Create an empty captured output (file assertions don't need captured records)
+            let empty_output = CapturedOutput {
+                query_name: query_spec.name.clone(),
+                sink_name: String::new(),
+                topic: None,
+                records: Vec::new(),
+                execution_time_ms: 0,
+                warnings: Vec::new(),
+                memory_peak_bytes: None,
+                memory_growth_bytes: None,
+            };
+
+            // Convert Vec<&AssertionConfig> to Vec<AssertionConfig> for the runner
+            let owned_assertions: Vec<_> = all_assertions.into_iter().cloned().collect();
+            let results = assertion_runner.run_assertions(&empty_output, &owned_assertions);
+            for result in &results {
+                total_assertions += 1;
+                if result.passed {
+                    passed_assertions += 1;
+                    println!("      ✅ {}: {}", result.assertion_type, result.message);
+                } else {
+                    failed_assertions += 1;
+                    println!("      ❌ {}: {}", result.assertion_type, result.message);
+                    if !result.details.is_empty() {
+                        for (key, value) in &result.details {
+                            println!("         {}: {}", key, value);
+                        }
+                    }
+                }
+            }
+        }
+
+        println!();
+        println!(
+            "📊 Assertion Summary: {} passed, {} failed, {} total",
+            passed_assertions, failed_assertions, total_assertions
+        );
+
+        if failed_assertions > 0 {
+            println!("❌ Some assertions failed!");
+            std::process::exit(1);
+        } else if total_assertions > 0 {
+            println!("✅ All assertions passed!");
         }
     }
 
@@ -1329,7 +1425,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Try file-only execution (no Kafka needed)
-            if run_file_only_execution(&sql_file, &validation_result, timeout_ms).await? {
+            let spec_dir_path = spec
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf());
+            if run_file_only_execution(
+                &sql_file,
+                &validation_result,
+                timeout_ms,
+                Some(&test_spec),
+                spec_dir_path.as_deref(),
+            )
+            .await?
+            {
                 return Ok(());
             }
 

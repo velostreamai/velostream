@@ -60,7 +60,7 @@ This directory contains all documentation related to the pluggable data sources 
 ## 🏗️ Architecture Overview
 
 The pluggable data sources architecture enables Velostream to:
-- **Core Data Sources**: PostgreSQL, S3, File, Iceberg, ClickHouse, and Kafka
+- **Core Data Sources**: PostgreSQL, S3, File, File (mmap), Iceberg, ClickHouse, and Kafka
 - **Heterogeneous data flow**: Read from one source, write to another
 - **Single Binary, Scale Out**: K8s native autoscaling with horizontal pod scaling
 - **Maintain backward compatibility**: Existing Kafka code continues to work
@@ -81,9 +81,10 @@ Velostream is designed as a **single binary** that can **scale out horizontally*
 1. **PostgreSQL** - Database source/sink with CDC support
 2. **S3** - Object storage for batch processing
 3. **File** - Local/network file systems
-4. **Iceberg** - Table format for analytics
-5. **ClickHouse** - Columnar OLAP database
-6. **Kafka** - Streaming message broker (existing)
+4. **File (mmap)** - Memory-mapped file reader for high-throughput batch processing
+5. **Iceberg** - Table format for analytics
+6. **ClickHouse** - Columnar OLAP database
+7. **Kafka** - Streaming message broker (existing)
 
 ### Core Components
 
@@ -178,6 +179,7 @@ The pluggable data sources architecture is now **production ready** with compreh
 ### ✅ **Data Sources & Sinks**
 - **Kafka**: Full streaming support with Avro/JSON/Custom serialization
 - **Files**: CSV, JSON, Parquet, Compressed formats with auto-detection
+- **File (mmap)**: Memory-mapped file reader for batch workloads (e.g., 1BRC challenge)
 - **S3**: Batch processing with partitioning, IAM roles, encryption
 - **PostgreSQL**: Real-time queries, CDC, connection pooling
 - **ClickHouse**: Analytics queries, distributed processing

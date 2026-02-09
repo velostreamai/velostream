@@ -2,14 +2,15 @@
 
 ## Overview
 
-Velostream will support six core data sources as first-class citizens:
+Velostream will support seven core data sources as first-class citizens:
 
 1. **PostgreSQL** - Relational database with CDC capabilities
-2. **S3** - Object storage for data lake architectures  
+2. **S3** - Object storage for data lake architectures
 3. **File** - Local and network file systems
-4. **Iceberg** - Modern table format for analytics
-5. **ClickHouse** - Columnar OLAP database for analytics
-6. **Kafka** - Distributed streaming platform (existing)
+4. **File (mmap)** - Memory-mapped file reader for high-throughput batch processing
+5. **Iceberg** - Modern table format for analytics
+6. **ClickHouse** - Columnar OLAP database for analytics
+7. **Kafka** - Distributed streaming platform (existing)
 
 ## Data Source Specifications
 
@@ -83,7 +84,48 @@ file:///data/input/*.csv?header=true
 file:///logs/app.log?watch=true&format=json
 ```
 
-### 4. Iceberg
+### 4. File (mmap)
+
+**Config Type ID**: `file_source_mmap`
+
+**Parameters** (same as `file_source`):
+- `path` - File path or glob pattern
+- `format` - File format (`csv`, `csv_no_header`, `json`)
+- `delimiter` - Field delimiter (default: `,`)
+
+**Capabilities**:
+- Source: Memory-mapped file reading for maximum throughput
+- Sink: Not supported (batch source only)
+- Batch: Yes (designed for batch workloads)
+- Streaming: No
+
+**Key Differences from `file_source`**:
+- Uses `memmap2::Mmap` for zero-copy reads directly from kernel page cache
+- Byte-level scanning instead of `BufReader::read_line()`
+- Instant `seek()` via byte offset (no buffered reader state)
+- Optimized for large file workloads (e.g., 1BRC: 1 billion rows)
+
+**`partition_count()`**: Returns `None` — processing parallelism is independent of the source reader count and is controlled by `@num_partitions` in the Adaptive processor.
+
+**Example WITH Clause**:
+```sql
+CREATE STREAM results AS
+SELECT station, MIN(temperature) AS min_temp, AVG(temperature) AS avg_temp, MAX(temperature) AS max_temp
+FROM measurements
+GROUP BY station
+EMIT CHANGES
+WITH (
+    'measurements.type' = 'file_source_mmap',
+    'measurements.path' = './measurements.txt',
+    'measurements.format' = 'csv_no_header',
+    'measurements.delimiter' = ';',
+    'results.type' = 'file_sink',
+    'results.path' = './results.csv',
+    'results.format' = 'csv'
+);
+```
+
+### 5. Iceberg
 
 **URI Format**: `iceberg://catalog/namespace/table[?params]`
 
@@ -107,7 +149,7 @@ iceberg://catalog/sales/orders
 iceberg://rest-catalog/analytics/events?branch=staging
 ```
 
-### 5. ClickHouse
+### 6. ClickHouse
 
 **URI Format**: `clickhouse://[user[:password]@]host[:port]/database[?params]`
 
@@ -132,7 +174,7 @@ clickhouse://localhost:8123/analytics?table=events
 clickhouse://user:pass@ch.example.com:9000/warehouse?table=facts&compression=zstd
 ```
 
-### 6. Kafka
+### 7. Kafka
 
 **URI Format**: `kafka://broker1[:port][,broker2[:port]]/topic[?params]`
 

@@ -151,7 +151,15 @@ impl JobProcessor for AdaptiveJobProcessor {
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
 
-        // Step 1: Wrap query in Arc for partition initialization
+        // Step 1: Extract GROUP BY columns for hash-based partition routing
+        let group_by_columns = Self::extract_group_by_columns(&query);
+        if !group_by_columns.is_empty() {
+            info!(
+                "Job '{}': Routing by GROUP BY columns: {:?}",
+                job_name, group_by_columns
+            );
+        }
+
         let query_arc = Arc::new(query);
 
         // Step 2: Initialize partitions with Phase 6.6 synchronous receivers
@@ -236,7 +244,10 @@ impl JobProcessor for AdaptiveJobProcessor {
 
                     // Route batch to receivers (Phase 6.8 lock-free queue routing)
                     // Records are grouped by partition and pushed to lock-free queues
-                    match self.process_batch_for_receivers(batch, &batch_queues).await {
+                    match self
+                        .process_batch_for_receivers(batch, &batch_queues, &group_by_columns)
+                        .await
+                    {
                         Ok(routed_count) => {
                             aggregated_stats.records_processed += routed_count as u64;
                             aggregated_stats.batches_processed += 1;
@@ -326,6 +337,9 @@ impl JobProcessor for AdaptiveJobProcessor {
 
         aggregated_stats.total_processing_time = start_time.elapsed();
 
+        // Final sync so external monitors (e.g., velo-test) can detect completion
+        aggregated_stats.sync_to_shared(&shared_stats);
+
         info!(
             "V2 AdaptiveJobProcessor::process_job: {} completed\n  Records: {} routed in {:?}\n  Phase 6.6 batch-based processing: {} partitions with synchronous receivers (owned engines)",
             job_name,
@@ -358,6 +372,14 @@ impl JobProcessor for AdaptiveJobProcessor {
             readers.len(),
             writers.len()
         );
+
+        let group_by_columns = Self::extract_group_by_columns(&query);
+        if !group_by_columns.is_empty() {
+            info!(
+                "Job '{}': Routing by GROUP BY columns: {:?}",
+                job_name, group_by_columns
+            );
+        }
 
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
@@ -471,7 +493,10 @@ impl JobProcessor for AdaptiveJobProcessor {
                         let batch_size = batch.len();
 
                         // Route batch to receivers (Phase 6.8 lock-free queue routing)
-                        match self.process_batch_for_receivers(batch, &batch_queues).await {
+                        match self
+                            .process_batch_for_receivers(batch, &batch_queues, &group_by_columns)
+                            .await
+                        {
                             Ok(routed_count) => {
                                 aggregated_stats.records_processed += routed_count as u64;
                                 aggregated_stats.batches_processed += 1;
@@ -562,6 +587,9 @@ impl JobProcessor for AdaptiveJobProcessor {
         }
 
         aggregated_stats.total_processing_time = start_time.elapsed();
+
+        // Final sync so external monitors (e.g., velo-test) can detect completion
+        aggregated_stats.sync_to_shared(&shared_stats);
 
         info!(
             "V2 AdaptiveJobProcessor::process_multi_job: {} completed\n  Records: {}\n  Processing time: {:?}",

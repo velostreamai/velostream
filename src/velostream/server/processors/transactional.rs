@@ -130,6 +130,7 @@ impl TransactionalJobProcessor {
         shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
+        let start_time = Instant::now();
 
         debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
@@ -346,6 +347,10 @@ impl TransactionalJobProcessor {
             stats.sync_to_shared(&shared_stats);
         }
 
+        // Flush final aggregations for EMIT FINAL (bounded source exhaustion)
+        flush_final_aggregations_to_sinks(&engine, &query, &mut context, &job_name, &mut stats)
+            .await;
+
         // Final commit all sources and flush all sinks
         info!(
             "Job '{}' shutting down, committing sources and flushing sinks",
@@ -388,6 +393,12 @@ impl TransactionalJobProcessor {
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
+
+        // Set total processing time before final sync so external monitors see it
+        stats.total_processing_time = start_time.elapsed();
+
+        // Final sync so external monitors (e.g., velo-test) can detect completion
+        stats.sync_to_shared(&shared_stats);
 
         log_final_stats(&job_name, &stats);
         Ok(stats)

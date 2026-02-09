@@ -105,6 +105,7 @@ testcontainers = "0.25"
 testcontainers-modules = { version = "0.13", features = ["kafka"] }
 testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup)
 url = "2.5.8"
+memmap2 = "0.9"  # Memory-mapped file I/O for 1BRC demo
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }
@@ -216,6 +217,11 @@ path = "src/bin/velo-sql-batch.rs"
 [[bin]]
 name = "velo-test"
 path = "src/bin/velo-test.rs"
+
+# 1BRC: One Billion Row Challenge Demo
+[[bin]]
+name = "velo-1brc"
+path = "src/bin/velo-1brc.rs"
 
 # Features for test categorization
 [features]

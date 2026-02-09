@@ -564,6 +564,40 @@ WITH (
 
 ---
 
+## File Source (mmap) — Batch Processing
+
+### 1BRC-Style Aggregation (file_source_mmap)
+
+```sql
+CREATE STREAM results AS
+SELECT
+    station,
+    MIN(temperature) AS min_temp,
+    AVG(temperature) AS avg_temp,
+    MAX(temperature) AS max_temp
+FROM measurements
+GROUP BY station
+EMIT CHANGES
+WITH (
+    'measurements.type' = 'file_source_mmap',
+    'measurements.path' = './measurements.txt',
+    'measurements.format' = 'csv_no_header',
+    'measurements.delimiter' = ';',
+    'results.type' = 'file_sink',
+    'results.path' = './results.csv',
+    'results.format' = 'csv'
+);
+```
+
+**When to use**: Large batch file processing where memory-mapped I/O provides throughput advantages over buffered reads. The `file_source_mmap` type uses `memmap2::Mmap` for zero-copy reads from the kernel page cache.
+
+**Key differences from `file_source`**:
+- Uses memory-mapped I/O instead of `BufReader`
+- Batch-only (no streaming/watch mode)
+- Instant `seek()` via byte offset
+
+---
+
 ## SQL-Native Metrics (@metric Annotations)
 
 **CRITICAL**: Metric annotations must be placed **immediately before** each `CREATE STREAM` statement.
@@ -1909,9 +1943,21 @@ PARTITION BY symbol, trader_id
 ### Source Configuration
 
 ```sql
+-- Kafka source
 '<source_name>.type' = 'kafka_source',
 '<source_name>.topic' = '<topic_name>',
 '<source_name>.format' = 'json'  -- or 'avro', 'protobuf'
+
+-- File source (buffered reader)
+'<source_name>.type' = 'file_source',
+'<source_name>.path' = '/path/to/data.csv',
+'<source_name>.format' = 'csv'  -- or 'csv_no_header', 'json'
+
+-- File source (memory-mapped, high-throughput batch)
+'<source_name>.type' = 'file_source_mmap',
+'<source_name>.path' = '/path/to/data.csv',
+'<source_name>.format' = 'csv_no_header',
+'<source_name>.delimiter' = ';'  -- optional, default ','
 ```
 
 ### Sink Configuration (Named - matches CSAS/CTAS name)

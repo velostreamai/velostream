@@ -393,6 +393,7 @@ impl SimpleJobProcessor {
         shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
+        let start_time = Instant::now();
 
         info!(
             "Job '{}' starting multi-source simple processing with {} sources and {} sinks",
@@ -490,7 +491,16 @@ impl SimpleJobProcessor {
                 consecutive_empty_batches += 1;
 
                 // If we've hit the threshold, exit gracefully
-                if consecutive_empty_batches >= max_empty_batches {
+                // For bounded sources (files), exit after just 1 empty batch to avoid long waits
+                let effective_threshold =
+                    if consecutive_empty_batches == 1 && stats.records_processed > 0 {
+                        // Already processed data and source says no more — exit immediately
+                        1
+                    } else {
+                        max_empty_batches
+                    };
+
+                if consecutive_empty_batches >= effective_threshold {
                     info!(
                         "Job '{}' all sources exhausted after {} empty batches, exiting gracefully",
                         job_name, consecutive_empty_batches
@@ -544,6 +554,10 @@ impl SimpleJobProcessor {
             }
         }
 
+        // Flush final aggregations for EMIT FINAL (bounded source exhaustion)
+        flush_final_aggregations_to_sinks(&engine, &query, &mut context, &job_name, &mut stats)
+            .await;
+
         // Commit all sources and flush all sinks
         info!(
             "Job '{}' shutting down, committing sources and flushing sinks",
@@ -586,6 +600,12 @@ impl SimpleJobProcessor {
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
+
+        // Set total processing time before final sync so external monitors see it
+        stats.total_processing_time = start_time.elapsed();
+
+        // Final sync so external monitors (e.g., velo-test) can detect completion
+        stats.sync_to_shared(&shared_stats);
 
         log_final_stats(&job_name, &stats);
         Ok(stats)

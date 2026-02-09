@@ -661,6 +661,46 @@ impl PartitionReceiver {
             }
         }
 
+        // Flush final aggregations for EMIT FINAL without WINDOW (bounded source exhaustion)
+        match self.execution_engine.flush_final_aggregations(&self.query) {
+            Ok(final_records) if !final_records.is_empty() => {
+                let record_count = final_records.len();
+                let output_records: Vec<Arc<StreamRecord>> =
+                    final_records.into_iter().map(Arc::new).collect();
+                if let Some(ref writer_arc) = self.writer {
+                    let mut writer = writer_arc.lock().await;
+                    match writer.write_batch(output_records).await {
+                        Ok(()) => {
+                            if let Err(e) = writer.flush().await {
+                                error!(
+                                    "PartitionReceiver {}: Failed to flush final aggregations: {}",
+                                    self.partition_id, e
+                                );
+                            }
+                            total_records += record_count as u64;
+                            debug!(
+                                "PartitionReceiver {}: Flushed {} final aggregation records",
+                                self.partition_id, record_count
+                            );
+                        }
+                        Err(e) => {
+                            error!(
+                                "PartitionReceiver {}: Failed to write final aggregations: {}",
+                                self.partition_id, e
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!(
+                    "PartitionReceiver {}: Failed to flush final aggregations: {}",
+                    self.partition_id, e
+                );
+            }
+            _ => {} // No final records to flush
+        }
+
         debug!(
             "PartitionReceiver {}: Shutdown complete. Final stats: {} batches, {} records, throughput: {:.0} rec/sec",
             self.partition_id,

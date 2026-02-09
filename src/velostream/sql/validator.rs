@@ -239,7 +239,7 @@ impl SqlValidator {
             // Check if inner SELECT has a window
             if !self.has_window_clause(as_select) {
                 self.add_warning(
-                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                    "EMIT FINAL without WINDOW clause — results will be emitted on source exhaustion. For unbounded sources (e.g., Kafka), this may never occur.".to_string()
                 );
             }
         }
@@ -271,7 +271,7 @@ impl SqlValidator {
         if let Some(EmitMode::Final) = emit_mode {
             if !self.has_window_clause(as_select) {
                 self.add_warning(
-                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                    "EMIT FINAL without WINDOW clause — results will be emitted on source exhaustion. For unbounded sources (e.g., Kafka), this may never occur.".to_string()
                 );
             }
         }
@@ -303,7 +303,7 @@ impl SqlValidator {
         if let Some(EmitMode::Final) = emit_mode {
             if !self.has_window_clause(as_select) {
                 self.add_warning(
-                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                    "EMIT FINAL without WINDOW clause — results will be emitted on source exhaustion. For unbounded sources (e.g., Kafka), this may never occur.".to_string()
                 );
             }
         }
@@ -332,7 +332,7 @@ impl SqlValidator {
         if let Some(EmitMode::Final) = emit_mode {
             if !self.has_window_clause(as_select) {
                 self.add_warning(
-                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                    "EMIT FINAL without WINDOW clause — results will be emitted on source exhaustion. For unbounded sources (e.g., Kafka), this may never occur.".to_string()
                 );
             }
         }

@@ -20,3 +20,8 @@ benchmarks/results/
 
 # Generated deploy artifacts (from velo-dashboard-generate.sh)
 demo/trading/deploy/
+
+# 1BRC generated data files
+measurements.txt
+expected.csv
+1brc_results.csv

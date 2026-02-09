@@ -10,6 +10,7 @@ pub mod bottleneck_detailed_profiling_test;
 pub mod bottleneck_microbench_overhead_components_test;
 pub mod bottleneck_passthrough_baseline_test;
 pub mod coordinator_test;
+pub mod extract_group_by_columns_test;
 pub mod job_processor_v2_test;
 pub mod metrics_test;
 pub mod partition_manager_test;

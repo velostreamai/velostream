@@ -1,0 +1,55 @@
+# 1BRC Test Specification
+# Validates that the Velostream SQL engine produces correct MIN/AVG/MAX per station
+#
+# Prerequisites (run from project root):
+#   velo-1brc generate --rows 1 --output measurements.txt --expected-output expected.csv --seed 42
+#
+# Run:
+#   velo-test run demo/1brc/1brc.sql --spec demo/1brc/test_spec.yaml -y
+#
+# Note: SQL file paths resolve relative to CWD (project root), while assertion
+# paths resolve relative to this spec file (demo/1brc/). Hence the ../../ prefix.
+
+application: 1brc
+description: One Billion Row Challenge - MIN/AVG/MAX temperature per weather station
+
+default_timeout_ms: 120000
+
+queries:
+  - name: results
+    description: Compute MIN/AVG/MAX temperature grouped by station using EMIT FINAL
+    inputs:
+      - source: measurements
+        source_type:
+          type: file
+          path: ../../measurements.txt
+          format: Csv
+          watch: false
+    output:
+      sink_type:
+        type: file
+        path: ../../1brc_results.csv
+        format: Csv
+    assertions:
+      # Check the output file was created
+      - type: file_exists
+        path: ../../1brc_results.csv
+        min_size_bytes: 100
+
+      # Check we have one row per station (408 stations in the dataset)
+      - type: file_row_count
+        path: ../../1brc_results.csv
+        format: Csv
+        equals: 408
+
+      # Verify station names and exact MIN/MAX values match expected results
+      # (AVG excluded from unordered comparison due to f64 precision differences)
+      - type: file_matches
+        actual_path: ../../1brc_results.csv
+        expected_path: ../../expected.csv
+        format: Csv
+        ignore_order: true
+        compare_fields:
+          - station
+          - min_temp
+          - max_temp
