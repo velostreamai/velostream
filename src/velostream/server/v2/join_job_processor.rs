@@ -840,8 +840,10 @@ mod tests {
         assert!(stats.join_matches > 0, "Expected join matches");
 
         // Verify shared_stats was updated
-        let final_shared = shared_stats.read().unwrap();
-        assert_eq!(final_shared.records_processed, 6); // 3 left + 3 right
+        {
+            let final_shared = shared_stats.read().unwrap();
+            assert_eq!(final_shared.records_processed, 6); // 3 left + 3 right
+        }
 
         // Check output records have only projected fields
         let written = output.lock().await;

@@ -670,10 +670,9 @@ impl ProcessorMetricsHelper {
                 // duplicate samples with different values for the same
                 // (metric_name, labels, timestamp).  Keep the LAST value per
                 // unique key so that only one sample is sent per timestamp.
-                let mut gauge_dedup: std::collections::HashMap<
-                    (String, Vec<String>, i64),
-                    (Vec<String>, f64),
-                > = std::collections::HashMap::new();
+                type GaugeDedupMap =
+                    std::collections::HashMap<(String, Vec<String>, i64), (Vec<String>, f64)>;
+                let mut gauge_dedup: GaugeDedupMap = GaugeDedupMap::new();
 
                 for record_arc in output_records {
                     // Dereference Arc for field access
@@ -822,7 +821,7 @@ impl ProcessorMetricsHelper {
                                     MetricType::Counter => {
                                         metrics.push_counter_with_timestamp(
                                             &annotation.name,
-                                            &effective_label_names,
+                                            effective_label_names,
                                             &effective_label_values,
                                             1.0,
                                             timestamp_ms,
@@ -844,7 +843,7 @@ impl ProcessorMetricsHelper {
                                     MetricType::Histogram => {
                                         metrics.push_histogram_with_timestamp(
                                             &annotation.name,
-                                            &effective_label_names,
+                                            effective_label_names,
                                             &effective_label_values,
                                             value,
                                             timestamp_ms,
@@ -854,7 +853,7 @@ impl ProcessorMetricsHelper {
                             } else if annotation.metric_type == MetricType::Counter {
                                 metrics.push_counter_with_timestamp(
                                     &annotation.name,
-                                    &effective_label_names,
+                                    effective_label_names,
                                     &effective_label_values,
                                     1.0,
                                     timestamp_ms,

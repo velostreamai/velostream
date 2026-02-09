@@ -1085,7 +1085,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("════════════════════════════════════════");
 
             // Auto-resolve .sql extension if file doesn't exist
-            let sql_file = if !sql_file.exists() && !sql_file.extension().is_some() {
+            let sql_file = if !sql_file.exists() && sql_file.extension().is_none() {
                 let with_ext = sql_file.with_extension("sql");
                 if with_ext.exists() {
                     with_ext
@@ -1921,6 +1921,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
 
+                    if was_interrupted {
+                        println!("🧹 Cleaning up containers after interrupt...");
+                        if let Err(e) = executor.stop().await {
+                            log::warn!("Failed to stop executor: {}", e);
+                        }
+                        println!("✅ Containers cleaned up");
+                        std::process::exit(130);
+                    }
+
                     // Summary for data-only mode
                     println!();
                     println!("════════════════════════════════════════");
@@ -2577,26 +2586,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut files = Vec::new();
 
                 // Simple glob implementation for apps/*.sql pattern
-                if let Some(parent) = full_pattern.parent() {
-                    if parent.exists() {
-                        if let Ok(entries) = std::fs::read_dir(parent) {
-                            for entry in entries.flatten() {
-                                let path = entry.path();
-                                if path.extension().map(|e| e == "sql").unwrap_or(false) {
-                                    let path_str = path.to_string_lossy();
-                                    // Skip .annotated.sql files
-                                    if path_str.contains(".annotated.sql") {
-                                        continue;
-                                    }
-                                    // Apply skip pattern if provided
-                                    if let Some(ref skip_pattern) = skip {
-                                        if path_str.contains(skip_pattern) {
-                                            continue;
-                                        }
-                                    }
-                                    files.push(path);
-                                }
+                if let Some(parent) = full_pattern.parent()
+                    && parent.exists()
+                    && let Ok(entries) = std::fs::read_dir(parent)
+                {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.extension().map(|e| e == "sql").unwrap_or(false) {
+                            let path_str = path.to_string_lossy();
+                            // Skip .annotated.sql files
+                            if path_str.contains(".annotated.sql") {
+                                continue;
                             }
+                            // Apply skip pattern if provided
+                            if let Some(ref skip_pattern) = skip
+                                && path_str.contains(skip_pattern)
+                            {
+                                continue;
+                            }
+                            files.push(path);
                         }
                     }
                 }
@@ -2642,11 +2650,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // Start infrastructure if we have it
-            if let Some(ref mut inf) = infra {
-                if let Err(e) = inf.start().await {
-                    eprintln!("❌ Failed to start test infrastructure: {}", e);
-                    std::process::exit(1);
-                }
+            if let Some(ref mut inf) = infra
+                && let Err(e) = inf.start().await
+            {
+                eprintln!("❌ Failed to start test infrastructure: {}", e);
+                std::process::exit(1);
             }
 
             let bootstrap_servers = kafka
@@ -2723,22 +2731,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         // Try to parse JSON report from stdout
                         // The JSON output may be mixed with log lines, so find the JSON part
-                        if let Some(json_start) = stdout.find('{') {
-                            if let Some(json_str) = stdout.get(json_start..) {
-                                // Find the complete JSON object
-                                if let Ok(report) = serde_json::from_str::<
-                                    velostream::velostream::test_harness::report::TestReport,
-                                >(json_str)
-                                {
-                                    app_result.passed =
-                                        report.summary.failed == 0 && report.summary.errors == 0;
-                                    app_result.queries_total = report.summary.total;
-                                    app_result.queries_passed = report.summary.passed;
-                                    app_result.assertions_total = report.summary.total_assertions;
-                                    app_result.assertions_passed = report.summary.passed_assertions;
-                                    app_result.report = Some(report);
-                                }
-                            }
+                        if let Some(json_start) = stdout.find('{')
+                            && let Some(json_str) = stdout.get(json_start..)
+                            && let Ok(report) = serde_json::from_str::<
+                                velostream::velostream::test_harness::report::TestReport,
+                            >(json_str)
+                        {
+                            app_result.passed =
+                                report.summary.failed == 0 && report.summary.errors == 0;
+                            app_result.queries_total = report.summary.total;
+                            app_result.queries_passed = report.summary.passed;
+                            app_result.assertions_total = report.summary.total_assertions;
+                            app_result.assertions_passed = report.summary.passed_assertions;
+                            app_result.report = Some(report);
                         }
 
                         // Check exit code
@@ -3111,17 +3116,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .clone()
                             .unwrap_or_else(|| "generated_source".to_string());
 
-                        if schema_registry.get(&source_name).is_none() {
-                            if let Ok(schema) =
+                        if schema_registry.get(&source_name).is_none()
+                            && let Ok(schema) =
                                 generate_schema_from_hints(&source_name, global_hints, &field_hints)
-                            {
-                                println!(
-                                    "   ✓ {} ({} fields) ← @data.* hints",
-                                    schema.name,
-                                    schema.fields.len()
-                                );
-                                schema_registry.register(schema);
-                            }
+                        {
+                            println!(
+                                "   ✓ {} ({} fields) ← @data.* hints",
+                                schema.name,
+                                schema.fields.len()
+                            );
+                            schema_registry.register(schema);
                         }
                     }
                 }
@@ -5211,9 +5215,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Build configuration
-            let mut config = HealthConfig::default();
-            config.bootstrap_servers = broker.clone();
-            config.timeout = Duration::from_secs(timeout);
+            let mut config = HealthConfig {
+                bootstrap_servers: broker.clone(),
+                timeout: Duration::from_secs(timeout),
+                ..Default::default()
+            };
 
             if let Some(ref c) = containers {
                 config.container_names = c.split(',').map(|s| s.trim().to_string()).collect();

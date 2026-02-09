@@ -3892,16 +3892,8 @@ impl SelectProcessor {
     ) -> bool {
         let dummy_record = StreamRecord::new(result_fields.clone());
         let context = ProcessorContext::new("flush_having");
-        match Self::evaluate_having_expression(
-            having_expr,
-            accumulator,
-            fields,
-            &dummy_record,
-            &context,
-        ) {
-            Ok(result) => result,
-            Err(_) => true, // On error, include the record
-        }
+        Self::evaluate_having_expression(having_expr, accumulator, fields, &dummy_record, &context)
+            .unwrap_or(true) // On error, include the record
     }
 }
 

@@ -1,4 +1,8 @@
 //! Tests for memory-mapped file reader (FileMmapReader)
+//!
+//! Covers: CSV reading (with/without headers, custom delimiters), JSONL reading,
+//! type inference, batch reading, seek, has_more, max_records, empty files,
+//! skip_lines, Windows line endings, commit, error handling.
 
 use std::io::Write;
 use std::time::Duration;
@@ -303,4 +307,325 @@ async fn test_mmap_reader_windows_line_endings() {
         records[0].fields.get("column_1"),
         Some(&FieldValue::Integer(1))
     );
+}
+
+// ---------------------------------------------------------------------------
+// JSONL format
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mmap_reader_jsonl_reading() {
+    let jsonl_content = r#"{"name": "John", "age": 30, "active": true}
+{"name": "Jane", "age": 25, "active": false}
+{"name": "Bob", "age": 35, "city": "Paris"}
+"#;
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", jsonl_content).unwrap();
+    tmp.flush().unwrap();
+
+    let config = FileSourceConfig {
+        path: tmp.path().to_string_lossy().to_string(),
+        format: FileFormat::JsonLines,
+        ..Default::default()
+    };
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert_eq!(records.len(), 3);
+
+    // First record
+    assert_eq!(
+        records[0].fields.get("name"),
+        Some(&FieldValue::String("John".to_string()))
+    );
+    assert_eq!(records[0].fields.get("age"), Some(&FieldValue::Integer(30)));
+    assert_eq!(
+        records[0].fields.get("active"),
+        Some(&FieldValue::Boolean(true))
+    );
+
+    // Second record
+    assert_eq!(
+        records[1].fields.get("name"),
+        Some(&FieldValue::String("Jane".to_string()))
+    );
+    assert_eq!(
+        records[1].fields.get("active"),
+        Some(&FieldValue::Boolean(false))
+    );
+
+    // Third record — different schema (city instead of active)
+    assert_eq!(
+        records[2].fields.get("name"),
+        Some(&FieldValue::String("Bob".to_string()))
+    );
+    assert_eq!(
+        records[2].fields.get("city"),
+        Some(&FieldValue::String("Paris".to_string()))
+    );
+}
+
+#[tokio::test]
+async fn test_mmap_reader_jsonl_with_null() {
+    let jsonl_content = r#"{"name": "Alice", "value": null}
+"#;
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", jsonl_content).unwrap();
+    tmp.flush().unwrap();
+
+    let config = FileSourceConfig {
+        path: tmp.path().to_string_lossy().to_string(),
+        format: FileFormat::JsonLines,
+        ..Default::default()
+    };
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0].fields.get("name"),
+        Some(&FieldValue::String("Alice".to_string()))
+    );
+    assert_eq!(records[0].fields.get("value"), Some(&FieldValue::Null));
+}
+
+// ---------------------------------------------------------------------------
+// skip_lines
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mmap_reader_skip_lines() {
+    let content = "# Comment line 1\n# Comment line 2\nname,age\nJohn,30\nJane,25\n";
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", content).unwrap();
+    tmp.flush().unwrap();
+
+    let config = FileSourceConfig {
+        path: tmp.path().to_string_lossy().to_string(),
+        format: FileFormat::Csv,
+        csv_has_header: true,
+        skip_lines: 2,
+        ..Default::default()
+    };
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert!(!records.is_empty());
+    assert_eq!(
+        records[0].fields.get("name"),
+        Some(&FieldValue::String("John".to_string()))
+    );
+    assert_eq!(records[0].fields.get("age"), Some(&FieldValue::Integer(30)));
+}
+
+// ---------------------------------------------------------------------------
+// Type inference — separate tests per type
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mmap_reader_type_inference_integer() {
+    let content = "count\n42\n-17\n0\n";
+    let (_tmp, config) = create_temp_csv(content, FileFormat::Csv, ',');
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert_eq!(
+        records[0].fields.get("count"),
+        Some(&FieldValue::Integer(42))
+    );
+    assert_eq!(
+        records[1].fields.get("count"),
+        Some(&FieldValue::Integer(-17))
+    );
+    assert_eq!(
+        records[2].fields.get("count"),
+        Some(&FieldValue::Integer(0))
+    );
+}
+
+#[tokio::test]
+async fn test_mmap_reader_type_inference_float() {
+    let content = "temperature\n12.5\n-7.83\n0.0\n";
+    let (_tmp, config) = create_temp_csv(content, FileFormat::Csv, ',');
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert_eq!(
+        records[0].fields.get("temperature"),
+        Some(&FieldValue::Float(12.5))
+    );
+    assert_eq!(
+        records[1].fields.get("temperature"),
+        Some(&FieldValue::Float(-7.83))
+    );
+}
+
+#[tokio::test]
+async fn test_mmap_reader_type_inference_boolean() {
+    let content = "flag\ntrue\nfalse\n";
+    let (_tmp, config) = create_temp_csv(content, FileFormat::Csv, ',');
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert_eq!(
+        records[0].fields.get("flag"),
+        Some(&FieldValue::Boolean(true))
+    );
+    assert_eq!(
+        records[1].fields.get("flag"),
+        Some(&FieldValue::Boolean(false))
+    );
+}
+
+// ---------------------------------------------------------------------------
+// commit (no-op)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mmap_reader_commit() {
+    let content = "a;1\n";
+    let (_tmp, config) = create_temp_csv(content, FileFormat::CsvNoHeader, ';');
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    // commit() is a no-op — should succeed
+    assert!(reader.commit().await.is_ok());
+
+    // Should still be able to read after commit
+    let records = reader.read().await.unwrap();
+    assert_eq!(records.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mmap_reader_error_file_not_found() {
+    let config = FileSourceConfig {
+        path: "/nonexistent/path/file.csv".to_string(),
+        format: FileFormat::Csv,
+        ..Default::default()
+    };
+
+    let result = FileMmapReader::new(config, default_batch_config(), None).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_mmap_reader_error_invalid_jsonl() {
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "this is not json\n").unwrap();
+    tmp.flush().unwrap();
+
+    let config = FileSourceConfig {
+        path: tmp.path().to_string_lossy().to_string(),
+        format: FileFormat::JsonLines,
+        ..Default::default()
+    };
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let result = reader.read().await;
+    // Invalid JSON should produce an error
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_mmap_reader_error_json_array_unsupported() {
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "[{{\"a\": 1}}, {{\"a\": 2}}]\n").unwrap();
+    tmp.flush().unwrap();
+
+    let config = FileSourceConfig {
+        path: tmp.path().to_string_lossy().to_string(),
+        format: FileFormat::Json,
+        ..Default::default()
+    };
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let result = reader.read().await;
+    // JSON array format is explicitly unsupported in mmap reader
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// CSV edge cases
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mmap_reader_csv_quoted_fields() {
+    let content = "name,city\n\"John, Jr.\",\"New York\"\n\"Jane\",\"London\"\n";
+    let (_tmp, config) = create_temp_csv(content, FileFormat::Csv, ',');
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        records[0].fields.get("name"),
+        Some(&FieldValue::String("John, Jr.".to_string()))
+    );
+    assert_eq!(
+        records[0].fields.get("city"),
+        Some(&FieldValue::String("New York".to_string()))
+    );
+}
+
+#[tokio::test]
+async fn test_mmap_reader_csv_escaped_quotes() {
+    let content = "message\n\"She said \"\"Hello\"\"\"\n\"Normal\"\n";
+    let (_tmp, config) = create_temp_csv(content, FileFormat::Csv, ',');
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        records[0].fields.get("message"),
+        Some(&FieldValue::String("She said \"Hello\"".to_string()))
+    );
+}
+
+#[tokio::test]
+async fn test_mmap_reader_csv_header_only() {
+    let content = "name,age,city\n";
+    let (_tmp, config) = create_temp_csv(content, FileFormat::Csv, ',');
+
+    let mut reader = FileMmapReader::new(config, default_batch_config(), None)
+        .await
+        .unwrap();
+
+    let records = reader.read().await.unwrap();
+    assert!(records.is_empty());
+    assert!(!reader.has_more().await.unwrap());
 }

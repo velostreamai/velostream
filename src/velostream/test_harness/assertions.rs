@@ -3797,7 +3797,7 @@ mod tests {
     ) -> CapturedOutput {
         let stream_records: Vec<StreamRecord> = records
             .into_iter()
-            .zip(keys.into_iter())
+            .zip(keys)
             .map(|(fields, key)| {
                 let mut rec = StreamRecord::new(fields);
                 rec.key = key.map(|k| FieldValue::String(k));

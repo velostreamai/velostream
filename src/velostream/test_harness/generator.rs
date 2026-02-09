@@ -1818,7 +1818,7 @@ mod tests {
                 assert_eq!(*precision, 2);
                 let float_value = *scaled as f64 / 100.0;
                 assert!(
-                    float_value >= 10.0 && float_value <= 100.0,
+                    (10.0..=100.0).contains(&float_value),
                     "Decimal value {} not in range 10-100",
                     float_value
                 );

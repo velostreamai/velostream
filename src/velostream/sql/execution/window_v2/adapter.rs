@@ -1213,7 +1213,7 @@ impl WindowAdapter {
                     // Parse decimal string to f64 for comparison
                     s.parse::<f64>()
                         .map(FieldValue::Float)
-                        .or_else(|_| Ok(FieldValue::Null))
+                        .or(Ok(FieldValue::Null))
                 }
                 LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
                 _ => Ok(FieldValue::Null),

@@ -1927,9 +1927,11 @@ mod tests {
 
     #[test]
     fn test_topic_naming_long_name_hashing() {
-        let mut config = TopicNamingConfig::default();
-        config.max_topic_length = 50;
-        config.hash_long_names = true;
+        let config = TopicNamingConfig {
+            max_topic_length: 50,
+            hash_long_names: true,
+            ..Default::default()
+        };
 
         // Create a long base name that will exceed the limit
         let long_base = "this_is_a_very_long_topic_name_that_exceeds_the_maximum";
@@ -1942,8 +1944,10 @@ mod tests {
 
     #[test]
     fn test_topic_naming_no_hashing_when_disabled() {
-        let mut config = TopicNamingConfig::default();
-        config.hash_long_names = false;
+        let config = TopicNamingConfig {
+            hash_long_names: false,
+            ..Default::default()
+        };
 
         let long_base = "very_long_topic_name";
         let topic = config.resolve_topic_name(long_base, "abc123");
