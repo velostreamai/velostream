@@ -9,9 +9,7 @@ use velostream::velostream::server::v2::{
     AdaptiveJobProcessor, BackpressureConfig, PartitionedJobConfig, PartitionerSelector,
     ProcessingMode,
 };
-use velostream::velostream::sql::ast::{
-    Expr, OrderByExpr, OrderDirection, SelectField, StreamSource, StreamingQuery, WindowSpec,
-};
+use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 #[test]

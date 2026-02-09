@@ -12,13 +12,12 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 use std::time::Instant;
 use tokio::sync::Mutex;
 
 use crossbeam_queue::SegQueue;
 use velostream::velostream::server::v2::{
-    PartitioningStrategy, QueryMetadata, RoundRobinStrategy, RoutingContext,
+    PartitioningStrategy, RoundRobinStrategy, RoutingContext,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 

@@ -8,8 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use std::time::Duration;
 use velostream::velostream::server::processors::common::*;
 use velostream::velostream::server::stream_job_server::StreamJobServer;
 use velostream::velostream::sql::{

@@ -86,7 +86,7 @@ async fn main() {
     // Test 3: Test execution behavior - EMIT CHANGES should override windowed mode
     println!("\n3️⃣ Testing EMIT CHANGES execution behavior...");
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
+    let _format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // This query should use windowed aggregation (due to WINDOW clause)

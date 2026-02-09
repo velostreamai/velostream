@@ -4,9 +4,7 @@
 //! the legacy sql_server.rs binary and consolidating to velo-sql.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::sql::SqlValidator;
 use velostream::velostream::{
     serialization::{JsonFormat, SerializationFormat},
     sql::{
@@ -243,7 +241,7 @@ async fn test_error_handling_functionality() {
     };
 
     // This should handle the type error gracefully
-    let result = engine.execute_with_record(&query, &record).await;
+    let _result = engine.execute_with_record(&query, &record).await;
     // Note: depending on implementation, this might succeed with type coercion or fail gracefully
     // The important thing is it doesn't panic
 }

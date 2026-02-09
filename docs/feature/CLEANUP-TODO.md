@@ -97,9 +97,26 @@ Eliminated all clippy warnings in `src/` and `src/bin/` — only `tests/` warnin
 | `bin/velo-test.rs` | `field_reassign_with_default` — `HealthConfig` | Used struct init with `..Default::default()` |
 | `bin/velo-test.rs` | `was_interrupted` unused assignment (real bug) | Added interrupt handling in data_only path |
 
+- [x] Test code warnings — bulk cleanup of top 4 categories (see below)
+
+### Test Code Warning Cleanup (1,354 → 775)
+
+Used `cargo clippy --message-format=json` with a Python script to parse machine-applicable suggestions and apply them by byte offset. Skipped 45 files where fixes broke closure/macro contexts.
+
+| Category | Before | After | Fixed |
+|----------|--------|-------|-------|
+| `unused_mut` | 199 | 43 | 156 |
+| `unused_imports` | 226 | 43 | 183 |
+| `unused_variables` | 181 | 42 | 139 |
+| `clippy::useless_vec` | 108 | 6 | 102 |
+| **Total (4 categories)** | **714** | **134** | **580** |
+| **All warnings** | **1,354** | **775** | **579** |
+
+172 files changed, -188 net lines. Remaining 134 in these categories are in ~45 files with macro/closure contexts where auto-fix produces invalid syntax.
+
 ## Medium Priority (future work)
 
-- [ ] ~1,354 clippy warnings in test code — top offenders: unused imports, collapsible `if`, unnecessary `mut`
+- [ ] ~775 clippy warnings in test code — remaining: `dead_code` (83), `collapsible_if` (68), `needless_borrow` (45), residual `unused_*` in macro contexts (128)
 
 ## Low Priority (long-term)
 

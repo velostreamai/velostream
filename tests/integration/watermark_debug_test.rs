@@ -99,7 +99,7 @@ async fn debug_watermark_late_arrivals() {
     GROUP BY trader_id, symbol \
     WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)";
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
 
     let (tx, mut rx) = mpsc::unbounded_channel();

@@ -11,7 +11,7 @@ use super::stream_job_test_infrastructure::{
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},

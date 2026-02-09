@@ -10,7 +10,7 @@
 mod tests {
     use std::sync::Arc;
     use velostream::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
-    use velostream::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
+    use velostream::velostream::sql::parser::annotations::MetricType;
 
     /// Test 1: Processor helper initializes with empty cache
     #[test]

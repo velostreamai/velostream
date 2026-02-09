@@ -8,8 +8,8 @@ Tests the complete pipeline from query analysis through job execution with multi
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
-use velostream::velostream::datasource::{BatchConfig, DataReader, DataWriter};
+use tokio::sync::mpsc;
+use velostream::velostream::datasource::BatchConfig;
 use velostream::velostream::server::processors::{
     SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
     create_multi_source_readers,

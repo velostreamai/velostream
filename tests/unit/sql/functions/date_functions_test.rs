@@ -8,9 +8,7 @@ and weeks, months, quarters, years for DATEDIFF.
 
 use chrono::{Datelike, Timelike};
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -565,7 +563,7 @@ async fn test_from_unixtime_null_handling() {
 
 #[tokio::test]
 async fn test_from_unixtime_invalid_type() {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
@@ -669,7 +667,7 @@ async fn test_unix_timestamp_null_handling() {
 
 #[tokio::test]
 async fn test_unix_timestamp_invalid_type() {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 

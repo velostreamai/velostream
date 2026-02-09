@@ -110,7 +110,7 @@ fn test_rows_window_partition_isolation() {
     let partition_a = vec!["partition_a".to_string()];
     let partition_b = vec!["partition_b".to_string()];
 
-    let mut state_a = RowsWindowState {
+    let state_a = RowsWindowState {
         state_id: "state_a".to_string(),
         row_buffer: VecDeque::with_capacity(5),
         buffer_size: 5,
@@ -127,7 +127,7 @@ fn test_rows_window_partition_isolation() {
         last_activity_timestamp: None,
     };
 
-    let mut state_b = RowsWindowState {
+    let state_b = RowsWindowState {
         state_id: "state_b".to_string(),
         row_buffer: VecDeque::with_capacity(5),
         buffer_size: 5,
@@ -226,7 +226,7 @@ fn test_rows_window_dense_rank_function() {
 #[test]
 fn test_rows_window_percent_rank_computation() {
     // Test PERCENT_RANK computation: (rank - 1) / (total_rows - 1)
-    let mut state = RowsWindowState {
+    let state = RowsWindowState {
         state_id: "percent_rank_test".to_string(),
         row_buffer: VecDeque::with_capacity(10),
         buffer_size: 10,
@@ -395,7 +395,7 @@ fn test_rows_window_multiple_partitions_isolation() {
     let mut states = std::collections::HashMap::new();
 
     // Customer A state
-    let mut state_a = RowsWindowState {
+    let state_a = RowsWindowState {
         state_id: "state_customer_a".to_string(),
         row_buffer: VecDeque::with_capacity(10),
         buffer_size: 10,
@@ -413,7 +413,7 @@ fn test_rows_window_multiple_partitions_isolation() {
     };
 
     // Customer B state
-    let mut state_b = RowsWindowState {
+    let state_b = RowsWindowState {
         state_id: "state_customer_b".to_string(),
         row_buffer: VecDeque::with_capacity(10),
         buffer_size: 10,

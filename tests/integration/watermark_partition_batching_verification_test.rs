@@ -113,7 +113,7 @@ async fn test_watermark_fixes_partition_batching_data_loss() {
     GROUP BY trader_id, symbol \
     WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)";
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
 
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -277,7 +277,7 @@ async fn test_watermark_pure_select_performance() {
     let all_records = generate_partition_batched_records(10000);
 
     let query = "SELECT trader_id, symbol, price, quantity FROM stream";
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
 
     let (tx, mut rx) = mpsc::unbounded_channel();

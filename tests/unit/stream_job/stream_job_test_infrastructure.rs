@@ -9,9 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
-use velostream::velostream::server::processors::common::{
-    FailureStrategy, JobExecutionStats, JobProcessingConfig,
-};
+use velostream::velostream::server::processors::common::{JobExecutionStats, JobProcessingConfig};
 use velostream::velostream::sql::{
     ast::{SelectField, StreamSource, StreamingQuery},
     execution::{

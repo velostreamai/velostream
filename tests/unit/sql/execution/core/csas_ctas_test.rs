@@ -248,7 +248,7 @@ mod tests {
     #[tokio::test]
     async fn test_csas_execution() {
         // Setup execution engine
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut engine = StreamExecutionEngine::new(tx);
@@ -283,7 +283,7 @@ mod tests {
     async fn test_ctas_execution() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 

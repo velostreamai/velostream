@@ -510,7 +510,7 @@ fn test_optimized_table_exists_with_expr() {
 // === sql_scalar_with_expr aggregate tests ===
 
 fn create_numeric_table() -> velostream::velostream::table::unified_table::OptimizedTableImpl {
-    use velostream::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
+    use velostream::velostream::table::unified_table::OptimizedTableImpl;
     let table = OptimizedTableImpl::new();
     for (i, val) in [10i64, 20, 30, 20, 10].iter().enumerate() {
         table
@@ -1095,7 +1095,7 @@ fn test_scalar_aggregates_mixed_int_float() {
 // =============================================================================
 
 fn create_string_table() -> velostream::velostream::table::unified_table::OptimizedTableImpl {
-    use velostream::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
+    use velostream::velostream::table::unified_table::OptimizedTableImpl;
     let table = OptimizedTableImpl::new();
     for (i, name) in ["charlie", "alice", "bob", "delta"].iter().enumerate() {
         table

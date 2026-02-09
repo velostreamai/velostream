@@ -1,10 +1,10 @@
 //! Unit tests for QueryValidator
 
-use velostream::velostream::sql::validation::{QueryValidationResult, QueryValidator};
+use velostream::velostream::sql::validation::QueryValidator;
 
 #[test]
 fn test_query_validator_creation() {
-    let validator = QueryValidator::new();
+    let _validator = QueryValidator::new();
     // Verify the validator was created successfully
     // QueryValidator should be ready for use
     assert!(true); // Basic creation test
@@ -12,7 +12,7 @@ fn test_query_validator_creation() {
 
 #[test]
 fn test_query_validator_strict_mode() {
-    let validator = QueryValidator::new_strict();
+    let _validator = QueryValidator::new_strict();
     // Verify strict mode validator was created
     assert!(true); // Basic creation test
 }

@@ -8,28 +8,28 @@ use velostream::velostream::sql::validation::result_types::QueryValidationResult
 
 #[test]
 fn test_report_generator_creation() {
-    let generator = ValidationReportGenerator::new();
+    let _generator = ValidationReportGenerator::new();
     // Verify the generator was created successfully
     assert!(true); // Basic creation test
 }
 
 #[test]
 fn test_report_generator_minimal() {
-    let generator = ValidationReportGenerator::new_minimal();
+    let _generator = ValidationReportGenerator::new_minimal();
     // Verify the minimal generator was created successfully
     assert!(true); // Basic creation test
 }
 
 #[test]
 fn test_report_generator_with_performance_tips() {
-    let generator = ValidationReportGenerator::new().with_performance_tips(false);
+    let _generator = ValidationReportGenerator::new().with_performance_tips(false);
     // Verify the generator was configured successfully
     assert!(true); // Basic configuration test
 }
 
 #[test]
 fn test_report_generator_with_configuration_summary() {
-    let generator = ValidationReportGenerator::new().with_configuration_summary(false);
+    let _generator = ValidationReportGenerator::new().with_configuration_summary(false);
     // Verify the generator was configured successfully
     assert!(true); // Basic configuration test
 }

@@ -18,16 +18,14 @@
 // These metric assertion tests are designed to always run.
 
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
 
 use velostream::velostream::observability::{
     ObservabilityManager, PrometheusConfig, TelemetryConfig,
 };
 use velostream::velostream::test_harness::assertions::AssertionResult;
 use velostream::velostream::test_harness::spec::{
-    AssertionConfig, MetricCounterAssertion, MetricExistsAssertion, MetricGaugeAssertion,
-    MetricOperator, MetricTypeExpected,
+    MetricCounterAssertion, MetricExistsAssertion, MetricGaugeAssertion, MetricOperator,
+    MetricTypeExpected,
 };
 
 /// Test metric_exists assertion with ObservabilityManager
@@ -50,24 +48,24 @@ async fn test_metric_exists_assertion_with_registered_metric() {
             .register_counter_metric(
                 "test_volume_spikes_total",
                 "Total number of volume spikes detected",
-                &vec!["symbol".to_string()],
+                &["symbol".to_string()],
             )
             .expect("Failed to register counter metric");
 
         // Emit some values
         metrics
-            .emit_counter("test_volume_spikes_total", &vec!["AAPL".to_string()])
+            .emit_counter("test_volume_spikes_total", &["AAPL".to_string()])
             .expect("Failed to emit counter");
         metrics
-            .emit_counter("test_volume_spikes_total", &vec!["AAPL".to_string()])
+            .emit_counter("test_volume_spikes_total", &["AAPL".to_string()])
             .expect("Failed to emit counter");
         metrics
-            .emit_counter("test_volume_spikes_total", &vec!["GOOGL".to_string()])
+            .emit_counter("test_volume_spikes_total", &["GOOGL".to_string()])
             .expect("Failed to emit counter");
     }
 
     // Create metric_exists assertion config
-    let assertion = MetricExistsAssertion {
+    let _assertion = MetricExistsAssertion {
         name: "test_volume_spikes_total".to_string(),
         metric_type: Some(MetricTypeExpected::Counter),
     };
@@ -111,13 +109,13 @@ async fn test_metric_counter_assertion_with_value_check() {
     // Register and emit counter values
     if let Some(metrics) = obs_manager.metrics() {
         metrics
-            .register_counter_metric("test_events_total", "Total events processed", &vec![])
+            .register_counter_metric("test_events_total", "Total events processed", &[])
             .expect("Failed to register counter");
 
         // Emit 5 events
         for _ in 0..5 {
             metrics
-                .emit_counter("test_events_total", &vec![])
+                .emit_counter("test_events_total", &[])
                 .expect("Failed to emit counter");
         }
     }
@@ -228,16 +226,16 @@ async fn test_metric_gauge_assertion_with_value_check() {
             .register_gauge_metric(
                 "test_current_price",
                 "Current price",
-                &vec!["symbol".to_string()],
+                &["symbol".to_string()],
             )
             .expect("Failed to register gauge");
 
         // Set gauge values
         metrics
-            .emit_gauge("test_current_price", &vec!["AAPL".to_string()], 150.25)
+            .emit_gauge("test_current_price", &["AAPL".to_string()], 150.25)
             .expect("Failed to emit gauge");
         metrics
-            .emit_gauge("test_current_price", &vec!["GOOGL".to_string()], 2800.50)
+            .emit_gauge("test_current_price", &["GOOGL".to_string()], 2800.50)
             .expect("Failed to emit gauge");
     }
 
@@ -309,7 +307,7 @@ async fn test_metric_counter_with_labels() {
             .register_counter_metric(
                 "test_trades_total",
                 "Total trades by symbol",
-                &vec!["symbol".to_string(), "exchange".to_string()],
+                &["symbol".to_string(), "exchange".to_string()],
             )
             .expect("Failed to register counter");
 
@@ -318,7 +316,7 @@ async fn test_metric_counter_with_labels() {
             metrics
                 .emit_counter(
                     "test_trades_total",
-                    &vec!["AAPL".to_string(), "NYSE".to_string()],
+                    &["AAPL".to_string(), "NYSE".to_string()],
                 )
                 .expect("Failed to emit");
         }
@@ -326,14 +324,14 @@ async fn test_metric_counter_with_labels() {
             metrics
                 .emit_counter(
                     "test_trades_total",
-                    &vec!["GOOGL".to_string(), "NASDAQ".to_string()],
+                    &["GOOGL".to_string(), "NASDAQ".to_string()],
                 )
                 .expect("Failed to emit");
         }
     }
 
     // Create assertion with label filter
-    let assertion = MetricCounterAssertion {
+    let _assertion = MetricCounterAssertion {
         name: "test_trades_total".to_string(),
         labels: Some(HashMap::from([
             ("symbol".to_string(), "GOOGL".to_string()),
@@ -379,11 +377,11 @@ async fn test_metric_gauge_between_operator() {
 
     if let Some(metrics) = obs_manager.metrics() {
         metrics
-            .register_gauge_metric("test_cpu_usage", "CPU usage percentage", &vec![])
+            .register_gauge_metric("test_cpu_usage", "CPU usage percentage", &[])
             .expect("Failed to register gauge");
 
         metrics
-            .emit_gauge("test_cpu_usage", &vec![], 45.5)
+            .emit_gauge("test_cpu_usage", &[], 45.5)
             .expect("Failed to emit gauge");
     }
 
@@ -441,7 +439,7 @@ async fn test_metric_assertion_for_missing_metric() {
 
     // Don't register any metrics - test for missing metric handling
 
-    let assertion = MetricExistsAssertion {
+    let _assertion = MetricExistsAssertion {
         name: "nonexistent_metric".to_string(),
         metric_type: Some(MetricTypeExpected::Counter),
     };

@@ -1,6 +1,6 @@
 //! Tests for SQL validator subquery pattern detection and validation
 
-use velostream::velostream::sql::validator::{ErrorSeverity, QueryValidationResult, SqlValidator};
+use velostream::velostream::sql::validator::SqlValidator;
 
 #[test]
 fn test_exists_subquery_detection() {

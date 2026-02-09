@@ -35,7 +35,7 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::execution::watermarks::{
     LateDataAction, LateDataStrategy, WatermarkManager, WatermarkStrategy,
 };
-use velostream::velostream::sql::{SqlError, StreamingQuery, ast::WindowSpec};
+use velostream::velostream::sql::{StreamingQuery, ast::WindowSpec};
 
 /// Helper function to create a test StreamRecord with event time
 fn create_test_record_with_event_time(

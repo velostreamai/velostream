@@ -1,8 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::schema::{FieldDefinition, Schema, StreamHandle};
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::ast::DataType;
 use velostream::velostream::sql::context::StreamingSqlContext;
 use velostream::velostream::sql::execution::{
@@ -389,7 +387,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_propagation_integration() {
         // Setup execution engine
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::unbounded_channel();
         let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse valid query

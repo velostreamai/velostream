@@ -51,7 +51,7 @@ async fn execute_sql_query(
     let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
 
     // Create serialization format
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
 
     // Create execution engine
     let mut engine = StreamExecutionEngine::new(output_sender);

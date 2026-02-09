@@ -4,7 +4,6 @@
 //! runtime format selection via SQL WITH clauses.
 
 use std::collections::HashMap;
-use velostream::velostream::kafka::serialization::SerializationError;
 use velostream::velostream::kafka::serialization_format::{
     SerializationConfig, SerializationFactory, SerializationFormat,
 };

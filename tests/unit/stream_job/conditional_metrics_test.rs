@@ -30,8 +30,7 @@ fn create_numeric_record(volume: i64, price: f64) -> StreamRecord {
 }
 
 mod parse_condition_tests {
-    use super::*;
-    use velostream::velostream::server::processors::common::JobProcessingConfig;
+
     use velostream::velostream::server::processors::simple::SimpleJobProcessor;
 
     #[test]
@@ -117,7 +116,6 @@ mod parse_condition_tests {
 mod evaluate_condition_expr_tests {
     use super::*;
     use velostream::velostream::server::processors::simple::SimpleJobProcessor;
-    use velostream::velostream::sql::parser::StreamingSqlParser;
 
     /// Helper to parse a condition and evaluate it
     fn parse_and_evaluate(condition: &str, record: &StreamRecord) -> bool {
@@ -288,7 +286,7 @@ mod evaluate_condition_expr_tests {
 }
 
 mod edge_cases {
-    use super::*;
+
     use velostream::velostream::server::processors::simple::SimpleJobProcessor;
 
     #[test]

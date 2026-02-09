@@ -5,9 +5,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use velostream::velostream::server::table_registry::{
-    TableRegistry, TableRegistryConfig, TableStatus,
-};
+use velostream::velostream::server::table_registry::{TableRegistry, TableStatus};
 use velostream::velostream::sql::SqlError;
 use velostream::velostream::table::OptimizedTableImpl;
 

@@ -19,7 +19,7 @@ PARTITION BY support, ORDER BY handling, and advanced window frame calculations.
 
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::{
-    Expr, LiteralValue, OrderByExpr, OrderDirection, OverClause, WindowFrame,
+    Expr, LiteralValue, OrderByExpr, OrderDirection, OverClause,
 };
 use velostream::velostream::sql::execution::expression::window_functions::WindowFunctions;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};

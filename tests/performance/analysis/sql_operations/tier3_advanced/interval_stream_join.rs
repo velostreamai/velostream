@@ -366,7 +366,7 @@ async fn benchmark_sql_engine_sync(
     orders: Vec<StreamRecord>,
     shipments: Vec<StreamRecord>,
 ) -> BenchmarkResult {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = match parser.parse(INTERVAL_JOIN_SQL) {
         Ok(q) => q,
         Err(_) => {
@@ -418,7 +418,7 @@ async fn benchmark_sql_engine_async(
     orders: Vec<StreamRecord>,
     shipments: Vec<StreamRecord>,
 ) -> BenchmarkResult {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = match parser.parse(INTERVAL_JOIN_SQL) {
         Ok(q) => q,
         Err(_) => {

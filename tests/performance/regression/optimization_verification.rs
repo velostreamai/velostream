@@ -1,6 +1,5 @@
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use std::collections::HashMap;
-use std::time::Duration;
 use velostream::velostream::kafka::kafka_error::ConsumerError;
 use velostream::velostream::table::retry_utils::{
     ErrorCategory, RetryDefaults, RetryMetrics, RetryStrategy, categorize_kafka_error,

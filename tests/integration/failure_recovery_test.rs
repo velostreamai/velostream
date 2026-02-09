@@ -1,6 +1,4 @@
 use super::*; // Use the re-exported items from integration::mod
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::{Duration, sleep, timeout};
 
 /// Test network partition recovery - reconnection after Kafka restart

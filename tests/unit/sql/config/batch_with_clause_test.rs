@@ -4,7 +4,7 @@
 //! ensuring that batch settings can be specified and parsed correctly in streaming queries.
 
 use std::time::Duration;
-use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
+use velostream::velostream::datasource::BatchStrategy;
 use velostream::velostream::sql::config::with_clause_parser::{WithClauseError, WithClauseParser};
 
 #[test]

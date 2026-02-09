@@ -19,7 +19,6 @@ in expression contexts, such as:
 7. Error handling (division by zero, invalid types)
 */
 
-use super::shared_test_utils::TestDataBuilder;
 use std::collections::HashMap;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;

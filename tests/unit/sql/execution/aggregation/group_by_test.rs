@@ -14,7 +14,7 @@ mod tests {
 
     fn create_test_engine() -> (StreamExecutionEngine, mpsc::UnboundedReceiver<StreamRecord>) {
         let (sender, receiver) = mpsc::unbounded_channel();
-        let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
+        let _format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
         // Window_v2 is the only architecture available (Phase 2E+)
         let config = StreamingConfig::new();
         let engine = StreamExecutionEngine::new_with_config(sender, config);

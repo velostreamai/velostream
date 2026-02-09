@@ -5,7 +5,7 @@ Tests to verify that Velostream correctly executes SQL queries with ROWS WINDOW 
 ROWS WINDOW provides memory-safe, row-count-based analytic windows with bounded buffers.
 */
 
-use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
+use super::shared_test_utils::{SqlExecutor, TestDataBuilder};
 use velostream::velostream::sql::execution::FieldValue;
 
 #[cfg(test)]
@@ -550,7 +550,8 @@ mod rows_window_sql_tests {
                 for (idx, result) in results.iter().enumerate().skip(1) {
                     if let Some(FieldValue::Float(prev_price)) = result.fields.get("prev_price") {
                         // Previous price should be less than or related to current price somehow
-                        if let Some(FieldValue::Float(current_price)) = result.fields.get("price") {
+                        if let Some(FieldValue::Float(_current_price)) = result.fields.get("price")
+                        {
                             // Just verify both are positive (actual ordering depends on data)
                             assert!(
                                 *prev_price > 0.0,

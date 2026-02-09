@@ -132,7 +132,7 @@ mod kafka_data_writer_tests {
         let record = create_test_record(1, "Test", 42.0, 1640995200000);
 
         // Test JSON serialization conceptually by verifying field conversion
-        for (field_name, field_value) in &record.fields {
+        for (_field_name, field_value) in &record.fields {
             match field_value {
                 FieldValue::String(s) => {
                     // Should serialize as JSON string

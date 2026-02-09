@@ -1,14 +1,11 @@
 //! Unit tests for ConfigurationValidator
 
-use std::collections::HashMap;
 use velostream::velostream::sql::validation::config_validator::ConfigurationValidator;
-use velostream::velostream::sql::validation::result_types::{
-    ApplicationValidationResult, QueryValidationResult,
-};
+use velostream::velostream::sql::validation::result_types::QueryValidationResult;
 
 #[test]
 fn test_config_validator_creation() {
-    let validator = ConfigurationValidator::new();
+    let _validator = ConfigurationValidator::new();
     // Verify the validator was created successfully
     assert!(true); // Basic creation test
 }

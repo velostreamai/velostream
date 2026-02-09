@@ -112,7 +112,7 @@ fn test_create_table_into_with_emit_changes() {
 async fn test_ctas_executor_with_emit_changes() {
     use velostream::velostream::table::ctas::CtasExecutor;
 
-    let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
+    let _executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
 
     // Test that CTAS executor preserves EMIT CHANGES with named sources/sinks
     let sql = r#"

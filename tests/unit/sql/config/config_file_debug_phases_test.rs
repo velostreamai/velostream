@@ -112,7 +112,7 @@ nested:
     fs::write(&config_path, yaml_content).unwrap();
 
     // Load YAML
-    let yaml_config =
+    let _yaml_config =
         velostream::velostream::sql::config::yaml_loader::load_yaml_config(&config_path)
             .expect("Failed to load YAML");
 

@@ -8,7 +8,6 @@
 //
 // All child spans should share the same trace ID as the parent batch span.
 
-use opentelemetry::trace::{SpanId, TraceId};
 use velostream::velostream::observability::telemetry::TelemetryProvider;
 use velostream::velostream::sql::execution::config::TracingConfig;
 

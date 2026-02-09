@@ -1,7 +1,7 @@
 // Tests for SQL concatenation operator (||)
 use std::collections::HashMap;
 use velostream::velostream::sql::{
-    ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery},
+    ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamingQuery},
     execution::{StreamRecord, expression::evaluator::ExpressionEvaluator, types::FieldValue},
     parser::StreamingSqlParser,
 };

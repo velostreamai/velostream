@@ -157,7 +157,7 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
         .stream_aggregate("SUM(amount)", Some("status = 'active'"))
         .await?;
     match sum {
-        FieldValue::ScaledInteger(val, scale) => {
+        FieldValue::ScaledInteger(val, _scale) => {
             println!(
                 "   ✅ Executed SUM aggregation - sum = {}.{:0width$}",
                 val / 100,

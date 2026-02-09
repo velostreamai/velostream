@@ -394,7 +394,7 @@ fn test_error_handling_with_invalid_syntax() {
 
     // Test invalid EXTRACT syntax
     let invalid_extract = "SELECT EXTRACT(INVALID_PART FROM timestamp_col) FROM events";
-    let result = parser.parse(invalid_extract);
+    let _result = parser.parse(invalid_extract);
     // Note: This might succeed if INVALID_PART is treated as an identifier
     // The important thing is that it doesn't crash
 

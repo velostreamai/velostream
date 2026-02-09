@@ -11,8 +11,6 @@ Tests to verify SQL features identified in financial_trading.sql gap analysis:
 Focus: ALL tests execute the SQL and verify results work correctly.
 */
 
-use std::collections::HashMap;
-use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Use shared test utilities from the same module directory

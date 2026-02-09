@@ -285,7 +285,6 @@ fn test_window_stats_with_multiple_groups() {
 #[test]
 fn test_window_adapter_populates_system_columns() {
     use velostream::velostream::sql::execution::processors::context::ProcessorContext;
-    use velostream::velostream::sql::execution::window_v2::types::SharedRecord;
 
     // Create a windowed aggregation query with _window_start and _window_end
     let sql = r#"

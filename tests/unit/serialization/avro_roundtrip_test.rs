@@ -3,7 +3,6 @@
 /// Tests that data can be written in Avro format and read back successfully,
 /// ensuring schema compatibility between writer and reader.
 use std::collections::HashMap;
-use velostream::velostream::serialization::SerializationCodec;
 use velostream::velostream::serialization::avro_codec::AvroCodec;
 use velostream::velostream::sql::execution::types::FieldValue;
 

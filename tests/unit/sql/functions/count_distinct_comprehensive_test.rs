@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::{Expr, LiteralValue};
 use velostream::velostream::sql::execution::{
-    aggregation::{accumulator::AccumulatorManager, functions::AggregateFunctions},
+    aggregation::functions::AggregateFunctions,
     internal::GroupAccumulator,
     types::{FieldValue, StreamRecord},
 };

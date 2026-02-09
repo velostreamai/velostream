@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use velostream::velostream::sql::{
-    SqlError, StreamingQuery,
     execution::{
         FieldValue, StreamRecord,
         processors::{ProcessorContext, SelectProcessor, TableReference},
