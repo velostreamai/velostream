@@ -22,7 +22,7 @@ queries:
       - source: in_market_data_stream
         records: 1000
         time_simulation:
-          start_time: "-1h"  # Remote-write uses event timestamps, so historical data works
+          start_time: "-1h"
           end_time: "now"
           sequential: true
           events_per_second: 500

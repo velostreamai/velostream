@@ -440,15 +440,42 @@ impl PartitionReceiver {
                 let start = Instant::now();
                 let batch_size = batch.len();
 
+                // Create batch span BEFORE processing so inner spans are children
+                let mut batch_span = ObservabilityHelper::start_batch_span(
+                    self.observability_wrapper.observability_ref(),
+                    &self.job_name,
+                    batch_count + 1,
+                    &batch,
+                );
+
                 // Process batch with retry logic
                 let mut retry_count = 0;
 
                 while retry_count <= self.config.max_retries {
-                    // Process batch synchronously (Phase 6.7: no async overhead)
+                    // SQL processing phase: time and record span
+                    let sql_start = Instant::now();
                     match self.process_batch(&batch) {
                         Ok((processed, mut output_records, pending_dlq_entries)) => {
+                            let sql_elapsed = sql_start.elapsed();
                             total_records += processed as u64;
                             batch_count += 1;
+
+                            // Record SQL processing span
+                            let batch_result = crate::velostream::server::processors::common::BatchProcessingResultWithOutput {
+                                records_processed: processed,
+                                records_failed: pending_dlq_entries.len(),
+                                processing_time: sql_elapsed,
+                                batch_size,
+                                error_details: vec![],
+                                output_records: output_records.clone(),
+                            };
+                            ObservabilityHelper::record_sql_processing(
+                                self.observability_wrapper.observability_ref(),
+                                &self.job_name,
+                                &batch_span,
+                                &batch_result,
+                                sql_elapsed.as_millis() as u64,
+                            );
 
                             // Write any pending DLQ entries asynchronously (fix for block_on panic)
                             if !pending_dlq_entries.is_empty() {
@@ -476,12 +503,6 @@ impl PartitionReceiver {
 
                             // Inject distributed trace context into output records
                             // so downstream consumers can link their traces
-                            let mut batch_span = ObservabilityHelper::start_batch_span(
-                                self.observability_wrapper.observability_ref(),
-                                &self.job_name,
-                                batch_count,
-                                &batch,
-                            );
                             if !output_records.is_empty() {
                                 ObservabilityHelper::inject_trace_context_into_records(
                                     &batch_span,
@@ -490,14 +511,7 @@ impl PartitionReceiver {
                                 );
                             }
 
-                            // Complete batch span with success
-                            ObservabilityHelper::complete_batch_span_success(
-                                &mut batch_span,
-                                &start,
-                                processed as u64,
-                            );
-
-                            // Write output records to sink if available
+                            // Serialization phase: write output records to sink with timing
                             if !output_records.is_empty() {
                                 if let Some(ref writer_arc) = self.writer {
                                     let output_count = output_records.len();
@@ -505,30 +519,60 @@ impl PartitionReceiver {
                                         "PartitionReceiver {}: Writing {} output records to sink",
                                         self.partition_id, output_count
                                     );
+                                    let ser_start = Instant::now();
                                     let mut writer = writer_arc.lock().await;
                                     match writer.write_batch(output_records).await {
                                         Ok(()) => {
                                             // Flush the writer to ensure records are persisted
                                             if let Err(e) = writer.flush().await {
+                                                let ser_elapsed = ser_start.elapsed();
                                                 error!(
                                                     "PartitionReceiver {}: Failed to flush {} records to sink: {}",
                                                     self.partition_id, output_count, e
                                                 );
                                                 self.job_metrics.record_failed(output_count);
+                                                ObservabilityHelper::record_serialization_failure(
+                                                    self.observability_wrapper.observability_ref(),
+                                                    &self.job_name,
+                                                    &batch_span,
+                                                    output_count,
+                                                    ser_elapsed.as_millis() as u64,
+                                                    &format!("Flush failed: {}", e),
+                                                    None,
+                                                );
                                             } else {
+                                                let ser_elapsed = ser_start.elapsed();
                                                 debug!(
                                                     "PartitionReceiver {}: Successfully wrote and flushed {} records to sink",
                                                     self.partition_id, output_count
                                                 );
+                                                ObservabilityHelper::record_serialization_success(
+                                                    self.observability_wrapper.observability_ref(),
+                                                    &self.job_name,
+                                                    &batch_span,
+                                                    output_count,
+                                                    ser_elapsed.as_millis() as u64,
+                                                    None,
+                                                );
                                             }
                                         }
                                         Err(e) => {
+                                            let ser_elapsed = ser_start.elapsed();
                                             error!(
                                                 "PartitionReceiver {}: Failed to write {} output records to sink: {}",
                                                 self.partition_id, output_count, e
                                             );
                                             // Track write failures - these records are lost
                                             self.job_metrics.record_failed(output_count);
+                                            ObservabilityHelper::record_serialization_failure(
+                                                self.observability_wrapper.observability_ref(),
+                                                &self.job_name,
+                                                &batch_span,
+                                                output_count,
+                                                ser_elapsed.as_millis() as u64,
+                                                &format!("Write failed: {}", e),
+                                                None,
+                                            );
                                         }
                                     }
                                 } else {
@@ -539,6 +583,13 @@ impl PartitionReceiver {
                                     );
                                 }
                             }
+
+                            // Complete batch span with success
+                            ObservabilityHelper::complete_batch_span_success(
+                                &mut batch_span,
+                                &start,
+                                processed as u64,
+                            );
 
                             break; // Batch processed successfully, exit retry loop
                         }
@@ -572,14 +623,8 @@ impl PartitionReceiver {
                                 );
 
                                 // Complete batch span with error for the failed batch
-                                let mut error_batch_span = ObservabilityHelper::start_batch_span(
-                                    self.observability_wrapper.observability_ref(),
-                                    &self.job_name,
-                                    batch_count,
-                                    &batch,
-                                );
                                 ObservabilityHelper::complete_batch_span_error(
-                                    &mut error_batch_span,
+                                    &mut batch_span,
                                     &start,
                                     0,
                                     batch_size,

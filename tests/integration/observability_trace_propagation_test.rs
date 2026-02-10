@@ -8,10 +8,12 @@
 //
 // All child spans should share the same trace ID as the parent batch span.
 
+use serial_test::serial;
 use velostream::velostream::observability::telemetry::TelemetryProvider;
 use velostream::velostream::sql::execution::config::TracingConfig;
 
 #[tokio::test]
+#[serial]
 async fn test_end_to_end_trace_propagation_workflow() {
     // Setup: Create telemetry provider with tracing enabled
     let mut tracing_config = TracingConfig::default();
@@ -173,13 +175,75 @@ async fn test_end_to_end_trace_propagation_workflow() {
         "Expected 3 serialization spans"
     );
 
+    // === VERIFY PARENT-CHILD RELATIONSHIPS ===
+    // For each batch, verify inner spans have the batch span as parent
+    println!("\n🔍 Verifying parent-child span relationships...");
+
+    // Group spans by their trace_id to find per-batch groups
+    let mut spans_by_trace: std::collections::HashMap<
+        String,
+        Vec<&opentelemetry_sdk::export::trace::SpanData>,
+    > = std::collections::HashMap::new();
+    for span in &collected_spans {
+        let trace_id = span.span_context.trace_id().to_string();
+        spans_by_trace.entry(trace_id).or_default().push(span);
+    }
+
+    // Each batch should be an independent trace with 4 spans
+    assert_eq!(
+        spans_by_trace.len(),
+        3,
+        "Expected 3 independent traces (one per batch), got {}",
+        spans_by_trace.len()
+    );
+
+    for (trace_id, trace_spans) in &spans_by_trace {
+        assert_eq!(
+            trace_spans.len(),
+            4,
+            "Each trace should have 4 spans (1 batch + 3 children), trace {} has {}",
+            trace_id,
+            trace_spans.len()
+        );
+
+        // Find the batch span (parent)
+        let batch_span = trace_spans
+            .iter()
+            .find(|s| s.name.contains("batch:"))
+            .expect("Each trace should have a batch span");
+        let batch_span_id = batch_span.span_context.span_id();
+
+        // Verify all child spans have this batch span as parent
+        let child_spans: Vec<_> = trace_spans
+            .iter()
+            .filter(|s| !s.name.contains("batch:"))
+            .collect();
+        assert_eq!(child_spans.len(), 3, "Each batch should have 3 child spans");
+
+        for child in &child_spans {
+            assert_eq!(
+                child.parent_span_id, batch_span_id,
+                "Child span '{}' in trace {} must have batch span as parent. \
+                 Expected parent_span_id={:?}, got {:?}",
+                child.name, trace_id, batch_span_id, child.parent_span_id
+            );
+        }
+
+        println!(
+            "   ✓ Trace {}: batch span {:?} -> 3 children verified",
+            &trace_id[..8],
+            batch_span_id
+        );
+    }
+
     println!("\n✅ Span verification complete:");
     println!("   ✓ All 12 spans were collected");
     println!("   ✓ Correct span names and counts");
-    println!("   ✓ Parent-child relationships established via span links");
+    println!("   ✓ Parent-child relationships verified via parent_span_id");
 }
 
 #[tokio::test]
+#[serial]
 async fn test_trace_context_sharing_across_operations() {
     // Test that multiple operations can share the same parent trace
     let mut tracing_config = TracingConfig::default();
@@ -230,6 +294,7 @@ async fn test_trace_context_sharing_across_operations() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_independent_traces_have_different_ids() {
     // Test that separate batches get different trace IDs
     let mut tracing_config = TracingConfig::default();
@@ -274,6 +339,7 @@ async fn test_independent_traces_have_different_ids() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_span_attributes_and_lifecycle() {
     // Test that span attributes are set correctly
     let mut tracing_config = TracingConfig::default();

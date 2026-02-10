@@ -186,32 +186,30 @@ impl JoinJobProcessor {
 
         // Inject distributed trace context into output records.
         // Creates a batch span that downstream consumers can link to.
-        if !output_buffer.is_empty() {
+        let mut batch_span = if !output_buffer.is_empty() {
             let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
             // Use first output record to extract any upstream trace context
             let first_records: Vec<StreamRecord> = output_buffer
                 .first()
                 .map(|r| vec![(**r).clone()])
                 .unwrap_or_default();
-            let mut batch_span = ObservabilityHelper::start_batch_span(
+            let span = ObservabilityHelper::start_batch_span(
                 observability,
                 job_name,
                 flush_count,
                 &first_records,
             );
-            ObservabilityHelper::inject_trace_context_into_records(
-                &batch_span,
-                output_buffer,
-                job_name,
-            );
-            // Complete batch span with record count and success
-            if let Some(ref mut span) = batch_span {
-                span.set_total_records(output_buffer.len() as u64);
-                span.set_success();
-            }
-        }
+            ObservabilityHelper::inject_trace_context_into_records(&span, output_buffer, job_name);
+            span
+        } else {
+            None
+        };
+
+        let record_count = output_buffer.len();
+        let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
 
         if let Some(writer) = writer {
+            let ser_start = Instant::now();
             let mut w = writer.lock().await;
             for rec in output_buffer.drain(..) {
                 let owned = Arc::try_unwrap(rec).unwrap_or_else(|arc| (*arc).clone());
@@ -227,9 +225,27 @@ impl JoinJobProcessor {
                     query: None,
                 })?;
             }
+            let ser_elapsed = ser_start.elapsed();
+            // Record serialization span as child of batch span
+            if record_count > 0 {
+                ObservabilityHelper::record_serialization_success(
+                    observability,
+                    job_name,
+                    &batch_span,
+                    record_count,
+                    ser_elapsed.as_millis() as u64,
+                    None,
+                );
+            }
         } else {
             stats.records_written += output_buffer.len() as u64;
             output_buffer.clear();
+        }
+
+        // Complete batch span after all phases (including serialization)
+        if let Some(ref mut span) = batch_span {
+            span.set_total_records(record_count as u64);
+            span.set_success();
         }
 
         Ok(())
