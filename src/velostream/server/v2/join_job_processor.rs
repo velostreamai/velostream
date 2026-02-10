@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::processors::SharedJobStats;
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::metrics_helper::{
@@ -176,6 +177,7 @@ impl JoinJobProcessor {
         stats: &mut JoinJobStats,
         flush_writer: bool,
         flush_count: u64,
+        query_metadata: &QuerySpanMetadata,
     ) -> Result<(), SqlError> {
         // Emit metrics for the batch
         if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
@@ -193,12 +195,14 @@ impl JoinJobProcessor {
                 .first()
                 .map(|r| vec![(**r).clone()])
                 .unwrap_or_default();
-            let span = ObservabilityHelper::start_batch_span(
+            let mut span = ObservabilityHelper::start_batch_span(
                 observability,
                 job_name,
                 flush_count,
                 &first_records,
             );
+            ObservabilityHelper::enrich_batch_span_with_query_metadata(&mut span, query_metadata);
+            ObservabilityHelper::enrich_batch_span_with_record_metadata(&mut span, &first_records);
             ObservabilityHelper::inject_trace_context_into_records(&span, output_buffer, job_name);
             span
         } else {
@@ -283,6 +287,12 @@ impl JoinJobProcessor {
             "JoinJobProcessor: Starting join between '{}' and '{}'",
             left_name, right_name
         );
+
+        // Pre-compute query metadata once for span enrichment
+        let query_metadata = query
+            .as_ref()
+            .map(|q| QuerySpanMetadata::from_query(q))
+            .unwrap_or_else(QuerySpanMetadata::empty);
 
         // Set up metrics helper and register SQL-annotated metrics if query is provided
         let mut metrics_helper = ProcessorMetricsHelper::new();
@@ -397,6 +407,7 @@ impl JoinJobProcessor {
                                 &mut stats,
                                 false,
                                 flush_count,
+                                &query_metadata,
                             )
                             .await?;
                         }
@@ -426,6 +437,7 @@ impl JoinJobProcessor {
                             &mut stats,
                             true,
                             flush_count,
+                            &query_metadata,
                         )
                         .await?;
                     }
@@ -461,6 +473,7 @@ impl JoinJobProcessor {
                 &mut stats,
                 true,
                 flush_count,
+                &query_metadata,
             )
             .await?;
         }
@@ -966,6 +979,7 @@ mod tests {
             &mut stats,
             false,
             1,
+            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed");
@@ -996,6 +1010,7 @@ mod tests {
             &mut stats,
             false,
             1,
+            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed without observability");
@@ -1030,6 +1045,7 @@ mod tests {
             &mut stats,
             false,
             1,
+            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed with None job_name");

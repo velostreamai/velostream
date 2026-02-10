@@ -4,6 +4,7 @@
 //! to eliminate duplication across SimpleJobProcessor and TransactionalJobProcessor.
 
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::observability::telemetry::BatchSpan;
 use crate::velostream::observability::trace_propagation;
 use crate::velostream::server::processors::common::BatchProcessingResultWithOutput;
@@ -11,6 +12,7 @@ use crate::velostream::server::processors::observability_utils::{
     calculate_throughput, with_observability_try_lock,
 };
 use crate::velostream::sql::execution::StreamRecord;
+use crate::velostream::sql::execution::types::FieldValue;
 use log::{debug, info, warn};
 use std::time::Instant;
 
@@ -128,6 +130,34 @@ impl ObservabilityHelper {
         }
     }
 
+    /// Enrich a batch span with pre-computed query metadata
+    pub fn enrich_batch_span_with_query_metadata(
+        batch_span: &mut Option<BatchSpan>,
+        metadata: &QuerySpanMetadata,
+    ) {
+        if let Some(span) = batch_span.as_mut() {
+            span.set_query_metadata(metadata);
+        }
+    }
+
+    /// Enrich a batch span with Kafka record metadata from the first record in the batch
+    pub fn enrich_batch_span_with_record_metadata(
+        batch_span: &mut Option<BatchSpan>,
+        batch_records: &[StreamRecord],
+    ) {
+        if let Some(span) = batch_span.as_mut() {
+            if let Some(first) = batch_records.first() {
+                if let Some(FieldValue::String(topic)) = &first.topic {
+                    span.set_input_topic(topic);
+                }
+                span.set_input_partition(first.partition);
+                if let Some(FieldValue::String(key)) = &first.key {
+                    span.set_message_key(key);
+                }
+            }
+        }
+    }
+
     /// Record deserialization telemetry and metrics
     ///
     /// # Arguments
@@ -218,6 +248,7 @@ impl ObservabilityHelper {
         batch_span: &Option<BatchSpan>,
         batch_result: &BatchProcessingResultWithOutput,
         duration_ms: u64,
+        query_metadata: Option<&QuerySpanMetadata>,
     ) {
         if let Some(obs) = observability {
             if let Ok(obs_lock) = obs.try_read() {
@@ -230,6 +261,9 @@ impl ObservabilityHelper {
                         "stream_processor",
                         parent_ctx,
                     );
+                    if let Some(metadata) = query_metadata {
+                        span.set_query_metadata(metadata);
+                    }
                     span.set_execution_time(duration_ms);
                     span.set_record_count(batch_result.records_processed as u64);
                     if batch_result.records_failed > 0 {

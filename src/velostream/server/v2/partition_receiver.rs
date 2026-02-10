@@ -61,6 +61,7 @@
 //! - Empty batch handling via `empty_batch_count` and `wait_on_empty_batch_ms`
 
 use crate::velostream::datasource::DataWriter;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::metrics_helper::extract_job_name;
@@ -132,6 +133,8 @@ pub struct PartitionReceiver {
     eof_flag: Option<Arc<AtomicBool>>,
     /// Job name for metric emission (derived from query)
     job_name: String,
+    /// Pre-computed query metadata for span enrichment
+    query_metadata: QuerySpanMetadata,
 }
 
 impl PartitionReceiver {
@@ -176,6 +179,9 @@ impl PartitionReceiver {
         // Extract job name from query for metric emission
         let job_name = extract_job_name(&query);
 
+        // Pre-compute query metadata once for span enrichment
+        let query_metadata = QuerySpanMetadata::from_query(&query);
+
         Self {
             partition_id,
             execution_engine,
@@ -189,6 +195,7 @@ impl PartitionReceiver {
             queue: None,
             eof_flag: None,
             job_name,
+            query_metadata,
         }
     }
 
@@ -239,6 +246,9 @@ impl PartitionReceiver {
         // Extract job name from query for metric emission
         let job_name = extract_job_name(&query);
 
+        // Pre-compute query metadata once for span enrichment
+        let query_metadata = QuerySpanMetadata::from_query(&query);
+
         Self {
             partition_id,
             execution_engine,
@@ -252,6 +262,7 @@ impl PartitionReceiver {
             queue: Some(queue),
             eof_flag: Some(eof_flag),
             job_name,
+            query_metadata,
         }
     }
 
@@ -447,6 +458,14 @@ impl PartitionReceiver {
                     batch_count + 1,
                     &batch,
                 );
+                ObservabilityHelper::enrich_batch_span_with_query_metadata(
+                    &mut batch_span,
+                    &self.query_metadata,
+                );
+                ObservabilityHelper::enrich_batch_span_with_record_metadata(
+                    &mut batch_span,
+                    &batch,
+                );
 
                 // Process batch with retry logic
                 let mut retry_count = 0;
@@ -475,6 +494,7 @@ impl PartitionReceiver {
                                 &batch_span,
                                 &batch_result,
                                 sql_elapsed.as_millis() as u64,
+                                Some(&self.query_metadata),
                             );
 
                             // Write any pending DLQ entries asynchronously (fix for block_on panic)

@@ -6,6 +6,7 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
@@ -234,6 +235,9 @@ impl TransactionalJobProcessor {
         // FR-081 Phase 2A: Enable window_v2 architecture for high-performance window processing
         context.streaming_config = Some(StreamingConfig::default());
 
+        // Pre-compute query metadata once for span enrichment (zero per-batch overhead)
+        let query_metadata = QuerySpanMetadata::from_query(&query);
+
         // Copy engine state to context
         {
             let _engine_lock = engine.read().await;
@@ -304,6 +308,7 @@ impl TransactionalJobProcessor {
                     &readers_support_tx,
                     &writers_support_tx,
                     &mut stats,
+                    &query_metadata,
                 )
                 .await
             {
@@ -546,6 +551,7 @@ impl TransactionalJobProcessor {
             &batch_span_guard,
             &batch_result,
             sql_duration,
+            None,
         );
 
         // Update stats from batch result BEFORE moving output_records
@@ -900,6 +906,7 @@ impl TransactionalJobProcessor {
         readers_support_tx: &HashMap<String, bool>,
         writers_support_tx: &HashMap<String, bool>,
         stats: &mut JobExecutionStats,
+        query_metadata: &QuerySpanMetadata,
     ) -> DataSourceResult<()> {
         debug!(
             "Job '{}': Starting multi-source transactional batch processing cycle",
@@ -1047,6 +1054,14 @@ impl TransactionalJobProcessor {
             stats.batches_processed,
             first_batch,
         );
+        ObservabilityHelper::enrich_batch_span_with_query_metadata(
+            &mut batch_span_guard,
+            query_metadata,
+        );
+        ObservabilityHelper::enrich_batch_span_with_record_metadata(
+            &mut batch_span_guard,
+            first_batch,
+        );
 
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
@@ -1099,6 +1114,7 @@ impl TransactionalJobProcessor {
                 &batch_span_guard,
                 &batch_result,
                 sql_duration,
+                Some(query_metadata),
             );
 
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!

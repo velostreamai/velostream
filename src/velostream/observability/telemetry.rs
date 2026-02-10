@@ -1,5 +1,6 @@
 // === PHASE 4: OPENTELEMETRY DISTRIBUTED TRACING ===
 
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::observability::span_collector::CollectingSpanProcessor;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::TracingConfig;
@@ -85,6 +86,37 @@ impl BaseSpan {
             span.set_attribute(KeyValue::new("error", error.to_string()));
             let duration = self.start_time.elapsed();
             log::warn!("🔍 Span failed after {:?}: {}", duration, error);
+        }
+    }
+
+    /// Set pre-computed query metadata as span attributes for streaming intelligence.
+    /// Shared implementation used by both BatchSpan and QuerySpan.
+    pub(crate) fn set_query_metadata(&mut self, metadata: &QuerySpanMetadata) {
+        if let Some(span) = self.span.as_mut() {
+            span.set_attribute(KeyValue::new("sql.has_join", metadata.has_join));
+            if let Some(jt) = &metadata.join_type {
+                span.set_attribute(KeyValue::new("sql.join_type", jt.clone()));
+            }
+            if let Some(js) = &metadata.join_sources {
+                span.set_attribute(KeyValue::new("sql.join_sources", js.clone()));
+            }
+            if let Some(jk) = &metadata.join_key_fields {
+                span.set_attribute(KeyValue::new("sql.join_key_fields", jk.clone()));
+            }
+            span.set_attribute(KeyValue::new("sql.has_window", metadata.has_window));
+            if let Some(wt) = &metadata.window_type {
+                span.set_attribute(KeyValue::new("sql.window_type", wt.clone()));
+            }
+            if let Some(ws) = &metadata.window_size_ms {
+                span.set_attribute(KeyValue::new("sql.window_size_ms", *ws));
+            }
+            span.set_attribute(KeyValue::new("sql.has_group_by", metadata.has_group_by));
+            if let Some(gf) = &metadata.group_by_fields {
+                span.set_attribute(KeyValue::new("sql.group_by_fields", gf.clone()));
+            }
+            if let Some(em) = &metadata.emit_mode {
+                span.set_attribute(KeyValue::new("sql.emit_mode", em.clone()));
+            }
         }
     }
 }
@@ -701,6 +733,11 @@ impl QuerySpan {
         }
     }
 
+    /// Set pre-computed query metadata as span attributes for streaming intelligence
+    pub fn set_query_metadata(&mut self, metadata: &QuerySpanMetadata) {
+        self.base.set_query_metadata(metadata);
+    }
+
     /// Add execution time to the span
     pub fn set_execution_time(&mut self, duration_ms: u64) {
         if let Some(span) = self.base.span_mut() {
@@ -840,6 +877,32 @@ impl BatchSpan {
     /// Mark the batch as failed with error information
     pub fn set_error(&mut self, error: &str) {
         self.base.set_error(error);
+    }
+
+    /// Set pre-computed query metadata as span attributes for streaming intelligence
+    pub fn set_query_metadata(&mut self, metadata: &QuerySpanMetadata) {
+        self.base.set_query_metadata(metadata);
+    }
+
+    /// Set input Kafka topic on the span
+    pub fn set_input_topic(&mut self, topic: &str) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new("kafka.input_topic", topic.to_string()));
+        }
+    }
+
+    /// Set input Kafka partition on the span
+    pub fn set_input_partition(&mut self, partition: i32) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new("kafka.input_partition", partition as i64));
+        }
+    }
+
+    /// Set Kafka message key on the span
+    pub fn set_message_key(&mut self, key: &str) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new("kafka.message_key", key.to_string()));
+        }
     }
 
     /// Get the span context for creating child spans with parent relationship

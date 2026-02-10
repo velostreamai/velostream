@@ -5,6 +5,7 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
@@ -459,6 +460,9 @@ impl SimpleJobProcessor {
             );
         }
 
+        // Pre-compute query metadata once for span enrichment (zero per-batch overhead)
+        let query_metadata = QuerySpanMetadata::from_query(&query);
+
         // Create enhanced context with multiple sources and sinks
         let mut context = ProcessorContext::new_with_sources(&job_name, readers, writers);
 
@@ -526,7 +530,14 @@ impl SimpleJobProcessor {
 
             // Process from all sources
             let result = self
-                .process_data(&mut context, &engine, &query, &job_name, &mut stats)
+                .process_data(
+                    &mut context,
+                    &engine,
+                    &query,
+                    &job_name,
+                    &mut stats,
+                    &query_metadata,
+                )
                 .await;
 
             // Calculate batch time and records
@@ -667,6 +678,7 @@ impl SimpleJobProcessor {
         query: &StreamingQuery,
         job_name: &str,
         stats: &mut JobExecutionStats,
+        query_metadata: &QuerySpanMetadata,
     ) -> DataSourceResult<()> {
         debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
@@ -717,10 +729,18 @@ impl SimpleJobProcessor {
             .map(|(_, batch, _)| batch.as_slice())
             .unwrap_or(&[]);
 
-        let parent_batch_span_guard = ObservabilityHelper::start_batch_span(
+        let mut parent_batch_span_guard = ObservabilityHelper::start_batch_span(
             self.observability_wrapper.observability_ref(),
             job_name,
             stats.batches_processed,
+            first_batch,
+        );
+        ObservabilityHelper::enrich_batch_span_with_query_metadata(
+            &mut parent_batch_span_guard,
+            query_metadata,
+        );
+        ObservabilityHelper::enrich_batch_span_with_record_metadata(
+            &mut parent_batch_span_guard,
             first_batch,
         );
 
@@ -780,6 +800,7 @@ impl SimpleJobProcessor {
                 &source_batch_span_guard,
                 &batch_result,
                 sql_duration,
+                Some(query_metadata),
             );
 
             total_records_processed += batch_result.records_processed;
