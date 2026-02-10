@@ -755,6 +755,7 @@ impl KafkaDataWriter {
         key: Option<&str>,
         payload: &[u8],
         timestamp_ms: Option<i64>,
+        headers: &[(String, Vec<u8>)],
     ) -> Result<(), rdkafka::error::KafkaError> {
         match &self.producer_kind {
             ProducerKind::Transactional(txn_producer) => {
@@ -765,6 +766,17 @@ impl KafkaDataWriter {
                 }
                 if let Some(ts) = timestamp_ms {
                     record = record.timestamp(ts);
+                }
+                // Preserve all headers (including _event_time, traceparent, etc.)
+                if !headers.is_empty() {
+                    let mut owned_headers = rdkafka::message::OwnedHeaders::new();
+                    for (header_key, header_value) in headers {
+                        owned_headers = owned_headers.insert(rdkafka::message::Header {
+                            key: header_key,
+                            value: Some(header_value),
+                        });
+                    }
+                    record = record.headers(owned_headers);
                 }
                 match txn_producer.send(record) {
                     Ok(()) => Ok(()),
@@ -1185,16 +1197,20 @@ impl DataWriter for KafkaDataWriter {
         })?;
 
         // Convert headers and build owned headers collection, preserving all headers
-        let headers = self.convert_headers(&record.headers);
+        let mut headers = self.convert_headers(&record.headers);
 
         // Build Kafka record using BaseRecord for high-performance sync send
         let mut kafka_record = BaseRecord::to(&self.topic).payload(&payload);
 
-        // Propagate event_time as the Kafka message timestamp so downstream
-        // consumers receive the correct event time via the message metadata.
-        // Without this, consumers default to the broker's CreateTime (wall clock).
+        // Propagate event_time as both the Kafka message timestamp and an
+        // _event_time header so downstream consumers can extract it from either.
         if let Some(event_time) = record.event_time {
-            kafka_record = kafka_record.timestamp(event_time.timestamp_millis());
+            let et_ms = event_time.timestamp_millis();
+            kafka_record = kafka_record.timestamp(et_ms);
+            // Ensure _event_time header is present (aggregation outputs may lack it)
+            if !headers.iter().any(|(k, _)| k == "_event_time") {
+                headers.push(("_event_time".to_string(), et_ms.to_string().into_bytes()));
+            }
         }
 
         if let Some(key_str) = &key {
@@ -1204,10 +1220,10 @@ impl DataWriter for KafkaDataWriter {
         // Add headers - accumulate all headers into a single OwnedHeaders to preserve them all
         if !headers.is_empty() {
             let mut owned_headers = rdkafka::message::OwnedHeaders::new();
-            for (header_key, header_value) in headers {
+            for (header_key, header_value) in &headers {
                 owned_headers = owned_headers.insert(rdkafka::message::Header {
-                    key: &header_key,
-                    value: Some(&header_value),
+                    key: header_key,
+                    value: Some(header_value),
                 });
             }
             kafka_record = kafka_record.headers(owned_headers);
@@ -1230,6 +1246,7 @@ impl DataWriter for KafkaDataWriter {
                 key.as_deref(),
                 &payload,
                 record.event_time.map(|et| et.timestamp_millis()),
+                &headers,
             )
             .map_err(|e| (e, ()))
         } else {
@@ -1324,14 +1341,20 @@ impl DataWriter for KafkaDataWriter {
                 kafka_record = kafka_record.key(key_str);
             }
 
-            // Add headers if present
-            let headers = self.convert_headers(&record_arc.headers);
+            // Add headers if present, injecting _event_time for aggregation outputs
+            let mut headers = self.convert_headers(&record_arc.headers);
+            if let Some(event_time) = record_arc.event_time {
+                if !headers.iter().any(|(k, _)| k == "_event_time") {
+                    let et_ms = event_time.timestamp_millis();
+                    headers.push(("_event_time".to_string(), et_ms.to_string().into_bytes()));
+                }
+            }
             if !headers.is_empty() {
                 let mut owned_headers = rdkafka::message::OwnedHeaders::new();
-                for (header_key, header_value) in headers {
+                for (header_key, header_value) in &headers {
                     owned_headers = owned_headers.insert(rdkafka::message::Header {
-                        key: &header_key,
-                        value: Some(&header_value),
+                        key: header_key,
+                        value: Some(header_value),
                     });
                 }
                 kafka_record = kafka_record.headers(owned_headers);
@@ -1346,6 +1369,7 @@ impl DataWriter for KafkaDataWriter {
                     key.as_deref(),
                     &payload,
                     record_arc.event_time.map(|et| et.timestamp_millis()),
+                    &headers,
                 )
             } else {
                 // Async mode: use BaseProducer directly
@@ -1460,7 +1484,7 @@ impl DataWriter for KafkaDataWriter {
         // Different handling for async vs transactional modes
         let send_result = if self.is_transactional() {
             // Transactional mode: use dedicated send method
-            self.send_transactional(&self.topic, Some(key), empty_payload, None)
+            self.send_transactional(&self.topic, Some(key), empty_payload, None, &[])
         } else {
             // Async mode: use BaseProducer directly
             let kafka_record = BaseRecord::to(&self.topic).key(key).payload(empty_payload);

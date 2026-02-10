@@ -8,9 +8,10 @@
 
 use std::collections::{HashMap, HashSet};
 use velostream::velostream::sql::execution::FieldValue;
+use velostream::velostream::sql::execution::types::StreamRecord;
 use velostream::velostream::test_harness::executor::{
-    CapturedOutput, DEFAULT_JOB_VERSION, extract_sources_and_sinks, extract_stream_name,
-    field_values_to_json, infer_file_format, parse_with_properties,
+    CapturedOutput, DEFAULT_JOB_VERSION, QueryExecutor, extract_sources_and_sinks,
+    extract_stream_name, field_values_to_json, infer_file_format, parse_with_properties,
 };
 use velostream::velostream::test_harness::spec::{FileFormat, QueryTest};
 
@@ -222,4 +223,95 @@ fn test_deployed_dependencies_tracking() {
 fn test_query_with_empty_dependencies_no_error() {
     let query = create_test_query_with_deps("simple_query", vec![]);
     assert!(query.dependencies.is_empty());
+}
+
+// ===================================================================
+// get_record_timestamp() — priority logic tests
+// ===================================================================
+
+/// When event_time is set, get_record_timestamp should return it
+/// (highest priority — from time simulation).
+#[test]
+fn test_get_record_timestamp_prefers_event_time() {
+    let event_time_ms: i64 = 1770400000000;
+    let mut record = StreamRecord::new(HashMap::new());
+    record.timestamp = 9999999999999; // different
+    record.event_time = chrono::DateTime::from_timestamp_millis(event_time_ms);
+
+    let result = QueryExecutor::get_record_timestamp(&record);
+    assert_eq!(
+        result,
+        Some(event_time_ms),
+        "Should prefer event_time over timestamp"
+    );
+}
+
+/// When event_time is None but timestamp > 0, use timestamp.
+#[test]
+fn test_get_record_timestamp_falls_back_to_timestamp() {
+    let ts: i64 = 1770500000000;
+    let mut record = StreamRecord::new(HashMap::new());
+    record.timestamp = ts;
+    record.event_time = None;
+
+    let result = QueryExecutor::get_record_timestamp(&record);
+    assert_eq!(
+        result,
+        Some(ts),
+        "Should fall back to record.timestamp when event_time is None"
+    );
+}
+
+/// When event_time is None and timestamp == 0, fall back to payload field.
+#[test]
+fn test_get_record_timestamp_falls_back_to_payload_field() {
+    let payload_ts: i64 = 1770600000000;
+    let mut fields = HashMap::new();
+    fields.insert("timestamp".to_string(), FieldValue::Integer(payload_ts));
+
+    let mut record = StreamRecord::new(fields);
+    record.timestamp = 0;
+    record.event_time = None;
+
+    let result = QueryExecutor::get_record_timestamp(&record);
+    assert_eq!(
+        result,
+        Some(payload_ts),
+        "Should fall back to payload 'timestamp' field when event_time and timestamp are both unset"
+    );
+}
+
+/// When nothing is available, returns None.
+#[test]
+fn test_get_record_timestamp_returns_none_when_nothing() {
+    let mut record = StreamRecord::new(HashMap::new());
+    record.timestamp = 0;
+    record.event_time = None;
+
+    let result = QueryExecutor::get_record_timestamp(&record);
+    assert_eq!(
+        result, None,
+        "Should return None when no timestamp source available"
+    );
+}
+
+/// event_time takes priority even when payload 'timestamp' field exists.
+#[test]
+fn test_get_record_timestamp_event_time_beats_payload_field() {
+    let event_time_ms: i64 = 1770400000000;
+    let payload_ts: i64 = 1770600000000;
+
+    let mut fields = HashMap::new();
+    fields.insert("timestamp".to_string(), FieldValue::Integer(payload_ts));
+
+    let mut record = StreamRecord::new(fields);
+    record.timestamp = 0;
+    record.event_time = chrono::DateTime::from_timestamp_millis(event_time_ms);
+
+    let result = QueryExecutor::get_record_timestamp(&record);
+    assert_eq!(
+        result,
+        Some(event_time_ms),
+        "event_time should take priority over payload 'timestamp' field"
+    );
 }

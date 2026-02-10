@@ -41,6 +41,9 @@ pub mod observability_trace_propagation_test;
 pub mod processor_trace_patterns_test;
 pub mod trace_chain_kafka_test;
 
+// Event-time Kafka round-trip tests
+pub mod event_time_kafka_roundtrip_test;
+
 // Watermark implementation verification tests
 pub mod watermark_debug_test;
 pub mod watermark_partition_batching_verification_test;

@@ -1657,7 +1657,10 @@ impl StreamRecord {
         let topic = Some(FieldValue::String(topic_str.to_string()));
         let key = key_bytes.map(|k| FieldValue::String(String::from_utf8_lossy(k).into_owned()));
 
-        // Extract event time: use config if provided, otherwise use Kafka timestamp
+        // Extract event time with priority:
+        //   1. event_time_config (explicit field extraction from payload)
+        //   2. _event_time Kafka header (set by test harness time simulation)
+        //   3. Kafka message timestamp (CreateTime)
         let event_time = if let Some(config) = event_time_config {
             static WARNED: std::sync::atomic::AtomicBool =
                 std::sync::atomic::AtomicBool::new(false);
@@ -1675,6 +1678,11 @@ impl StreamRecord {
                     }
                 })
                 .ok()
+        } else if let Some(et_ms) = headers
+            .get("_event_time")
+            .and_then(|v| v.parse::<i64>().ok())
+        {
+            DateTime::from_timestamp_millis(et_ms)
         } else {
             timestamp_ms.and_then(DateTime::from_timestamp_millis)
         };
@@ -1797,7 +1805,15 @@ impl StreamRecord {
                 system_columns::PARTITION => FieldValue::Integer(self.partition as i64),
                 system_columns::EVENT_TIME => match self.event_time {
                     Some(et) => FieldValue::Integer(et.timestamp_millis()),
-                    None => FieldValue::Integer(self.timestamp),
+                    None => match system_columns::event_time_fallback() {
+                        system_columns::EventTimeFallback::Null => FieldValue::Null,
+                        system_columns::EventTimeFallback::Warn => {
+                            FieldValue::Integer(self.timestamp)
+                        }
+                        system_columns::EventTimeFallback::ProcessingTime => {
+                            FieldValue::Integer(self.timestamp)
+                        }
+                    },
                 },
                 system_columns::WINDOW_START | system_columns::WINDOW_END => self
                     .fields
