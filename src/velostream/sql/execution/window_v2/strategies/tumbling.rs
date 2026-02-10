@@ -133,7 +133,7 @@ impl TumblingWindowStrategy {
     ///
     /// # Example
     /// ```rust,ignore
-    /// let strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    /// let strategy = TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
     /// ```
     pub fn new(window_size_ms: i64, time_field: String) -> Self {
         Self::with_estimated_capacity(window_size_ms, time_field, 1000)
@@ -184,7 +184,7 @@ impl TumblingWindowStrategy {
     /// // High-frequency trading feed: 100K events/sec
     /// let strategy = TumblingWindowStrategy::with_estimated_capacity(
     ///     60000,  // 60 second window
-    ///     "_TIMESTAMP".to_string(),
+    ///     system_columns::TIMESTAMP.to_string(),
     ///     100_000  // 100K events/sec
     /// );
     /// // Pre-allocates ~100K capacity for the 60s window
@@ -602,7 +602,7 @@ impl WindowStrategy for TumblingWindowStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+    use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
     use std::collections::HashMap;
 
     fn create_test_record(timestamp: i64) -> SharedRecord {
@@ -617,7 +617,8 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_basic() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         // Add records within same window
         let r1 = create_test_record(1000);
@@ -635,7 +636,8 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_boundary() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         // Add record in first window
         let r1 = create_test_record(30000);
@@ -648,7 +650,8 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_clear() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         let r2 = create_test_record(20000);
@@ -668,7 +671,8 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_stats() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -682,7 +686,8 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_should_emit() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -699,7 +704,8 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_get_records() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         let r2 = create_test_record(20000);
@@ -717,7 +723,8 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_alignment() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         // Record at timestamp 75000 should be in window [60000, 120000)
         let r1 = create_test_record(75000);
@@ -735,7 +742,8 @@ mod tests {
     #[test]
     fn test_emit_changes_window_bounds_must_advance_without_clear() {
         // 10 second window (10000ms)
-        let mut strategy = TumblingWindowStrategy::new(10000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(10000, system_columns::TIMESTAMP.to_string());
 
         // First window: records at t=5000 and t=8000
         let r1 = create_test_record(5000);
@@ -775,7 +783,8 @@ mod tests {
     /// Test that window bounds advance correctly when skipping multiple windows
     #[test]
     fn test_window_bounds_advance_skipping_multiple_windows() {
-        let mut strategy = TumblingWindowStrategy::new(10000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            TumblingWindowStrategy::new(10000, system_columns::TIMESTAMP.to_string());
 
         // First record at t=5000 -> window [0, 10000)
         let r1 = create_test_record(5000);

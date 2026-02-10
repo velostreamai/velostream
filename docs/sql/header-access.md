@@ -166,6 +166,65 @@ EMIT CHANGES;
 - Header is removed from output message
 - Useful for filtering sensitive metadata
 
+## Automatic Header Propagation (FR-090)
+
+Velostream automatically propagates Kafka message headers through SQL operations. The propagation behavior depends on the operation type:
+
+| Operation | Propagation | Behavior |
+|-----------|-------------|----------|
+| SELECT, WHERE, projection | **Preserve** | All input headers flow to output unchanged |
+| ROWS OVER window functions | **Preserve** | 1:1 output per input — headers pass through |
+| GROUP BY aggregation | **Last-event-wins** | Output carries headers from the last input record in the group |
+| TUMBLING / HOP / SESSION WINDOW | **Last-event-wins** | Output carries headers from the last input record in the window |
+| JOIN | **Left-side** | Output carries headers from the left (stream) side only |
+
+### What This Means in Practice
+
+For **passthrough** and **filter** queries, headers propagate automatically — no `SET_HEADER()` needed:
+
+```sql
+-- Input headers automatically appear in output
+SELECT customer_id, amount
+FROM orders
+WHERE amount > 100;
+-- Output message will have ALL original headers (trace-id, correlation-id, etc.)
+```
+
+For **aggregations**, the last record processed in each group determines the output headers:
+
+```sql
+SELECT symbol, SUM(price) as total, COUNT(*) as cnt
+FROM trades
+GROUP BY symbol;
+-- Output headers come from the LAST trade record in each symbol group
+```
+
+For **joins**, the left (stream) side headers are used:
+
+```sql
+SELECT t.*, r.name
+FROM trades t
+LEFT JOIN reference r ON t.symbol = r.symbol;
+-- Output headers come from the trades (left) side only
+```
+
+### Special Header: `_event_time`
+
+The `_event_time` header is **automatically stripped** from aggregation output to prevent stale values. The Kafka writer injects the correct output event time (e.g., `window_end_time`) independently.
+
+### Distributed Tracing Headers
+
+`traceparent` and `tracestate` headers propagate through SQL but are **overwritten** after SQL execution by the trace context injector (`inject_trace_context_into_records()`). This means:
+- Input trace context is preserved through SQL processing
+- Output records get a fresh span from the Velostream processor
+- Manual `SET_HEADER('traceparent', ...)` is not needed for standard tracing
+
+### Explicit Header Mutations
+
+Use `SET_HEADER()` and `REMOVE_HEADER()` when you need to **change** headers, not just propagate them. These mutations are applied on top of the automatically propagated headers.
+
+For the full design rationale, see [FR-090 Header Propagation Analysis](../feature/FR-090-header-prop/README.md).
+
 ## Real-World Use Cases
 
 ### 1. Distributed Tracing Integration
@@ -421,5 +480,7 @@ FROM orders;
 ## See Also
 
 - [System Columns Guide](system-columns.md) - Combining headers with system columns
-- [Distributed Tracing Example](../examples/distributed-tracing.md)
+- [Distributed Tracing Example](examples/distributed-tracing.md)
 - [Advanced Query Features](advanced-query-features.md)
+- [FR-090 Header Propagation Analysis](../feature/FR-090-header-prop/README.md) - Full design rationale
+- [Event Time Guide](../user-guides/event-time-guide.md) - `_event_time` header behavior

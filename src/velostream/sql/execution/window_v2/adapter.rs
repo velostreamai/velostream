@@ -1081,7 +1081,12 @@ impl WindowAdapter {
             }
         }
 
-        let mut result = StreamRecord::new(result_fields.clone());
+        // FR-090: Propagate headers from last input record (last-event-wins)
+        let mut result = if let Some(sample) = &accumulator.sample_record {
+            StreamRecord::with_headers_from(result_fields.clone(), sample)
+        } else {
+            StreamRecord::new(result_fields.clone())
+        };
 
         // Set record.key from GROUP BY key for Kafka partitioning
         // Single GROUP BY column: use value directly

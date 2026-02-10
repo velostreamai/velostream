@@ -2015,7 +2015,7 @@ impl BuiltinFunctions {
     }
 
     /// TUMBLE_START function - returns the start timestamp of the current tumbling window
-    /// Reads the _window_start metadata field added by the window processor
+    /// Reads the _WINDOW_START metadata field added by the window processor
     fn tumble_start_function(
         _args: &[Expr],
         record: &StreamRecord,
@@ -2023,8 +2023,11 @@ impl BuiltinFunctions {
         // TUMBLE_START can accept 0-2 arguments (event_time column and window size)
         // However, in practice it reads the window boundaries from record metadata
 
-        // Try to get _window_start from record metadata
-        if let Some(window_start) = record.fields.get("_window_start") {
+        // Try to get _WINDOW_START from record metadata (uses system_columns constant)
+        if let Some(window_start) = record
+            .fields
+            .get(super::super::types::system_columns::WINDOW_START)
+        {
             return Ok(window_start.clone());
         }
 
@@ -2033,13 +2036,16 @@ impl BuiltinFunctions {
     }
 
     /// TUMBLE_END function - returns the end timestamp of the current tumbling window
-    /// Reads the _window_end metadata field added by the window processor
+    /// Reads the _WINDOW_END metadata field added by the window processor
     fn tumble_end_function(_args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         // TUMBLE_END can accept 0-2 arguments (event_time column and window size)
         // However, in practice it reads the window boundaries from record metadata
 
-        // Try to get _window_end from record metadata
-        if let Some(window_end) = record.fields.get("_window_end") {
+        // Try to get _WINDOW_END from record metadata (uses system_columns constant)
+        if let Some(window_end) = record
+            .fields
+            .get(super::super::types::system_columns::WINDOW_END)
+        {
             return Ok(window_end.clone());
         }
 

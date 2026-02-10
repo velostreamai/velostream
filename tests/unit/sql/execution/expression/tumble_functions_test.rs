@@ -16,7 +16,7 @@ for tumbling window queries.
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::{Expr, LiteralValue};
 use velostream::velostream::sql::execution::expression::functions::BuiltinFunctions;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 
 /// Create test record with window metadata
 fn create_windowed_record(
@@ -30,10 +30,13 @@ fn create_windowed_record(
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("value".to_string(), FieldValue::Float(value));
     fields.insert(
-        "_window_start".to_string(),
+        system_columns::WINDOW_START.to_string(),
         FieldValue::Integer(window_start),
     );
-    fields.insert("_window_end".to_string(), FieldValue::Integer(window_end));
+    fields.insert(
+        system_columns::WINDOW_END.to_string(),
+        FieldValue::Integer(window_end),
+    );
 
     StreamRecord {
         fields,
@@ -324,8 +327,14 @@ mod tumble_function_tests {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(1));
         fields.insert("value".to_string(), FieldValue::Float(100.0));
-        fields.insert("_window_start".to_string(), FieldValue::Integer(0));
-        fields.insert("_window_end".to_string(), FieldValue::Integer(5000));
+        fields.insert(
+            system_columns::WINDOW_START.to_string(),
+            FieldValue::Integer(0),
+        );
+        fields.insert(
+            system_columns::WINDOW_END.to_string(),
+            FieldValue::Integer(5000),
+        );
         fields.insert("_window_record_count".to_string(), FieldValue::Integer(42)); // Additional metadata
         fields.insert(
             "custom_field".to_string(),

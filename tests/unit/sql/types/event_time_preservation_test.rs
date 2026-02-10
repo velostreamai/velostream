@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use chrono::DateTime;
 use velostream::velostream::datasource::event_time::{EventTimeConfig, TimestampFormat};
+use velostream::velostream::sql::execution::types::system_columns;
 use velostream::velostream::sql::execution::types::system_columns::EventTimeFallback;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -26,7 +27,10 @@ fn test_from_kafka_extracts_event_time_from_header() {
     let kafka_timestamp_ms: i64 = 1770500000000; // different from header
 
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), event_time_ms.to_string());
+    headers.insert(
+        system_columns::EVENT_TIME.to_string(),
+        event_time_ms.to_string(),
+    );
 
     let record = StreamRecord::from_kafka(
         HashMap::new(),
@@ -90,7 +94,10 @@ fn test_from_kafka_event_time_config_takes_priority_over_header() {
     fields.insert("event_ts".to_string(), FieldValue::Integer(config_field_ms));
 
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), header_ms.to_string());
+    headers.insert(
+        system_columns::EVENT_TIME.to_string(),
+        header_ms.to_string(),
+    );
 
     let config = EventTimeConfig {
         field_name: "event_ts".to_string(),
@@ -127,7 +134,10 @@ fn test_from_kafka_header_takes_priority_over_kafka_timestamp() {
     let kafka_ts_ms: i64 = 1770500000000;
 
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), header_ms.to_string());
+    headers.insert(
+        system_columns::EVENT_TIME.to_string(),
+        header_ms.to_string(),
+    );
 
     let record = StreamRecord::from_kafka(
         HashMap::new(),
@@ -154,7 +164,10 @@ fn test_from_kafka_invalid_header_falls_back_to_kafka_timestamp() {
     let kafka_ts_ms: i64 = 1770500000000;
 
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), "not_a_number".to_string());
+    headers.insert(
+        system_columns::EVENT_TIME.to_string(),
+        "not_a_number".to_string(),
+    );
 
     let record = StreamRecord::from_kafka(
         HashMap::new(),
@@ -198,7 +211,10 @@ fn test_from_kafka_no_event_time_sources_returns_none() {
 #[test]
 fn test_from_kafka_preserves_headers() {
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), "1770400000000".to_string());
+    headers.insert(
+        system_columns::EVENT_TIME.to_string(),
+        "1770400000000".to_string(),
+    );
     headers.insert("traceparent".to_string(), "00-abc-def-01".to_string());
 
     let record = StreamRecord::from_kafka(
@@ -213,7 +229,10 @@ fn test_from_kafka_preserves_headers() {
     );
 
     assert_eq!(record.headers.len(), 2, "All headers should be preserved");
-    assert_eq!(record.headers.get("_event_time").unwrap(), "1770400000000");
+    assert_eq!(
+        record.headers.get(system_columns::EVENT_TIME).unwrap(),
+        "1770400000000"
+    );
     assert_eq!(record.headers.get("traceparent").unwrap(), "00-abc-def-01");
 }
 
@@ -221,7 +240,7 @@ fn test_from_kafka_preserves_headers() {
 // resolve_column() — event_time system column resolution
 // ===================================================================
 
-/// When `event_time` is set, `resolve_column("_event_time")` returns the
+/// When `event_time` is set, `resolve_column(system_columns::EVENT_TIME)` returns the
 /// event_time in millis regardless of any fallback setting.
 #[test]
 fn test_resolve_column_event_time_returns_millis_when_set() {
@@ -239,7 +258,7 @@ fn test_resolve_column_event_time_returns_millis_when_set() {
         key: None,
     };
 
-    let result = record.resolve_column("_event_time");
+    let result = record.resolve_column(system_columns::EVENT_TIME);
     assert_eq!(
         result,
         FieldValue::Integer(event_time_ms),
@@ -272,7 +291,7 @@ fn test_resolve_column_qualified_event_time() {
     );
 }
 
-/// In `Null` fallback mode, `resolve_column("_event_time")` should return
+/// In `Null` fallback mode, `resolve_column(system_columns::EVENT_TIME)` should return
 /// `FieldValue::Null` when `record.event_time` is None.
 ///
 /// Since `event_time_fallback()` uses `OnceLock` (one-time init per process),
@@ -311,7 +330,7 @@ fn test_resolve_column_null_fallback_returns_null() {
     );
 }
 
-/// In `ProcessingTime` fallback mode, `resolve_column("_event_time")` should
+/// In `ProcessingTime` fallback mode, `resolve_column(system_columns::EVENT_TIME)` should
 /// return `record.timestamp` when `record.event_time` is None.
 #[test]
 fn test_resolve_column_processing_time_fallback_returns_timestamp() {
@@ -398,7 +417,7 @@ fn test_event_time_round_trip_through_header() {
 
     // --- Consumer side: reconstruct via from_kafka() ---
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), et_header_value);
+    headers.insert(system_columns::EVENT_TIME.to_string(), et_header_value);
 
     let reconstructed = StreamRecord::from_kafka(
         HashMap::new(),
@@ -425,7 +444,7 @@ fn test_event_time_round_trip_small_timestamp() {
     let small_ms: i64 = 86400000; // 1970-01-02 00:00:00 UTC
 
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), small_ms.to_string());
+    headers.insert(system_columns::EVENT_TIME.to_string(), small_ms.to_string());
 
     let record = StreamRecord::from_kafka(
         HashMap::new(),
@@ -452,7 +471,10 @@ fn test_from_kafka_negative_timestamp_in_header() {
     let negative_ms: i64 = -86400000; // 1969-12-31
 
     let mut headers = HashMap::new();
-    headers.insert("_event_time".to_string(), negative_ms.to_string());
+    headers.insert(
+        system_columns::EVENT_TIME.to_string(),
+        negative_ms.to_string(),
+    );
 
     let record = StreamRecord::from_kafka(
         HashMap::new(),
@@ -494,7 +516,7 @@ fn test_resolve_column_timestamp_unaffected() {
         key: None,
     };
 
-    let result = record.resolve_column("_timestamp");
+    let result = record.resolve_column(system_columns::TIMESTAMP);
     assert_eq!(
         result,
         FieldValue::Integer(processing_ms),
@@ -516,6 +538,12 @@ fn test_resolve_column_offset_and_partition() {
         key: None,
     };
 
-    assert_eq!(record.resolve_column("_offset"), FieldValue::Integer(42));
-    assert_eq!(record.resolve_column("_partition"), FieldValue::Integer(7));
+    assert_eq!(
+        record.resolve_column(system_columns::OFFSET),
+        FieldValue::Integer(42)
+    );
+    assert_eq!(
+        record.resolve_column(system_columns::PARTITION),
+        FieldValue::Integer(7)
+    );
 }

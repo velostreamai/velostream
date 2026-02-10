@@ -25,7 +25,7 @@ use uuid::Uuid;
 use velostream::velostream::datasource::DataWriter;
 use velostream::velostream::datasource::kafka::writer::KafkaDataWriter;
 use velostream::velostream::kafka::serialization_format::SerializationFormat;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 
 // =============================================================================
 // Test infrastructure
@@ -313,7 +313,7 @@ async fn test_single_write_injects_event_time_header() {
     // Assert: _event_time header present with correct millis value
     let header_val = consumed
         .headers
-        .get("_event_time")
+        .get(system_columns::EVENT_TIME)
         .expect("_event_time header should be present");
     assert_eq!(
         header_val,
@@ -356,7 +356,7 @@ async fn test_single_write_no_event_time_no_header() {
 
     // Assert: no _event_time header
     assert!(
-        !consumed.headers.contains_key("_event_time"),
+        !consumed.headers.contains_key(system_columns::EVENT_TIME),
         "No _event_time header should be present when event_time is None"
     );
 
@@ -391,7 +391,7 @@ async fn test_single_write_preserves_existing_event_time_header() {
 
     let mut headers = HashMap::new();
     headers.insert(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         pre_existing_header_value.to_string(),
     );
 
@@ -403,7 +403,7 @@ async fn test_single_write_preserves_existing_event_time_header() {
     // Assert: _event_time header should be the PRE-EXISTING value, not overwritten
     let header_val = consumed
         .headers
-        .get("_event_time")
+        .get(system_columns::EVENT_TIME)
         .expect("_event_time header should be present");
     assert_eq!(
         header_val, pre_existing_header_value,
@@ -493,7 +493,7 @@ async fn test_batch_write_injects_event_time_headers() {
 
         let header_val = msg
             .headers
-            .get("_event_time")
+            .get(system_columns::EVENT_TIME)
             .unwrap_or_else(|| panic!("Record {} should have _event_time header", i));
         assert_eq!(
             header_val,
@@ -661,7 +661,10 @@ async fn test_batch_write_mixed_event_times() {
     // Record 0: should have _event_time
     let et1_ms_str = et1.timestamp_millis().to_string();
     assert_eq!(
-        consumed[0].headers.get("_event_time").map(|s| s.as_str()),
+        consumed[0]
+            .headers
+            .get(system_columns::EVENT_TIME)
+            .map(|s| s.as_str()),
         Some(et1_ms_str.as_str()),
         "Record 0 should have _event_time header"
     );
@@ -673,14 +676,17 @@ async fn test_batch_write_mixed_event_times() {
 
     // Record 1: should NOT have _event_time
     assert!(
-        !consumed[1].headers.contains_key("_event_time"),
+        !consumed[1].headers.contains_key(system_columns::EVENT_TIME),
         "Record 1 (no event_time) should NOT have _event_time header"
     );
 
     // Record 2: should have _event_time
     let et3_ms_str = et3.timestamp_millis().to_string();
     assert_eq!(
-        consumed[2].headers.get("_event_time").map(|s| s.as_str()),
+        consumed[2]
+            .headers
+            .get(system_columns::EVENT_TIME)
+            .map(|s| s.as_str()),
         Some(et3_ms_str.as_str()),
         "Record 2 should have _event_time header"
     );
@@ -692,9 +698,9 @@ async fn test_batch_write_mixed_event_times() {
 
     println!(
         "mixed batch: rec0 has_et={}, rec1 has_et={}, rec2 has_et={}",
-        consumed[0].headers.contains_key("_event_time"),
-        consumed[1].headers.contains_key("_event_time"),
-        consumed[2].headers.contains_key("_event_time"),
+        consumed[0].headers.contains_key(system_columns::EVENT_TIME),
+        consumed[1].headers.contains_key(system_columns::EVENT_TIME),
+        consumed[2].headers.contains_key(system_columns::EVENT_TIME),
     );
 }
 
@@ -821,12 +827,18 @@ async fn test_event_time_header_survives_multiple_hops() {
     // Verify _event_time header is present at both hops
     let expected_ms_str = expected_ms.to_string();
     assert_eq!(
-        consumed_a.headers.get("_event_time").map(|s| s.as_str()),
+        consumed_a
+            .headers
+            .get(system_columns::EVENT_TIME)
+            .map(|s| s.as_str()),
         Some(expected_ms_str.as_str()),
         "Hop 1 Kafka message should have _event_time header"
     );
     assert_eq!(
-        consumed_b.headers.get("_event_time").map(|s| s.as_str()),
+        consumed_b
+            .headers
+            .get(system_columns::EVENT_TIME)
+            .map(|s| s.as_str()),
         Some(expected_ms_str.as_str()),
         "Hop 2 Kafka message should have _event_time header"
     );
@@ -895,7 +907,7 @@ async fn test_transactional_single_write_injects_event_time() {
     // Assert: _event_time header present with correct millis value
     let header_val = consumed
         .headers
-        .get("_event_time")
+        .get(system_columns::EVENT_TIME)
         .expect("_event_time header should be present in transactional write");
     assert_eq!(
         header_val,
@@ -1007,7 +1019,7 @@ async fn test_transactional_batch_write_injects_event_time_headers() {
 
         let header_val = msg
             .headers
-            .get("_event_time")
+            .get(system_columns::EVENT_TIME)
             .unwrap_or_else(|| panic!("Txn record {} should have _event_time header", i));
         assert_eq!(
             header_val,

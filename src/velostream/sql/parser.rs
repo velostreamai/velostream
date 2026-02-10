@@ -101,6 +101,7 @@ All errors implement the `SqlError` type for consistent error handling throughou
 use crate::velostream::sql::annotation_parser::SqlAnnotationParser;
 use crate::velostream::sql::ast::*;
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::execution::types::system_columns;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -305,6 +306,24 @@ pub struct Token {
     pub value: String,
     /// Character position in the original SQL string (for error reporting)
     pub position: usize,
+}
+
+/// Normalize system column names to canonical UPPERCASE form.
+/// Handles both simple names (`_timestamp` → `_TIMESTAMP`) and
+/// qualified names (`m._event_time` → `m._EVENT_TIME`).
+fn normalize_column_name(name: String) -> String {
+    if let Some(dot_pos) = name.rfind('.') {
+        let field = &name[dot_pos + 1..];
+        if let Some(normalized) = system_columns::normalize_if_system_column(field) {
+            format!("{}.{}", &name[..dot_pos], normalized)
+        } else {
+            name
+        }
+    } else if let Some(normalized) = system_columns::normalize_if_system_column(&name) {
+        normalized.to_string()
+    } else {
+        name
+    }
 }
 
 impl StreamingSqlParser {
@@ -1988,7 +2007,8 @@ impl<'a> TokenParser<'a> {
                 let expr = self.parse_expression()?;
                 let alias = if self.current_token().token_type == TokenType::As {
                     self.advance();
-                    Some(self.expect(TokenType::Identifier)?.value)
+                    let alias_name = self.expect(TokenType::Identifier)?.value;
+                    Some(normalize_column_name(alias_name))
                 } else {
                     None
                 };
@@ -2684,9 +2704,12 @@ impl<'a> TokenParser<'a> {
                             });
                         }
                     };
-                    Ok(Expr::Column(format!("{}.{}", token.value, field)))
+                    Ok(Expr::Column(normalize_column_name(format!(
+                        "{}.{}",
+                        token.value, field
+                    ))))
                 } else {
-                    Ok(Expr::Column(token.value))
+                    Ok(Expr::Column(normalize_column_name(token.value)))
                 }
             }
             // Allow keywords to be used as column names or function names
@@ -2745,7 +2768,7 @@ impl<'a> TokenParser<'a> {
                     // This keyword is being used as a column name
                     let column_name = token.value;
                     self.advance();
-                    Ok(Expr::Column(column_name))
+                    Ok(Expr::Column(normalize_column_name(column_name)))
                 }
             }
             TokenType::String => {
@@ -4320,7 +4343,7 @@ impl<'a> TokenParser<'a> {
                 } else {
                     column_name
                 };
-                exprs.push(Expr::Column(column));
+                exprs.push(Expr::Column(normalize_column_name(column)));
 
                 if self.current_token().token_type == TokenType::Comma {
                     self.advance();
@@ -4347,7 +4370,7 @@ impl<'a> TokenParser<'a> {
                 } else {
                     column_name
                 };
-                let expr = Expr::Column(full_column_name);
+                let expr = Expr::Column(normalize_column_name(full_column_name));
                 let direction = if self.current_token().token_type == TokenType::Asc {
                     self.advance();
                     OrderDirection::Asc

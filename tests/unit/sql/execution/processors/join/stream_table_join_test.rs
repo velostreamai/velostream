@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use velostream::velostream::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType, StreamSource};
 use velostream::velostream::sql::execution::FieldValue;
 use velostream::velostream::sql::execution::processors::stream_table_join::StreamTableJoinProcessor;
+use velostream::velostream::sql::execution::types::StreamRecord;
 
 #[test]
 fn test_stream_table_join_detection() {
@@ -213,4 +214,85 @@ fn test_processor_basic_properties() {
         std::ptr::addr_of!(processor) as *const _,
         std::ptr::addr_of!(processor2) as *const _
     );
+}
+
+#[test]
+fn test_extract_join_keys_strips_alias_prefix() {
+    // Regression test: the parser produces alias-qualified column names like "m.symbol"
+    // from `FROM market_data m LEFT JOIN ref r ON m.symbol = r.symbol`.
+    // Stream records have bare field names ("symbol"), so extract_join_keys must
+    // strip the alias prefix before lookup.
+    let processor = StreamTableJoinProcessor::new();
+
+    let mut fields = HashMap::new();
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("price".to_string(), FieldValue::Float(150.0));
+
+    let stream_record = StreamRecord {
+        timestamp: 1000,
+        offset: 0,
+        partition: 0,
+        fields,
+        headers: HashMap::new(),
+        event_time: None,
+        topic: None,
+        key: None,
+    };
+
+    // Simulates `ON m.symbol = r.symbol` as parsed by the SQL parser
+    let condition = Expr::BinaryOp {
+        op: BinaryOperator::Equal,
+        left: Box::new(Expr::Column("m.symbol".to_string())),
+        right: Box::new(Expr::Column("r.symbol".to_string())),
+    };
+
+    let keys = processor.extract_join_keys(&condition, &stream_record);
+    assert!(
+        keys.is_ok(),
+        "extract_join_keys should succeed with alias-qualified columns: {:?}",
+        keys.err()
+    );
+
+    let keys = keys.unwrap();
+    // Table lookup key must be bare "symbol" (matching table column index)
+    assert_eq!(
+        keys.get("symbol"),
+        Some(&FieldValue::String("AAPL".to_string())),
+        "Should use bare column name for table lookup key"
+    );
+    assert!(
+        keys.get("r.symbol").is_none(),
+        "Should NOT use alias-qualified name"
+    );
+}
+
+#[test]
+fn test_extract_join_keys_bare_columns_still_work() {
+    // Ensure bare (non-qualified) column names still work after the alias fix
+    let processor = StreamTableJoinProcessor::new();
+
+    let mut fields = HashMap::new();
+    fields.insert("user_id".to_string(), FieldValue::Integer(42));
+
+    let stream_record = StreamRecord {
+        timestamp: 1000,
+        offset: 0,
+        partition: 0,
+        fields,
+        headers: HashMap::new(),
+        event_time: None,
+        topic: None,
+        key: None,
+    };
+
+    let condition = Expr::BinaryOp {
+        op: BinaryOperator::Equal,
+        left: Box::new(Expr::Column("user_id".to_string())),
+        right: Box::new(Expr::Column("id".to_string())),
+    };
+
+    let keys = processor
+        .extract_join_keys(&condition, &stream_record)
+        .unwrap();
+    assert_eq!(keys.get("id"), Some(&FieldValue::Integer(42)));
 }

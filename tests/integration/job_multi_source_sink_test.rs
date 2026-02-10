@@ -182,9 +182,9 @@ async fn test_simple_processor_multi_job_interface() {
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    // Test that the interface exists and can be called
+    // Test that the interface exists and can be called without panicking
     let result = tokio::time::timeout(
-        Duration::from_millis(100),
+        Duration::from_secs(5),
         processor.process_multi_job(
             readers,
             writers,
@@ -197,8 +197,11 @@ async fn test_simple_processor_multi_job_interface() {
     )
     .await;
 
-    // Should timeout quickly since no sources, but interface should exist
-    assert!(result.is_err(), "Should timeout quickly with no sources");
+    // With empty readers, the processor should complete quickly (not hang)
+    assert!(
+        result.is_ok(),
+        "process_multi_job should complete quickly with no sources, not hang"
+    );
 
     // Signal shutdown to cleanup
     let _ = shutdown_tx.send(()).await;

@@ -1,7 +1,7 @@
 //! Timestamp Extraction Utilities for Window Strategies
 //!
 //! Provides shared timestamp extraction logic following FR-081 two-tier priority system:
-//! 1. System columns (_TIMESTAMP, _EVENT_TIME) → access metadata directly (zero overhead)
+//! 1. System columns (_timestamp, _event_time) → access metadata directly (zero overhead)
 //! 2. User payload fields → extract from fields HashMap (single lookup overhead)
 
 use crate::velostream::sql::SqlError;
@@ -14,8 +14,8 @@ use crate::velostream::sql::execution::window_v2::types::SharedRecord;
 ///
 /// ## Priority 1: System Columns (Zero Overhead)
 /// System columns (prefixed with `_`) access StreamRecord metadata directly:
-/// - `_TIMESTAMP`: Processing-time from Kafka message (rec.timestamp)
-/// - `_EVENT_TIME`: Event-time with processing-time fallback (rec.event_time)
+/// - `_timestamp`: Processing-time from Kafka message (rec.timestamp)
+/// - `_event_time`: Event-time with processing-time fallback (rec.event_time)
 /// - Performance: Direct struct field access, no HashMap lookup
 ///
 /// ## Priority 2: User Payload Fields (Single HashMap Lookup)
@@ -42,7 +42,7 @@ use crate::velostream::sql::execution::window_v2::types::SharedRecord;
 /// # Example
 /// ```rust,ignore
 /// // Use system processing-time (zero overhead)
-/// let ts = extract_record_timestamp(&record, "_TIMESTAMP")?;
+/// let ts = extract_record_timestamp(&record, "_timestamp")?;
 ///
 /// // Use user's event_time field from JSON payload
 /// let ts = extract_record_timestamp(&record, "event_time")?;
@@ -69,8 +69,11 @@ pub(crate) fn extract_record_timestamp(
             }
             _ => Err(SqlError::ExecutionError {
                 message: format!(
-                    "Unknown system column '{}' (normalized: '{}'). Valid system columns: _TIMESTAMP, _EVENT_TIME",
-                    time_field, upper_field
+                    "Unknown system column '{}' (normalized: '{}'). Valid system columns: {}, {}",
+                    time_field,
+                    upper_field,
+                    system_columns::TIMESTAMP,
+                    system_columns::EVENT_TIME
                 ),
                 query: None,
             }),
@@ -102,15 +105,16 @@ pub(crate) fn extract_record_timestamp(
             // (e.g., using 'event_time' when the field is actually '_EVENT_TIME').
             //
             // Users should explicitly use:
-            // - '_TIMESTAMP' for Kafka processing-time
-            // - '_EVENT_TIME' for Kafka event-time
+            // - '_timestamp' for Kafka processing-time
+            // - '_event_time' for Kafka event-time
             // - Or ensure their payload field exists
             let error_msg = format!(
                 "Timestamp field '{}' not found in record. \
                 Available fields: {:?}. \
-                Hint: Use '_TIMESTAMP' for Kafka message time, or check field name spelling.",
+                Hint: Use '{}' for Kafka message time, or check field name spelling.",
                 time_field,
-                rec.fields.keys().collect::<Vec<_>>()
+                rec.fields.keys().collect::<Vec<_>>(),
+                system_columns::TIMESTAMP
             );
             log::error!("WINDOW TIMESTAMP ERROR: {}", error_msg);
             Err(SqlError::ExecutionError {
@@ -138,7 +142,7 @@ mod tests {
     #[test]
     fn test_system_column_timestamp() {
         let record = create_test_record(1234567890);
-        let ts = extract_record_timestamp(&record, "_TIMESTAMP").unwrap();
+        let ts = extract_record_timestamp(&record, system_columns::TIMESTAMP).unwrap();
         assert_eq!(ts, 1234567890);
     }
 
@@ -197,19 +201,19 @@ mod tests {
         // System columns should match case-insensitively
         let record = create_test_record(1234567890);
 
-        // Lowercase _timestamp
-        let ts = extract_record_timestamp(&record, "_timestamp").unwrap();
-        assert_eq!(ts, 1234567890, "_timestamp (lowercase) should work");
+        // Canonical lowercase _timestamp
+        let ts = extract_record_timestamp(&record, system_columns::TIMESTAMP).unwrap();
+        assert_eq!(ts, 1234567890, "_timestamp should work");
 
         // Mixed case _TimeStamp
         let ts = extract_record_timestamp(&record, "_TimeStamp").unwrap();
         assert_eq!(ts, 1234567890, "_TimeStamp (mixed case) should work");
 
-        // Lowercase _event_time
-        let ts = extract_record_timestamp(&record, "_event_time").unwrap();
+        // Canonical lowercase _event_time
+        let ts = extract_record_timestamp(&record, system_columns::EVENT_TIME).unwrap();
         assert_eq!(
             ts, 1234567890,
-            "_event_time (lowercase) should work (fallback to timestamp)"
+            "_event_time should work (fallback to timestamp)"
         );
     }
 
@@ -255,7 +259,8 @@ mod tests {
         let shared_record = SharedRecord::new(record);
 
         // System column uses system metadata
-        let system_ts = extract_record_timestamp(&shared_record, "_TIMESTAMP").unwrap();
+        let system_ts =
+            extract_record_timestamp(&shared_record, system_columns::TIMESTAMP).unwrap();
         assert_eq!(system_ts, 9999999999, "System column should use metadata");
 
         // User field uses payload data

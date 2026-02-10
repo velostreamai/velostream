@@ -39,31 +39,44 @@ impl ObservabilityHelper {
         batch_records: &[StreamRecord],
     ) -> Option<BatchSpan> {
         if let Some(obs) = observability {
-            if let Ok(obs_lock) = obs.try_read() {
-                if let Some(telemetry) = obs_lock.telemetry() {
-                    // Extract trace context from first record's Kafka headers
-                    let upstream_context = batch_records.first().and_then(|record| {
-                        let ctx = trace_propagation::extract_trace_context(&record.headers);
-                        if ctx.is_some() {
-                            debug!(
-                                "Job '{}': 🔗 Extracted upstream trace context from Kafka headers",
-                                job_name
+            // Retry try_read() briefly to avoid dropping trace spans when a concurrent
+            // write lock is held during startup (e.g., metrics registration).
+            let obs_lock = match obs.try_read() {
+                Ok(lock) => lock,
+                Err(_) => {
+                    // Brief retry: yield and try once more before giving up
+                    std::thread::yield_now();
+                    match obs.try_read() {
+                        Ok(lock) => lock,
+                        Err(_) => {
+                            warn!(
+                                "Job '{}': ⚠️  Could not acquire observability read lock for batch span (write lock held), skipping trace for batch #{}",
+                                job_name, batch_number
                             );
-                        } else {
-                            debug!(
-                                "Job '{}': 🆕 No upstream trace context - starting new trace",
-                                job_name
-                            );
+                            return None;
                         }
-                        ctx
-                    });
-
-                    return Some(telemetry.start_batch_span(
-                        job_name,
-                        batch_number,
-                        upstream_context,
-                    ));
+                    }
                 }
+            };
+            if let Some(telemetry) = obs_lock.telemetry() {
+                // Extract trace context from first record's Kafka headers
+                let upstream_context = batch_records.first().and_then(|record| {
+                    let ctx = trace_propagation::extract_trace_context(&record.headers);
+                    if ctx.is_some() {
+                        debug!(
+                            "Job '{}': 🔗 Extracted upstream trace context from Kafka headers",
+                            job_name
+                        );
+                    } else {
+                        debug!(
+                            "Job '{}': 🆕 No upstream trace context - starting new trace",
+                            job_name
+                        );
+                    }
+                    ctx
+                });
+
+                return Some(telemetry.start_batch_span(job_name, batch_number, upstream_context));
             }
         }
         None

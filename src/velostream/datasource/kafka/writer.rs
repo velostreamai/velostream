@@ -13,7 +13,7 @@ use crate::velostream::kafka::kafka_fast_producer::{PolledProducer, Transactiona
 use crate::velostream::serialization::helpers::{
     create_avro_codec, create_protobuf_codec, field_value_to_json,
 };
-use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::sql::execution::types::{StreamRecord, system_columns};
 use async_trait::async_trait;
 use rdkafka::{
     ClientConfig,
@@ -980,15 +980,15 @@ impl KafkaDataWriter {
         record: &StreamRecord,
     ) {
         json_obj.insert(
-            "_timestamp".to_string(),
+            system_columns::TIMESTAMP.to_string(),
             Value::Number(serde_json::Number::from(record.timestamp)),
         );
         json_obj.insert(
-            "_offset".to_string(),
+            system_columns::OFFSET.to_string(),
             Value::Number(serde_json::Number::from(record.offset)),
         );
         json_obj.insert(
-            "_partition".to_string(),
+            system_columns::PARTITION.to_string(),
             Value::Number(serde_json::Number::from(record.partition)),
         );
     }
@@ -1208,8 +1208,11 @@ impl DataWriter for KafkaDataWriter {
             let et_ms = event_time.timestamp_millis();
             kafka_record = kafka_record.timestamp(et_ms);
             // Ensure _event_time header is present (aggregation outputs may lack it)
-            if !headers.iter().any(|(k, _)| k == "_event_time") {
-                headers.push(("_event_time".to_string(), et_ms.to_string().into_bytes()));
+            if !headers.iter().any(|(k, _)| k == system_columns::EVENT_TIME) {
+                headers.push((
+                    system_columns::EVENT_TIME.to_string(),
+                    et_ms.to_string().into_bytes(),
+                ));
             }
         }
 
@@ -1344,9 +1347,12 @@ impl DataWriter for KafkaDataWriter {
             // Add headers if present, injecting _event_time for aggregation outputs
             let mut headers = self.convert_headers(&record_arc.headers);
             if let Some(event_time) = record_arc.event_time {
-                if !headers.iter().any(|(k, _)| k == "_event_time") {
+                if !headers.iter().any(|(k, _)| k == system_columns::EVENT_TIME) {
                     let et_ms = event_time.timestamp_millis();
-                    headers.push(("_event_time".to_string(), et_ms.to_string().into_bytes()));
+                    headers.push((
+                        system_columns::EVENT_TIME.to_string(),
+                        et_ms.to_string().into_bytes(),
+                    ));
                 }
             }
             if !headers.is_empty() {

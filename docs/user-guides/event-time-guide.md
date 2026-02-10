@@ -212,6 +212,18 @@ LEFT JOIN market_data_ts m
                           AND p._event_time + INTERVAL '30' SECOND;
 ```
 
+## Event Time in Aggregation Output
+
+When records pass through aggregation operations (GROUP BY, TUMBLING WINDOW, etc.), multiple input records collapse into one output. The `_event_time` Kafka header from input records is **automatically stripped** from the aggregation output to prevent stale values from propagating.
+
+Instead, the aggregation output gets its event time set by the engine:
+- **Windowed aggregations**: `event_time` = window end time
+- **Non-windowed GROUP BY**: `event_time` = None (Kafka writer sets it from context)
+
+This ensures that when the Kafka writer injects the `_event_time` header on the output message, it reflects the correct output time — not a stale input time from one of the aggregated records.
+
+Other headers (trace-id, correlation-id, etc.) **do** propagate from the last input record in the group (last-event-wins semantics). See [FR-090 Header Propagation](../feature/FR-090-header-prop/README.md) for the full design.
+
 ## Event-Time Fallback Behavior
 
 When `_EVENT_TIME` is accessed but the record has no event time set (e.g., the source didn't provide one), the behavior is controlled by the `VELOSTREAM_EVENT_TIME_FALLBACK` environment variable:
@@ -309,3 +321,5 @@ WITH (
 - [Watermarks and Time Semantics](../sql/watermarks-time-semantics.md) — Watermark strategies, late data handling
 - [SQL Annotations](sql-annotations.md) — `@metric` annotations for observability
 - [SQL Copy-Paste Examples](../sql/COPY_PASTE_EXAMPLES.md) — Working SQL examples
+- [Header Access Guide](../sql/header-access.md) — Header functions and automatic propagation
+- [FR-090 Header Propagation](../feature/FR-090-header-prop/README.md) — Header propagation design and implementation

@@ -14,7 +14,7 @@
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder};
 use chrono::DateTime;
 use std::collections::HashMap;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 
 // ===================================================================
 // 1. Stream-Table Join: event_time from stream side
@@ -449,7 +449,7 @@ async fn test_as_event_time_alias_sets_record_event_time() {
 
     // _event_time should be stripped from output fields (it's metadata-only)
     assert!(
-        !output.fields.contains_key("_event_time") && !output.fields.contains_key("_EVENT_TIME"),
+        !output.fields.contains_key(system_columns::EVENT_TIME),
         "_event_time should be stripped from output fields. Fields: {:?}",
         output.fields.keys().collect::<Vec<_>>()
     );

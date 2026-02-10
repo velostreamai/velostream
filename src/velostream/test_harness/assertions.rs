@@ -21,7 +21,7 @@ use super::spec::{
     WindowBoundaryAssertion,
 };
 use super::utils::{field_value_to_string, resolve_path};
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -3112,7 +3112,7 @@ impl AssertionRunner {
             "timestamp",
             "created_at",
             "updated_at",
-            "_timestamp",
+            system_columns::TIMESTAMP,
         ];
         let mut latest_timestamp: Option<i64> = None;
 

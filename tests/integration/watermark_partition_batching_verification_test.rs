@@ -313,10 +313,17 @@ async fn test_watermark_pure_select_performance() {
     println!("Throughput: {:.0} rec/sec", throughput);
 
     // Should be very fast (baseline for comparison)
+    // Use lower threshold for debug builds which are significantly slower
+    let min_throughput = if cfg!(debug_assertions) {
+        50000.0
+    } else {
+        100000.0
+    };
     assert!(
-        throughput > 100000.0,
-        "Pure SELECT throughput too low: {:.0} rec/sec",
-        throughput
+        throughput > min_throughput,
+        "Pure SELECT throughput too low: {:.0} rec/sec (min: {:.0})",
+        throughput,
+        min_throughput
     );
     println!("✅ Pure SELECT performance acceptable");
 }

@@ -24,7 +24,7 @@ use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
 use crate::velostream::sql::execution::config::StreamingConfig;
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 use rdkafka::producer::BaseRecord;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1534,7 +1534,7 @@ impl QueryExecutor {
         let base_record = if let Some(et) = event_time_ms {
             et_str = et.to_string();
             headers = rdkafka::message::OwnedHeaders::new().insert(rdkafka::message::Header {
-                key: "_event_time",
+                key: system_columns::EVENT_TIME,
                 value: Some(et_str.as_bytes()),
             });
             base_record.headers(headers)
