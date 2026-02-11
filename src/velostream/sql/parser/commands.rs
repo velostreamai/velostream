@@ -12,6 +12,7 @@ use super::common::TokenParser;
 use super::*;
 use crate::velostream::sql::ast::*;
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::parser::annotations::{parse_job_name, parse_metric_annotations};
 use std::collections::HashMap;
 
 impl<'a> TokenParser<'a> {
@@ -101,14 +102,19 @@ impl<'a> TokenParser<'a> {
         // Consume optional semicolon
         self.consume_semicolon();
 
+        // Parse metric annotations and job name from SQL comments
+        let comment_strings = self.get_comment_strings();
+        let metric_annotations = parse_metric_annotations(&comment_strings)?;
+        let job_name = parse_job_name(&comment_strings)?;
+
         Ok(StreamingQuery::CreateStream {
             name,
             columns,
             as_select,
             properties,
             emit_mode,
-            metric_annotations: Vec::new(), // Annotations are parsed by app-level code
-            job_name: None,                 // Job name annotation parsed by app-level code
+            metric_annotations,
+            job_name,
         })
     }
 
@@ -305,7 +311,12 @@ impl<'a> TokenParser<'a> {
             }
         };
 
-        // Check for optional pattern (e.g., SHOW STREAMS 'prefix%')
+        // Check for optional pattern (e.g., SHOW STREAMS 'prefix%' or SHOW STREAMS LIKE 'prefix%')
+        // Consume optional LIKE keyword
+        if self.current_token().token_type == TokenType::Like {
+            self.advance();
+        }
+
         let pattern = if self.current_token().token_type == TokenType::String {
             let p = self.current_token().value.clone();
             self.advance();

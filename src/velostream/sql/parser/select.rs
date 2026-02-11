@@ -21,7 +21,7 @@ SELECT parsing is the core of the SQL query processor, handling:
 
 ## Architecture
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   parse_select  │────▶│ parse_select_   │────▶│ StreamingQuery  │
 │  (full WITH)    │     │   fields()      │     │    ::Select     │

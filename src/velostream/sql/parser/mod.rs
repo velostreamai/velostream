@@ -350,10 +350,12 @@ impl StreamingSqlParser {
         keywords.insert("FUNCTIONS".to_string(), TokenType::Functions);
         keywords.insert("SCHEMA".to_string(), TokenType::Schema);
         keywords.insert("JOBS".to_string(), TokenType::Jobs);
+        keywords.insert("QUERIES".to_string(), TokenType::Jobs); // Backward compatibility alias
         keywords.insert("PARTITIONS".to_string(), TokenType::Partitions);
         keywords.insert("START".to_string(), TokenType::Start);
         keywords.insert("STOP".to_string(), TokenType::Stop);
         keywords.insert("JOB".to_string(), TokenType::Job);
+        keywords.insert("QUERY".to_string(), TokenType::Job); // Backward compatibility alias
         keywords.insert("FORCE".to_string(), TokenType::Force);
         keywords.insert("PAUSE".to_string(), TokenType::Pause);
         keywords.insert("RESUME".to_string(), TokenType::Resume);

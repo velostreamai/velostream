@@ -15,7 +15,7 @@ The `TokenParser` is the workhorse of the streaming SQL parser, providing:
 
 ## Architecture
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   Tokenizer     │────▶│  TokenParser    │────▶│   AST Nodes     │
 │ (produces       │     │ (navigates      │     │ (structured     │
@@ -54,10 +54,8 @@ simple names (`_timestamp` → `_TIMESTAMP`) and qualified names
 
 ## Usage Example
 
-```rust,no_run
-use velostream::velostream::sql::parser::common::TokenParser;
-use velostream::velostream::sql::ast::Token;
-
+```rust,ignore
+// Example of using TokenParser methods
 fn parse_custom_clause(parser: &mut TokenParser) -> Result<(), SqlError> {
     // Expect keyword
     parser.expect_keyword("CUSTOM")?;
@@ -91,6 +89,8 @@ use crate::velostream::sql::execution::types::system_columns;
 ///
 /// # Examples
 /// ```
+/// use velostream::velostream::sql::parser::common::normalize_column_name;
+///
 /// assert_eq!(normalize_column_name("_timestamp".to_string()), "_TIMESTAMP");
 /// assert_eq!(normalize_column_name("m._event_time".to_string()), "m._EVENT_TIME");
 /// assert_eq!(normalize_column_name("user_id".to_string()), "user_id");
@@ -148,6 +148,17 @@ impl<'a> TokenParser<'a> {
             sql_text,
             comments,
         }
+    }
+
+    /// Get comment tokens for annotation parsing.
+    ///
+    /// Returns comment strings extracted from the token stream,
+    /// which can be passed to annotation parsing functions.
+    ///
+    /// # Returns
+    /// Vector of comment strings (without leading `--` or `/* */`)
+    pub fn get_comment_strings(&self) -> Vec<String> {
+        self.comments.iter().map(|t| t.value.clone()).collect()
     }
 
     /// Create an enhanced parse error with context from current parser state.

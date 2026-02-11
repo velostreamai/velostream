@@ -8,7 +8,7 @@ complete precedence hierarchy from logical operators down to primary expressions
 
 The parser implements standard SQL operator precedence using a recursive descent approach:
 
-```
+```text
 Level 1 (Lowest):  Logical OR                  (parse_logical_or)
 Level 2:           Logical AND                 (parse_logical_and)
 Level 3:           Comparisons/IS/IN/BETWEEN   (parse_comparison)
@@ -85,9 +85,7 @@ All parsing methods return `Result<Expr, SqlError>` with detailed error messages
 
 ## Examples
 
-```rust,no_run
-use velostream::velostream::sql::parser::common::TokenParser;
-
+```rust,ignore
 // Parse a simple arithmetic expression
 let expr = parser.parse_expression()?; // "amount * 1.05"
 

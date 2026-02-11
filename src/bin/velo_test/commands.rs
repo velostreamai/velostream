@@ -456,10 +456,10 @@ pub async fn run(
                 infra
             }
             Err(e) => {
-                if bootstrap_servers.is_some() {
+                if let Some(ref bs) = bootstrap_servers {
                     // Fall back to configured Kafka if testcontainers fails
                     eprintln!("⚠️  Testcontainers failed ({}), using configured Kafka", e);
-                    TestHarnessInfra::with_kafka(bootstrap_servers.as_ref().unwrap())
+                    TestHarnessInfra::with_kafka(bs)
                 } else {
                     eprintln!("❌ Failed to start testcontainers Kafka: {}", e);
                     eprintln!("   Make sure Docker is running and try again");
@@ -528,7 +528,7 @@ pub async fn run(
         if !keep_containers {
             let _ = infra.stop().await;
         }
-        return Ok(());
+        Ok(())
     } else {
         // Step 4: Create config overrides
         let run_id = format!(

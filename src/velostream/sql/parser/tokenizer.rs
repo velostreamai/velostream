@@ -25,11 +25,7 @@ The tokenizer produces the following token categories:
 
 ## Examples
 
-```rust,no_run
-use velostream::velostream::sql::parser::StreamingSqlParser;
-
-let parser = StreamingSqlParser::new();
-
+```rust,ignore
 // Tokenize with comments separated
 let (tokens, comments) = parser.tokenize_with_comments(
     "-- @metric: counter_total\n\
