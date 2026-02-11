@@ -27,8 +27,6 @@ pub mod ctas_sql_integration_test;
 
 // Kafka serialization and validation tests
 pub mod kafka_configurable_serialization_test;
-pub mod post_cleanup_validation_test;
-
 // Phase 2B: Kafka consumer integration tests with testcontainers
 pub mod kafka;
 
