@@ -105,12 +105,8 @@ use crate::velostream::sql::execution::types::system_columns;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub mod annotations;
-pub mod validator;
-
-// AggregateValidator is used for validation of aggregate expressions
-#[allow(unused_imports)]
-use self::validator::AggregateValidator;
+// Use submodules declared in parser/mod.rs
+use super::{annotations, validator::AggregateValidator};
 
 /// Main parser for streaming SQL queries.
 ///
