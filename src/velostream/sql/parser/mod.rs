@@ -185,7 +185,6 @@ pub enum TokenType {
     Topics,     // TOPICS
     Functions,  // FUNCTIONS
     Schema,     // SCHEMA
-    Properties, // PROPERTIES
     Jobs,       // JOBS (renamed from Queries)
     Partitions, // PARTITIONS
     Start,      // START
@@ -203,7 +202,6 @@ pub enum TokenType {
     Rolling,    // ROLLING
     Replace,    // REPLACE
     Versions,   // VERSIONS
-    Metrics,    // METRICS
     Describe,   // DESCRIBE
 
     // Emit Mode Keywords
@@ -412,8 +410,6 @@ impl StreamingSqlParser {
         keywords.insert("PRIMARY".to_string(), TokenType::Primary);
         keywords.insert("KEY".to_string(), TokenType::Key);
         keywords.insert("NULL".to_string(), TokenType::Null);
-        keywords.insert("METRICS".to_string(), TokenType::Metrics);
-        keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
 
         StreamingSqlParser { keywords }
     }
