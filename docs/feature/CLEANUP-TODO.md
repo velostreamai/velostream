@@ -69,6 +69,29 @@ Coverage was at ~19% (10 reader tests, 0 data source tests). Added 33 new tests 
 
 - [x] `once_cell` dependency removed — replaced with `std::sync::OnceLock` (stdlib since Rust 1.70)
 - [x] All `src/` clippy warnings eliminated (see below)
+- [x] Parser refactoring — `parser.rs` (4.6K) modularized into directory structure (see below)
+
+### Parser Refactoring (`src/velostream/sql/parser/`)
+
+Converted monolithic `parser.rs` (4.6K lines) into organized directory structure:
+
+| Module | Purpose |
+|--------|---------|
+| `parser/core.rs` | Main parser implementation (4.6K lines) |
+| `parser/lexer.rs` | Tokenization logic |
+| `parser/mod.rs` | Module coordination and re-exports |
+| `parser/annotations.rs` | SQL annotation parsing (existing) |
+| `parser/validator.rs` | Aggregate validation (existing) |
+
+**Benefits:**
+- Better code organization and navigation
+- Clearer separation of concerns (lexer vs parser)
+- Foundation for future fine-grained splits (select.rs, ddl.rs, clauses.rs)
+- Maintains all functionality and tests (977 passing)
+
+**Files changed:**
+- Deleted: `src/velostream/sql/parser.rs`
+- Created: `parser/core.rs`, `parser/lexer.rs`, `parser/mod.rs`
 
 ### `once_cell` → `std::sync::OnceLock` Migration
 
@@ -120,7 +143,8 @@ Used `cargo clippy --message-format=json` with a Python script to parse machine-
 
 ## Low Priority (long-term)
 
-- [ ] Large files — `assertions.rs` (5.7K lines), `velo-test.rs` (5.2K), `parser.rs` (4.6K)
+- [ ] Large files — `assertions.rs` (5.7K lines), `velo-test.rs` (5.2K)
+- [ ] Further parser splits — `parser/core.rs` (4.6K) into select.rs, ddl.rs, clauses.rs, etc.
 - [ ] 27 files with TODO/FIXME — audit and ticket
 - [ ] ~141 files in `src/` with wildcard imports (`use ..::*`)
 - [ ] Duplicate transitive deps (axum 0.6/0.8, base64 0.21/0.22) — blocked on upstream
