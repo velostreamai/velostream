@@ -297,7 +297,7 @@ impl<'a> TokenParser<'a> {
             _ => {
                 return Err(SqlError::ParseError {
                     message: format!(
-                        "Expected resource type (STREAMS, TABLES, TOPICS, FUNCTIONS, JOBS, STATUS, VERSIONS, METRICS, SCHEMA, PROPERTIES, or PARTITIONS), found {}",
+                        "Expected resource type (STREAMS, TABLES, TOPICS, FUNCTIONS, JOBS, VERSIONS, SCHEMA, or PARTITIONS), found {}",
                         self.current_token().value
                     ),
                     position: Some(self.current_token().position),
