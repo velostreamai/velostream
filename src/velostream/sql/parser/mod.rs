@@ -202,7 +202,6 @@ pub enum TokenType {
     Canary,     // CANARY
     Rolling,    // ROLLING
     Replace,    // REPLACE
-    Status,     // STATUS
     Versions,   // VERSIONS
     Metrics,    // METRICS
     Describe,   // DESCRIBE
@@ -413,7 +412,6 @@ impl StreamingSqlParser {
         keywords.insert("PRIMARY".to_string(), TokenType::Primary);
         keywords.insert("KEY".to_string(), TokenType::Key);
         keywords.insert("NULL".to_string(), TokenType::Null);
-        keywords.insert("STATUS".to_string(), TokenType::Status);
         keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
 
