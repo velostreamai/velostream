@@ -226,7 +226,7 @@ mod tests {
     fn test_valid_function() {
         let validator = SemanticValidator::new();
         // Use GROUP BY to provide grouping context for aggregate function
-        let query = parse_query("SELECT status, COUNT(*) FROM orders GROUP BY status");
+        let query = parse_query("SELECT order_status, COUNT(*) FROM orders GROUP BY order_status");
         let mut result = QueryValidationResult::new(String::new());
 
         validator.validate(&query, &mut result);
