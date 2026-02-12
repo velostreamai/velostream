@@ -31,25 +31,82 @@ Velostream fuses SQL expressiveness, windowed computation, and AI-ready introspe
 **IP** = deterministic arithmetic + single binary simplicity + introspection hooks.
 **Differentiation** = developer-first, zero-cluster precision analytics for finance/IoT.
 
-## 🚀 Quick Start
+---
 
-### Prerequisites
+## 📥 Installation
+
+### Option 1: Download Pre-Built Binaries (Recommended)
+
+**No Rust toolchain required!** Download pre-built binaries from [GitHub Releases](https://github.com/velostreamai/velostream/releases/latest).
+
+#### Linux (x86_64)
+```bash
+wget https://github.com/velostreamai/velostream/releases/latest/download/velostream-latest-x86_64-unknown-linux-musl.tar.gz
+tar xzf velostream-latest-x86_64-unknown-linux-musl.tar.gz
+cd velostream-latest-x86_64-unknown-linux-musl
+./bin/velo-sql --version
+```
+
+#### macOS (Apple Silicon)
+```bash
+curl -LO https://github.com/velostreamai/velostream/releases/latest/download/velostream-latest-aarch64-apple-darwin.tar.gz
+tar xzf velostream-latest-aarch64-apple-darwin.tar.gz
+cd velostream-latest-aarch64-apple-darwin
+./bin/velo-sql --version
+```
+
+#### macOS (Intel)
+```bash
+curl -LO https://github.com/velostreamai/velostream/releases/latest/download/velostream-latest-x86_64-apple-darwin.tar.gz
+tar xzf velostream-latest-x86_64-apple-darwin.tar.gz
+cd velostream-latest-x86_64-apple-darwin
+./bin/velo-sql --version
+```
+
+#### Windows (x86_64)
+Download the `.zip` file from [Releases](https://github.com/velostreamai/velostream/releases/latest) and extract it.
+
+**See [Installation Guide](docs/user-guides/INSTALLATION.md) for all platforms, verification steps, and troubleshooting.**
+
+### Option 2: Build from Source
+
+**Prerequisites**:
 - **Rust 1.91+** (`rustup update stable`)
 - **Docker** (for Kafka via `docker-compose`)
-
-### 1. Build
 
 ```bash
 cargo build --release --bin velo-sql
 ```
 
-### 2. Start Kafka
+---
+
+## 🚀 Quick Start
+
+After installing (download or build), try the demos:
+
+### 1. Run the 1BRC Demo
+
+```bash
+cd demo/1brc
+./run-1brc.sh  # Works out-of-the-box!
+```
+
+### 2. Try the Trading Demo
+
+```bash
+cd demo/trading
+./start-demo.sh --quick  # Requires Docker for Kafka
+```
+
+### 3. Write Your First SQL Application
+
+Start Kafka:
 
 ```bash
 docker-compose up -d
 ```
 
-### 3. Write a SQL Application
+Create `app.sql`:
 
 Create `app.sql`:
 
@@ -67,6 +124,10 @@ INTO high_value_orders;
 ### 4. Deploy
 
 ```bash
+# If downloaded binary (add to PATH first: source setup-env.sh)
+velo-sql deploy-app --file app.sql --brokers localhost:9092
+
+# Or if built from source:
 ./target/release/velo-sql deploy-app --file app.sql --brokers localhost:9092
 ```
 
@@ -75,7 +136,7 @@ INTO high_value_orders;
 Enable Prometheus metrics with `--enable-metrics`:
 
 ```bash
-./target/release/velo-sql deploy-app --file app.sql --brokers localhost:9092 \
+velo-sql deploy-app --file app.sql --brokers localhost:9092 \
   --enable-metrics --metrics-port 9091
 ```
 

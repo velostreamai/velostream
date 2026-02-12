@@ -14,6 +14,10 @@ inputs:
     description: 'Additional cache key suffix for specific workflows'
     required: false
     default: 'default'
+  target:
+    description: 'Additional Rust target to install (e.g., aarch64-apple-darwin)'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -29,6 +33,7 @@ runs:
       with:
         toolchain: ${{ inputs.rust-version }}
         components: ${{ inputs.components }}
+        targets: ${{ inputs.target }}
 
     - name: Unified Smart Cache
       uses: actions/cache@v4
