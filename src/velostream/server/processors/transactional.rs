@@ -567,12 +567,14 @@ impl TransactionalJobProcessor {
         );
 
         // Emit SQL-annotated metrics for output records
+        let queue = self.observability_wrapper.observability_queue().cloned();
         self.observability_wrapper
             .metrics_helper()
             .emit_counter_metrics(
                 query,
                 &output_owned,
                 self.observability_wrapper.observability_ref(),
+                &queue,
                 job_name,
             )
             .await;
@@ -582,6 +584,7 @@ impl TransactionalJobProcessor {
                 query,
                 &output_owned,
                 self.observability_wrapper.observability_ref(),
+                &queue,
                 job_name,
             )
             .await;
@@ -591,6 +594,7 @@ impl TransactionalJobProcessor {
                 query,
                 &output_owned,
                 self.observability_wrapper.observability_ref(),
+                &queue,
                 job_name,
             )
             .await;
@@ -1119,12 +1123,14 @@ impl TransactionalJobProcessor {
 
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
             // Emit SQL-annotated metrics for output records from this source
+            let queue = self.observability_wrapper.observability_queue().cloned();
             self.observability_wrapper
                 .metrics_helper()
                 .emit_counter_metrics(
                     query,
                     &batch_result.output_records,
                     self.observability_wrapper.observability_ref(),
+                    &queue,
                     job_name,
                 )
                 .await;
@@ -1134,6 +1140,7 @@ impl TransactionalJobProcessor {
                     query,
                     &batch_result.output_records,
                     self.observability_wrapper.observability_ref(),
+                    &queue,
                     job_name,
                 )
                 .await;
@@ -1143,6 +1150,7 @@ impl TransactionalJobProcessor {
                     query,
                     &batch_result.output_records,
                     self.observability_wrapper.observability_ref(),
+                    &queue,
                     job_name,
                 )
                 .await;

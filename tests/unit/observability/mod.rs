@@ -1,4 +1,6 @@
 pub mod annotation_extraction_cache_test;
+pub mod async_queue_test;
+pub mod background_flusher_test;
 pub mod distributed_tracing_test;
 pub mod dynamic_metrics_consolidation_test;
 pub mod gauge_dedup_test;

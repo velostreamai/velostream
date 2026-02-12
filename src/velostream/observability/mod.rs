@@ -8,11 +8,15 @@
 //
 // All features are configurable and disabled by default for backward compatibility.
 
+pub mod async_queue;
+pub mod background_flusher;
 pub mod error_tracker;
 pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;
 pub mod query_metadata;
+pub mod queue_config;
+pub mod queued_span_processor;
 pub mod remote_write;
 pub mod resource_monitor;
 pub mod span_collector;

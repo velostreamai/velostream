@@ -617,6 +617,9 @@ impl ProcessorMetricsHelper {
         annotations: Vec<&MetricAnnotation>,
         output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
+        queue: &Option<
+            std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+        >,
         job_name: &str,
         query_name: Option<&str>,
         batch_fn: F,
@@ -884,11 +887,44 @@ impl ProcessorMetricsHelper {
                 // time series and causes remote-write samples with historical event
                 // timestamps to be rejected as out-of-order.
                 if metrics.has_remote_write() {
-                    if let Err(e) = metrics.flush_remote_write().await {
-                        debug!(
-                            "Job '{}': Failed to flush remote-write metrics: {:?}",
-                            job_name, e
-                        );
+                    // Phase 4.1: Use async queue if available (non-blocking)
+                    if let Some(q) = queue {
+                        // Extract samples from metrics provider (non-blocking)
+                        match metrics.take_remote_write_samples() {
+                            Ok(samples) => {
+                                if !samples.is_empty() {
+                                    // Send samples to queue (non-blocking try_send)
+                                    let event = crate::velostream::observability::async_queue::MetricsEvent::FlushRemoteWrite {
+                                        samples: samples.clone(),
+                                        timestamp: std::time::Instant::now(),
+                                    };
+
+                                    if let Err(e) = q.try_send_metrics(event) {
+                                        log::warn!(
+                                            "Job '{}': Metrics queue full, dropping {} samples: {:?}",
+                                            job_name,
+                                            samples.len(),
+                                            e
+                                        );
+                                        q.record_metrics_dropped(samples.len() as u64);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                debug!(
+                                    "Job '{}': Failed to extract remote-write samples: {:?}",
+                                    job_name, e
+                                );
+                            }
+                        }
+                    } else {
+                        // Fallback to blocking flush if queue not enabled (backward compatibility)
+                        if let Err(e) = metrics.flush_remote_write().await {
+                            debug!(
+                                "Job '{}': Failed to flush remote-write metrics: {:?}",
+                                job_name, e
+                            );
+                        }
                     }
                 } else {
                     // No remote-write: fall back to scrape-based emission
@@ -906,6 +942,9 @@ impl ProcessorMetricsHelper {
         query: &StreamingQuery,
         output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
+        queue: &Option<
+            std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+        >,
         job_name: &str,
     ) {
         // Phase 3.2: Use cached annotations instead of extracting from query
@@ -936,6 +975,7 @@ impl ProcessorMetricsHelper {
             counter_annotations,
             output_records,
             observability,
+            queue,
             job_name,
             query_name.as_deref(),
             |batch, annotation, labels, _value| {
@@ -996,6 +1036,9 @@ impl ProcessorMetricsHelper {
         query: &StreamingQuery,
         output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
+        queue: &Option<
+            std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+        >,
         job_name: &str,
     ) {
         // Phase 3.2: Use cached annotations instead of extracting from query
@@ -1026,6 +1069,7 @@ impl ProcessorMetricsHelper {
             gauge_annotations,
             output_records,
             observability,
+            queue,
             job_name,
             query_name.as_deref(),
             |batch, annotation, labels, value| {
@@ -1098,6 +1142,9 @@ impl ProcessorMetricsHelper {
         query: &StreamingQuery,
         output_records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
+        queue: &Option<
+            std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+        >,
         job_name: &str,
     ) {
         // Phase 3.2: Use cached annotations instead of extracting from query
@@ -1128,6 +1175,7 @@ impl ProcessorMetricsHelper {
             histogram_annotations,
             output_records,
             observability,
+            queue,
             job_name,
             query_name.as_deref(),
             |batch, annotation, labels, value| {
@@ -1193,13 +1241,16 @@ impl ProcessorMetricsHelper {
         query: &StreamingQuery,
         records: &[std::sync::Arc<StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
+        queue: &Option<
+            std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+        >,
         job_name: &str,
     ) {
-        self.emit_counter_metrics(query, records, observability, job_name)
+        self.emit_counter_metrics(query, records, observability, queue, job_name)
             .await;
-        self.emit_gauge_metrics(query, records, observability, job_name)
+        self.emit_gauge_metrics(query, records, observability, queue, job_name)
             .await;
-        self.emit_histogram_metrics(query, records, observability, job_name)
+        self.emit_histogram_metrics(query, records, observability, queue, job_name)
             .await;
     }
 }

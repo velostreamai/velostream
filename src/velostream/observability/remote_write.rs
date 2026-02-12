@@ -559,6 +559,23 @@ impl RemoteWriteClient {
         self.dropped_samples.swap(0, Ordering::Relaxed)
     }
 
+    /// Take buffered samples without flushing (for async queue integration)
+    ///
+    /// Returns all buffered samples and clears the buffer. This allows the samples
+    /// to be sent via an async queue for non-blocking operation.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<TimestampedSample>)` - The buffered samples
+    /// * `Err(RemoteWriteError)` - If the buffer lock cannot be acquired
+    pub fn take_samples(&self) -> Result<Vec<TimestampedSample>, RemoteWriteError> {
+        let mut buffer = self
+            .buffer
+            .lock()
+            .map_err(|e| RemoteWriteError::HttpError(format!("Lock error: {}", e)))?;
+        Ok(buffer.take())
+    }
+
     /// Flush all buffered metrics to Prometheus with retry logic
     ///
     /// This method sends all buffered samples to the remote-write endpoint.
@@ -779,6 +796,195 @@ impl RemoteWriteClient {
                 samples.len()
             );
         }
+    }
+
+    /// Send arbitrary samples directly to Prometheus (for async queue integration)
+    ///
+    /// This method sends provided samples directly without using the internal buffer.
+    /// Used by the background flusher to send samples received via the async queue.
+    ///
+    /// # Arguments
+    ///
+    /// * `samples` - Vector of timestamped samples to send
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(usize)` - Number of samples successfully sent
+    /// * `Err(RemoteWriteError)` - If the send operation fails
+    pub async fn send_samples_directly(
+        &self,
+        samples: Vec<TimestampedSample>,
+    ) -> Result<usize, RemoteWriteError> {
+        if samples.is_empty() {
+            return Ok(0);
+        }
+
+        // This is essentially the same logic as flush() but without taking from buffer
+        // Group samples by metric identity (name + sorted labels)
+        let mut series_map: HashMap<String, TimeSeries> = HashMap::new();
+
+        for sample in &samples {
+            // Build the identity key
+            let mut identity_parts = vec![sample.name.clone()];
+            for (name, value) in sample.label_names.iter().zip(sample.label_values.iter()) {
+                identity_parts.push(format!("{}={}", name, value));
+            }
+            let identity = identity_parts.join("|");
+
+            // Get or create the time series
+            let series = series_map.entry(identity).or_insert_with(|| {
+                let mut labels = vec![Label {
+                    name: LABEL_NAME.to_string(),
+                    value: sample.name.clone(),
+                }];
+
+                for (name, value) in sample.label_names.iter().zip(sample.label_values.iter()) {
+                    labels.push(Label {
+                        name: name.clone(),
+                        value: value.clone(),
+                    });
+                }
+
+                TimeSeries {
+                    labels,
+                    samples: Vec::new(),
+                }
+            });
+
+            // Add the sample
+            series.samples.push(Sample {
+                value: sample.value,
+                timestamp: sample.timestamp_ms,
+            });
+        }
+
+        // Sort samples within each time series by timestamp
+        let timeseries: Vec<TimeSeries> = series_map
+            .into_values()
+            .filter_map(|mut ts| {
+                if ts.samples.is_empty() {
+                    return None;
+                }
+                ts.samples.sort_by_key(|s| s.timestamp);
+                ts.samples.dedup_by_key(|s| s.timestamp);
+                Some(ts)
+            })
+            .collect();
+
+        if timeseries.is_empty() {
+            return Ok(0);
+        }
+
+        let sample_count: usize = timeseries.iter().map(|ts| ts.samples.len()).sum();
+
+        // Build the write request
+        let write_request = WriteRequest { timeseries }.sorted();
+
+        // Encode with snappy compression
+        let compressed = write_request
+            .encode_compressed()
+            .map_err(|e| RemoteWriteError::CompressionError(e.to_string()))?;
+
+        // Send with retry logic (simplified version of flush())
+        let mut current_delay = self.retry_config.initial_delay;
+
+        for attempt in 0..=self.retry_config.max_retries {
+            let result = self
+                .http_client
+                .post(&self.endpoint)
+                .header("Content-Encoding", "snappy")
+                .header("Content-Type", "application/x-protobuf")
+                .header("X-Prometheus-Remote-Write-Version", "0.1.0")
+                .body(compressed.clone())
+                .send()
+                .await;
+
+            match result {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        debug!(
+                            "📤 Successfully pushed {} samples to remote-write endpoint",
+                            sample_count
+                        );
+                        return Ok(sample_count);
+                    }
+
+                    let status = response.status();
+
+                    // Don't retry on 4xx client errors (except 429)
+                    if status.is_client_error() && status.as_u16() != 429 {
+                        warn!(
+                            "📤 Remote-write rejected {} samples ({}). Samples dropped.",
+                            sample_count, status
+                        );
+                        self.dropped_samples
+                            .fetch_add(sample_count as u64, std::sync::atomic::Ordering::Relaxed);
+                        return Err(RemoteWriteError::HttpError(format!(
+                            "Permanent failure: {}",
+                            status
+                        )));
+                    }
+
+                    // Retry on 5xx or 429
+                    if attempt < self.retry_config.max_retries {
+                        warn!(
+                            "📤 Remote-write failed ({}), retrying in {:?} (attempt {}/{})",
+                            status,
+                            current_delay,
+                            attempt + 1,
+                            self.retry_config.max_retries
+                        );
+                        tokio::time::sleep(current_delay).await;
+
+                        // Exponential backoff
+                        current_delay = std::cmp::min(
+                            Duration::from_secs_f64(
+                                (current_delay.as_secs_f64()
+                                    * self.retry_config.backoff_multiplier)
+                                    .min(self.retry_config.max_delay.as_secs_f64()),
+                            ),
+                            self.retry_config.max_delay,
+                        );
+                    }
+                }
+                Err(e) => {
+                    if attempt < self.retry_config.max_retries {
+                        warn!(
+                            "📤 Remote-write network error: {}, retrying in {:?} (attempt {}/{})",
+                            e,
+                            current_delay,
+                            attempt + 1,
+                            self.retry_config.max_retries
+                        );
+                        tokio::time::sleep(current_delay).await;
+
+                        // Exponential backoff
+                        current_delay = std::cmp::min(
+                            Duration::from_secs_f64(
+                                (current_delay.as_secs_f64()
+                                    * self.retry_config.backoff_multiplier)
+                                    .min(self.retry_config.max_delay.as_secs_f64()),
+                            ),
+                            self.retry_config.max_delay,
+                        );
+                    } else {
+                        return Err(RemoteWriteError::HttpError(e.to_string()));
+                    }
+                }
+            }
+        }
+
+        // All retries failed
+        error!(
+            "📤 Failed to push {} samples after {} retries",
+            sample_count, self.retry_config.max_retries
+        );
+        self.dropped_samples
+            .fetch_add(sample_count as u64, std::sync::atomic::Ordering::Relaxed);
+        Err(RemoteWriteError::HttpError(format!(
+            "Max retries ({}) exceeded",
+            self.retry_config.max_retries
+        )))
     }
 
     /// Flush if the buffer has reached the batch size or flush interval

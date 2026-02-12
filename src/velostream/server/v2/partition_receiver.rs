@@ -324,23 +324,24 @@ impl PartitionReceiver {
     async fn emit_sql_metrics(&self, output_records: &[Arc<StreamRecord>]) {
         // Get observability reference for metric emission
         let obs = self.observability_wrapper.observability_ref();
+        let queue = self.observability_wrapper.observability_queue().cloned();
 
         // Emit counter metrics
         self.observability_wrapper
             .metrics_helper()
-            .emit_counter_metrics(&self.query, output_records, obs, &self.job_name)
+            .emit_counter_metrics(&self.query, output_records, obs, &queue, &self.job_name)
             .await;
 
         // Emit gauge metrics
         self.observability_wrapper
             .metrics_helper()
-            .emit_gauge_metrics(&self.query, output_records, obs, &self.job_name)
+            .emit_gauge_metrics(&self.query, output_records, obs, &queue, &self.job_name)
             .await;
 
         // Emit histogram metrics
         self.observability_wrapper
             .metrics_helper()
-            .emit_histogram_metrics(&self.query, output_records, obs, &self.job_name)
+            .emit_histogram_metrics(&self.query, output_records, obs, &queue, &self.job_name)
             .await;
     }
 

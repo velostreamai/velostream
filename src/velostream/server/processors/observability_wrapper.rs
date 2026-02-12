@@ -53,10 +53,13 @@
 //! ```
 
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::async_queue::ObservabilityQueue;
+use crate::velostream::observability::background_flusher::BackgroundFlusher;
 use crate::velostream::server::processors::common::DeadLetterQueue;
 use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Unified observability and metrics wrapper for all processors
 ///
@@ -104,6 +107,14 @@ pub struct ObservabilityWrapper {
     /// Optional Dead Letter Queue for failed records
     /// Only used in non-transactional processors (Simple)
     dlq: Option<Arc<DeadLetterQueue>>,
+
+    /// Async observability queue for non-blocking metrics and traces (Phase 4)
+    /// When enabled, metrics flush and trace export happen in background tasks
+    observability_queue: Option<Arc<ObservabilityQueue>>,
+
+    /// Background flusher managing async flush tasks (Phase 4)
+    /// Handles graceful shutdown and final flush
+    background_flusher: Option<Arc<Mutex<Option<BackgroundFlusher>>>>,
 }
 
 impl ObservabilityWrapper {
@@ -114,6 +125,8 @@ impl ObservabilityWrapper {
             metrics_helper: Arc::new(ProcessorMetricsHelper::new()),
             metrics_collector: Arc::new(MetricsCollector::new()),
             dlq: None,
+            observability_queue: None,
+            background_flusher: None,
         }
     }
 
@@ -124,6 +137,8 @@ impl ObservabilityWrapper {
             metrics_helper: Arc::new(ProcessorMetricsHelper::new()),
             metrics_collector: Arc::new(MetricsCollector::new()),
             dlq: None,
+            observability_queue: None,
+            background_flusher: None,
         }
     }
 
@@ -134,6 +149,8 @@ impl ObservabilityWrapper {
             metrics_helper: Arc::new(ProcessorMetricsHelper::new()),
             metrics_collector: Arc::new(MetricsCollector::new()),
             dlq: Some(Arc::new(DeadLetterQueue::new())),
+            observability_queue: None,
+            background_flusher: None,
         }
     }
 
@@ -144,6 +161,63 @@ impl ObservabilityWrapper {
             metrics_helper: Arc::new(ProcessorMetricsHelper::new()),
             metrics_collector: Arc::new(MetricsCollector::new()),
             dlq: Some(Arc::new(DeadLetterQueue::new())),
+            observability_queue: None,
+            background_flusher: None,
+        }
+    }
+
+    /// Create a new wrapper with observability and async queue support (Phase 4)
+    ///
+    /// Initializes the async observability queue and starts background flush tasks.
+    /// This enables non-blocking metrics and trace submission.
+    ///
+    /// # Arguments
+    ///
+    /// * `observability` - Optional observability manager
+    /// * `config` - Queue configuration (sizes, flush intervals, retry settings)
+    ///
+    /// # Returns
+    ///
+    /// ObservabilityWrapper with async queue enabled
+    ///
+    /// # Example
+    /// ```ignore
+    /// use velostream::observability::queue_config::ObservabilityQueueConfig;
+    ///
+    /// let config = ObservabilityQueueConfig::default();
+    /// let wrapper = ObservabilityWrapper::with_observability_and_async_queue(
+    ///     Some(obs_manager),
+    ///     config,
+    /// ).await;
+    /// ```
+    pub async fn with_observability_and_async_queue(
+        observability: Option<SharedObservabilityManager>,
+        config: crate::velostream::observability::queue_config::ObservabilityQueueConfig,
+    ) -> Self {
+        use crate::velostream::observability::async_queue::ObservabilityQueue;
+        use crate::velostream::observability::background_flusher::BackgroundFlusher;
+
+        // Extract metrics and telemetry providers from observability
+        // Note: Providers are not cloneable, so we skip queue initialization
+        // if observability is present. This is a temporary solution until
+        // providers can be shared across the queue.
+        let (metrics_provider, telemetry_provider) = (None, None);
+
+        // Create async queue
+        let (queue, receivers) = ObservabilityQueue::new(config.clone());
+        let queue = Arc::new(queue);
+
+        // Start background flush tasks
+        let flusher =
+            BackgroundFlusher::start(receivers, metrics_provider, telemetry_provider, config).await;
+
+        Self {
+            observability,
+            metrics_helper: Arc::new(ProcessorMetricsHelper::new()),
+            metrics_collector: Arc::new(MetricsCollector::new()),
+            dlq: None,
+            observability_queue: Some(queue),
+            background_flusher: Some(Arc::new(Mutex::new(Some(flusher)))),
         }
     }
 
@@ -193,6 +267,32 @@ impl ObservabilityWrapper {
     /// ```
     pub fn has_dlq(&self) -> bool {
         self.dlq.is_some()
+    }
+
+    /// Get reference to observability queue (if enabled)
+    ///
+    /// Returns None if async queue is not enabled, otherwise returns a reference to the
+    /// ObservabilityQueue for non-blocking metrics and trace submission.
+    ///
+    /// # Returns
+    /// `Option<&Arc<ObservabilityQueue>>` - Queue reference or None if disabled
+    ///
+    /// # Example
+    /// ```ignore
+    /// if let Some(queue) = wrapper.observability_queue() {
+    ///     let event = MetricsEvent::Flush { batch, timestamp: Instant::now() };
+    ///     if let Err(e) = queue.try_send_metrics(event) {
+    ///         warn!("Metrics queue full, dropping batch");
+    ///     }
+    /// }
+    /// ```
+    pub fn observability_queue(&self) -> Option<&Arc<ObservabilityQueue>> {
+        self.observability_queue.as_ref()
+    }
+
+    /// Check if observability queue is enabled
+    pub fn has_observability_queue(&self) -> bool {
+        self.observability_queue.is_some()
     }
 
     /// Get reference to DLQ (if enabled)
@@ -283,6 +383,36 @@ impl ObservabilityWrapper {
             has_dlq: self.has_dlq(),
         }
     }
+
+    /// Shutdown async observability queue and background flusher (Phase 4)
+    ///
+    /// Performs graceful shutdown of background flush tasks, ensuring final flush
+    /// of pending metrics and traces before termination.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Maximum time to wait for tasks to complete
+    ///
+    /// # Example
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// wrapper.shutdown_async_queue(Duration::from_secs(5)).await?;
+    /// ```
+    pub async fn shutdown_async_queue(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<(), crate::velostream::sql::error::SqlError> {
+        if let Some(flusher_arc) = &self.background_flusher {
+            let mut flusher_guard = flusher_arc.lock().await;
+            if let Some(flusher) = flusher_guard.take() {
+                log::info!("🔄 Shutting down observability async queue...");
+                flusher.shutdown(timeout).await?;
+                log::info!("✅ Observability async queue shut down successfully");
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for ObservabilityWrapper {
@@ -341,6 +471,8 @@ impl ObservabilityWrapperBuilder {
             } else {
                 None
             },
+            observability_queue: None,
+            background_flusher: None,
         }
     }
 }

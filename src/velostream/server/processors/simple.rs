@@ -211,21 +211,22 @@ impl SimpleJobProcessor {
         job_name: &str,
     ) {
         let obs = self.observability_wrapper.observability().cloned();
+        let queue = self.observability_wrapper.observability_queue().cloned();
 
         // Emit all metric types with a single clone
         self.observability_wrapper
             .metrics_helper()
-            .emit_counter_metrics(query, output_records, &obs, job_name)
+            .emit_counter_metrics(query, output_records, &obs, &queue, job_name)
             .await;
 
         self.observability_wrapper
             .metrics_helper()
-            .emit_gauge_metrics(query, output_records, &obs, job_name)
+            .emit_gauge_metrics(query, output_records, &obs, &queue, job_name)
             .await;
 
         self.observability_wrapper
             .metrics_helper()
-            .emit_histogram_metrics(query, output_records, &obs, job_name)
+            .emit_histogram_metrics(query, output_records, &obs, &queue, job_name)
             .await
     }
 
@@ -252,9 +253,10 @@ impl SimpleJobProcessor {
         job_name: &str,
     ) {
         let obs = self.observability_wrapper.observability().cloned();
+        let queue = self.observability_wrapper.observability_queue().cloned();
         self.observability_wrapper
             .metrics_helper()
-            .emit_gauge_metrics(query, output_records, &obs, job_name)
+            .emit_gauge_metrics(query, output_records, &obs, &queue, job_name)
             .await
     }
 
@@ -281,9 +283,10 @@ impl SimpleJobProcessor {
         job_name: &str,
     ) {
         let obs = self.observability_wrapper.observability().cloned();
+        let queue = self.observability_wrapper.observability_queue().cloned();
         self.observability_wrapper
             .metrics_helper()
-            .emit_histogram_metrics(query, output_records, &obs, job_name)
+            .emit_histogram_metrics(query, output_records, &obs, &queue, job_name)
             .await
     }
 

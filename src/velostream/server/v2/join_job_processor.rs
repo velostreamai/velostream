@@ -173,6 +173,9 @@ impl JoinJobProcessor {
         metrics_helper: &ProcessorMetricsHelper,
         query: &Option<Arc<StreamingQuery>>,
         observability: &Option<SharedObservabilityManager>,
+        queue: &Option<
+            std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+        >,
         job_name_for_metrics: &Option<String>,
         stats: &mut JoinJobStats,
         flush_writer: bool,
@@ -182,7 +185,7 @@ impl JoinJobProcessor {
         // Emit metrics for the batch
         if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
             metrics_helper
-                .emit_all_metrics(q, output_buffer, observability, jn)
+                .emit_all_metrics(q, output_buffer, observability, queue, jn)
                 .await;
         }
 
@@ -397,12 +400,16 @@ impl JoinJobProcessor {
                         // Flush when buffer is full
                         if output_buffer.len() >= self.config.output_batch_size {
                             flush_count += 1;
+                            // Note: JoinJobProcessor doesn't have access to ObservabilityWrapper,
+                            // so queue is not available here. Pass None for now.
+                            let queue: Option<std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>> = None;
                             Self::flush_output_buffer(
                                 &mut output_buffer,
                                 &writer,
                                 &metrics_helper,
                                 &query,
                                 &observability,
+                                &queue,
                                 &job_name_for_metrics,
                                 &mut stats,
                                 false,
@@ -427,12 +434,18 @@ impl JoinJobProcessor {
                             output_buffer.len()
                         );
                         flush_count += 1;
+                        let queue: Option<
+                            std::sync::Arc<
+                                crate::velostream::observability::async_queue::ObservabilityQueue,
+                            >,
+                        > = None;
                         Self::flush_output_buffer(
                             &mut output_buffer,
                             &writer,
                             &metrics_helper,
                             &query,
                             &observability,
+                            &queue,
                             &job_name_for_metrics,
                             &mut stats,
                             true,
@@ -463,12 +476,16 @@ impl JoinJobProcessor {
         // Flush remaining output
         if !output_buffer.is_empty() {
             flush_count += 1;
+            let queue: Option<
+                std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+            > = None;
             Self::flush_output_buffer(
                 &mut output_buffer,
                 &writer,
                 &metrics_helper,
                 &query,
                 &observability,
+                &queue,
                 &job_name_for_metrics,
                 &mut stats,
                 true,
@@ -975,6 +992,7 @@ mod tests {
             &metrics_helper,
             &None, // no query
             &observability,
+            &None, // no queue
             &Some("test-flush-job".to_string()),
             &mut stats,
             false,
@@ -1006,6 +1024,7 @@ mod tests {
             &metrics_helper,
             &None, // no query
             &None, // no observability
+            &None, // no queue
             &Some("test-no-obs-job".to_string()),
             &mut stats,
             false,
@@ -1041,6 +1060,7 @@ mod tests {
             &metrics_helper,
             &None, // no query
             &observability,
+            &None, // no queue
             &None, // no job name — should fall back to "join"
             &mut stats,
             false,

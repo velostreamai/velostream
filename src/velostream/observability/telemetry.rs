@@ -206,6 +206,10 @@ impl TelemetryProvider {
                     log::info!("✅ OTLP exporter created successfully for {}", endpoint);
 
                     // Configure batch processor with larger queue for high-throughput streaming
+                    // NOTE: QueuedSpanProcessor is available for non-blocking trace submission
+                    // (see src/velostream/observability/queued_span_processor.rs).
+                    // To activate: pass ObservabilityQueue to TelemetryProvider during init
+                    // and use QueuedSpanProcessor::new(queue, exporter) instead.
                     let batch_processor = opentelemetry_sdk::trace::BatchSpanProcessor::builder(
                         exporter,
                         runtime::Tokio,
