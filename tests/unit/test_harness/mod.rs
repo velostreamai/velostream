@@ -2,6 +2,7 @@ pub mod ai_mock_test;
 pub mod assertions_test;
 pub mod capture_test;
 pub mod data_hints_test;
+pub mod event_time_header_test;
 pub mod executor_internals_test;
 pub mod executor_test;
 pub mod generator_test;
