@@ -2,6 +2,9 @@ use std::io::Result;
 use std::process::Command;
 
 fn main() -> Result<()> {
+    // Use vendored protoc for cross-compilation
+    std::env::set_var("PROTOC", protobuf_src::protoc());
+
     // Always build protobuf definitions
     prost_build::compile_protos(&["src/velostream/serialization/financial.proto"], &["src/"])?;
 

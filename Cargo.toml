@@ -109,6 +109,7 @@ memmap2 = "0.9"  # Memory-mapped file I/O for 1BRC demo
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }
+protobuf-src = "2.1"  # Vendor protoc compiler for cross-compilation
 
 [dev-dependencies]
 serial_test = "2.0.0"
