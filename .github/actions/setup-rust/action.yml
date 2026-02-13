@@ -1,5 +1,5 @@
 name: 'Setup Rust Environment'
-description: 'Install Rust toolchain, Protocol Buffers compiler, and setup unified caching'
+description: 'Install Rust toolchain and setup unified caching'
 
 inputs:
   rust-version:
@@ -22,12 +22,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler libprotobuf-dev
-      shell: bash
-
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@master
       with:
