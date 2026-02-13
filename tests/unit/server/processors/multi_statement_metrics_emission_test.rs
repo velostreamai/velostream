@@ -209,17 +209,18 @@ WITH (
             })
             .collect();
 
+        let queue = wrapper.observability_queue().cloned();
         wrapper
             .metrics_helper()
-            .emit_counter_metrics(&query, &records, &server_obs, &job_name)
+            .emit_counter_metrics(&query, &records, &server_obs, &queue, &job_name)
             .await;
         wrapper
             .metrics_helper()
-            .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+            .emit_gauge_metrics(&query, &records, &server_obs, &queue, &job_name)
             .await;
         wrapper
             .metrics_helper()
-            .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+            .emit_histogram_metrics(&query, &records, &server_obs, &queue, &job_name)
             .await;
     }
 

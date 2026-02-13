@@ -9,7 +9,6 @@
 use std::collections::HashMap;
 use velostream::velostream::sql::{
     SqlError,
-    ast::{IntoClause, SelectField, StreamSource, StreamingQuery},
     parser::StreamingSqlParser,
     query_analyzer::{DataSinkType, DataSourceType, QueryAnalyzer},
 };

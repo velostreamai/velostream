@@ -12,10 +12,8 @@ Tests covered:
 */
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::ast::{
     Expr, SelectField, StreamSource, StreamingQuery, WindowSpec,
 };
@@ -192,7 +190,7 @@ async fn test_windowed_execution_tumbling() {
                     total
                 );
             }
-            Some(FieldValue::ScaledInteger(val, scale)) => {
+            Some(FieldValue::ScaledInteger(val, _scale)) => {
                 assert!(
                     *val > 0,
                     "ScaledInteger SUM should be positive, got {}",

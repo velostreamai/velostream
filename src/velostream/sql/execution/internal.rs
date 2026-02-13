@@ -174,7 +174,8 @@ pub struct GroupAccumulator {
     pub distinct_values: HashMap<String, HashSet<String>>,
     /// HyperLogLog estimators for APPROX_COUNT_DISTINCT
     pub approx_distinct_values: HashMap<String, HyperLogLogPlus<String, RandomState>>,
-    /// Sample record for non-aggregate fields (takes first record's values)
+    /// Sample record for non-aggregate fields (FR-090: takes LAST record's values
+    /// for last-event-wins header propagation)
     pub sample_record: Option<StreamRecord>,
     /// Track whether all SUM inputs were Integer (true) or any were Float (false)
     pub sum_all_integer: HashMap<String, bool>,
@@ -362,11 +363,12 @@ impl GroupAccumulator {
         }
     }
 
-    /// Set the sample record if not already set
+    /// Update the sample record to the latest record (FR-090: last-event-wins).
+    ///
+    /// Always overwrites the previous sample record so that aggregation output
+    /// carries headers from the most recent input record in the group.
     pub fn set_sample_record(&mut self, record: StreamRecord) {
-        if self.sample_record.is_none() {
-            self.sample_record = Some(record);
-        }
+        self.sample_record = Some(record);
     }
 
     /// Add a value to the set of distinct values for COUNT_DISTINCT

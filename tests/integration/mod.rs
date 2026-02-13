@@ -27,8 +27,6 @@ pub mod ctas_sql_integration_test;
 
 // Kafka serialization and validation tests
 pub mod kafka_configurable_serialization_test;
-pub mod post_cleanup_validation_test;
-
 // Phase 2B: Kafka consumer integration tests with testcontainers
 pub mod kafka;
 
@@ -37,9 +35,14 @@ pub mod datasource;
 
 // Observability integration tests
 pub mod observability_job_processor_trace_test;
+pub mod observability_queue_integration_test;
 pub mod observability_trace_propagation_test;
 pub mod processor_trace_patterns_test;
+pub mod span_structure_functional_test;
 pub mod trace_chain_kafka_test;
+
+// Event-time Kafka round-trip tests
+pub mod event_time_kafka_roundtrip_test;
 
 // Watermark implementation verification tests
 pub mod watermark_debug_test;

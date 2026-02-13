@@ -285,12 +285,12 @@ async fn test_conflicting_properties() {
 
 #[tokio::test]
 async fn test_connection_failure() {
-    let error_source = Arc::new(ErrorTestDataSource {
+    let _error_source = Arc::new(ErrorTestDataSource {
         error_type: ErrorType::InitializationError,
         call_count: Arc::new(Mutex::new(0)),
     });
 
-    let table = Arc::new(OptimizedTableImpl::new());
+    let _table = Arc::new(OptimizedTableImpl::new());
 
     // Attempt to use the error source directly
     let mut source_clone = ErrorTestDataSource {
@@ -357,7 +357,7 @@ async fn test_reader_creation_failure() {
 
 #[tokio::test]
 async fn test_data_read_failures() {
-    let error_source = ErrorTestDataSource {
+    let _error_source = ErrorTestDataSource {
         error_type: ErrorType::Success,
         call_count: Arc::new(Mutex::new(0)),
     };
@@ -535,12 +535,12 @@ async fn test_end_to_end_error_recovery() {
     // Test that simulates a complete CTAS operation with intermittent failures
     // followed by successful recovery
 
-    let source = Arc::new(ErrorTestDataSource {
+    let _source = Arc::new(ErrorTestDataSource {
         error_type: ErrorType::Intermittent(1), // Fail first attempt
         call_count: Arc::new(Mutex::new(0)),
     });
 
-    let table = Arc::new(OptimizedTableImpl::new());
+    let _table = Arc::new(OptimizedTableImpl::new());
 
     // First attempt should fail
     let mut source1 = ErrorTestDataSource {

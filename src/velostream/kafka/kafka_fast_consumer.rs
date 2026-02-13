@@ -1633,6 +1633,24 @@ where
     }
 }
 
+/// Ensure consumer is properly unsubscribed before dropping to prevent librdkafka from
+/// attempting reconnections after the broker is gone
+impl<K, V, KSer, VSer> Drop for Consumer<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync,
+    VSer: Serde<V> + Send + Sync,
+{
+    fn drop(&mut self) {
+        log::debug!(
+            "Consumer: Unsubscribing from topics (group_id: '{}')",
+            self.group_id
+        );
+        // Unsubscribe to stop the consumer from trying to reconnect
+        self.consumer.unsubscribe();
+        log::debug!("Consumer: Dropped successfully");
+    }
+}
+
 // Usage example with BaseConsumer
 #[cfg(test)]
 mod examples {
@@ -1686,23 +1704,5 @@ mod examples {
         // }
 
         Ok(())
-    }
-}
-
-/// Ensure consumer is properly unsubscribed before dropping to prevent librdkafka from
-/// attempting reconnections after the broker is gone
-impl<K, V, KSer, VSer> Drop for Consumer<K, V, KSer, VSer>
-where
-    KSer: Serde<K> + Send + Sync,
-    VSer: Serde<V> + Send + Sync,
-{
-    fn drop(&mut self) {
-        log::debug!(
-            "Consumer: Unsubscribing from topics (group_id: '{}')",
-            self.group_id
-        );
-        // Unsubscribe to stop the consumer from trying to reconnect
-        self.consumer.unsubscribe();
-        log::debug!("Consumer: Dropped successfully");
     }
 }

@@ -13,13 +13,10 @@ Tests verify:
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
-use velostream::velostream::observability::SharedObservabilityManager;
-use velostream::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
-};
+use velostream::velostream::server::processors::{FailureStrategy, JobProcessingConfig};
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
 
@@ -177,12 +174,12 @@ async fn test_simple_dlq_enabled_on_failure() {
     };
 
     let parser = StreamingSqlParser::new();
-    let parsed_query = parser.parse(query).expect("Failed to parse query");
+    let _parsed_query = parser.parse(query).expect("Failed to parse query");
 
     let (_tx, _rx) = mpsc::unbounded_channel();
-    let execution_engine = StreamExecutionEngine::new(_tx);
-    let reader = MockDataReader::new("source1", 5);
-    let writer = MockDataWriter::new();
+    let _execution_engine = StreamExecutionEngine::new(_tx);
+    let _reader = MockDataReader::new("source1", 5);
+    let _writer = MockDataWriter::new();
 
     // For this test, we're verifying the infrastructure exists
     // A full integration test would require mocking failures
@@ -192,7 +189,7 @@ async fn test_simple_dlq_enabled_on_failure() {
 #[tokio::test]
 async fn test_simple_dlq_disabled() {
     // Create a simple query
-    let query = "SELECT id, value FROM source1";
+    let _query = "SELECT id, value FROM source1";
 
     // Create SimpleJobProcessor with DLQ disabled
     let config = JobProcessingConfig {
@@ -231,7 +228,7 @@ async fn test_simple_dlq_entry_content() {
     // - partition_id (for partitioned sources)
     // - timestamp (when added)
 
-    let config = JobProcessingConfig {
+    let _config = JobProcessingConfig {
         enable_dlq: true,
         dlq_max_size: Some(100),
         max_retries: 0,

@@ -3,7 +3,7 @@
 //! This module provides consistent test data generation to replace
 //! the scattered record generation logic across test files.
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use std::collections::HashMap;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -143,8 +143,8 @@ pub fn generate_test_records(config: &TestRecordConfig) -> Vec<StreamRecord> {
 /// Generate web analytics test records (for web analytics scenarios)
 pub fn generate_web_analytics_records(count: usize) -> Vec<StreamRecord> {
     let mut records = Vec::with_capacity(count);
-    let pages = vec!["home", "products", "checkout", "profile", "help"];
-    let events = vec!["page_view", "click", "scroll", "form_submit"];
+    let pages = ["home", "products", "checkout", "profile", "help"];
+    let events = ["page_view", "click", "scroll", "form_submit"];
 
     for i in 0..count {
         let mut fields = HashMap::new();
@@ -195,8 +195,8 @@ pub fn generate_web_analytics_records(count: usize) -> Vec<StreamRecord> {
 /// Generate financial transaction records (for fraud detection scenarios)
 pub fn generate_financial_transaction_records(count: usize) -> Vec<StreamRecord> {
     let mut records = Vec::with_capacity(count);
-    let merchants = vec!["Amazon", "Walmart", "Target", "Best Buy", "Starbucks"];
-    let card_types = vec!["Visa", "MasterCard", "Amex"];
+    let merchants = ["Amazon", "Walmart", "Target", "Best Buy", "Starbucks"];
+    let card_types = ["Visa", "MasterCard", "Amex"];
 
     for i in 0..count {
         let mut fields = HashMap::new();
@@ -242,12 +242,12 @@ pub fn generate_financial_transaction_records(count: usize) -> Vec<StreamRecord>
 }
 
 fn get_test_category(index: usize) -> String {
-    let categories = vec!["Electronics", "Clothing", "Books", "Home", "Sports"];
+    let categories = ["Electronics", "Clothing", "Books", "Home", "Sports"];
     categories[index % categories.len()].to_string()
 }
 
 fn get_test_description(index: usize) -> String {
-    let descriptions = vec![
+    let descriptions = [
         "High-quality product with excellent features",
         "Premium item with advanced functionality",
         "Budget-friendly option with good value",

@@ -4,6 +4,9 @@ use crate::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use crate::velostream::schema::{Schema, StreamHandle};
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::RowsEmitMode;
+
+/// Cached ROWS WINDOW config: (buffer_size, partition_cols, emit_mode, state_key_prefix)
+pub type RowsWindowConfig = (u32, Vec<String>, RowsEmitMode, String);
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::internal::{GroupByState, RowsWindowState, WindowState};
 use crate::velostream::sql::execution::performance::PerformanceMonitor;
@@ -128,8 +131,8 @@ pub struct ProcessorContext {
     // === ROWS WINDOW CONFIG CACHE ===
     /// Cached ROWS WINDOW configuration extracted from SELECT fields (constant per query).
     /// Avoids re-walking the AST on every record.
-    /// Maps cache_key to Option<(buffer_size, partition_cols, emit_mode, state_key_prefix)>
-    pub rows_window_config_cache: HashMap<String, Option<(u32, Vec<String>, RowsEmitMode, String)>>,
+    /// Maps cache_key to optional config
+    pub rows_window_config_cache: HashMap<String, Option<RowsWindowConfig>>,
 }
 
 /// Bounded state for SELECT DISTINCT deduplication.

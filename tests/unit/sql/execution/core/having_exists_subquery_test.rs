@@ -30,7 +30,7 @@ use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
 /// Create test records for market data
 fn create_market_data_records() -> Vec<StreamRecord> {
-    let symbols = vec!["AAPL", "GOOGL", "MSFT"];
+    let symbols = ["AAPL", "GOOGL", "MSFT"];
     let mut records = Vec::new();
 
     for (i, symbol) in symbols.iter().enumerate() {

@@ -13,11 +13,11 @@ distributor:
       endpoint: 0.0.0.0:9411
 
 ingester:
-  max_block_duration: 5m
+  max_block_duration: 1m  # Flush blocks more frequently
 
 compactor:
   compaction:
-    block_retention: 1h
+    block_retention: 15m  # Keep traces for shorter time
 
 metrics_generator:
   registry:

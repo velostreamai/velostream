@@ -1,157 +1,416 @@
-//! Comprehensive tests for span linking with Span Links pattern
+//! Tests for span parent-child hierarchy using start_with_context() pattern
 //!
-//! Tests verify that distributed tracing spans are properly linked together
-//! using the Span Links pattern for async-safe parent-child relationships.
+//! Verifies that child spans (deserialization, SQL processing, serialization)
+//! are true children of their parent batch span via SpanData.parent_span_id.
 
 #[cfg(test)]
 mod span_linking_tests {
+    use opentelemetry::trace::SpanId;
+    use serial_test::serial;
+    use velostream::velostream::observability::telemetry::TelemetryProvider;
     use velostream::velostream::sql::execution::config::TracingConfig;
 
-    /// Test 1: Verify Span Links pattern enables async-safe linking
+    /// Create a test telemetry provider with in-memory span collection
+    async fn create_test_telemetry(service_name: &str) -> TelemetryProvider {
+        let config = TracingConfig {
+            service_name: service_name.to_string(),
+            otlp_endpoint: None,
+            ..Default::default()
+        };
+        TelemetryProvider::new(config)
+            .await
+            .expect("Failed to create telemetry provider")
+    }
+
+    /// Test 1: Streaming span is a child of batch span (same trace_id, correct parent_span_id)
     #[tokio::test]
-    async fn test_span_links_async_safety() {
-        // This test verifies that Span Links (Send-safe) can be used across
-        // tokio::spawn boundaries without Send/Sync trait issues
-        let config = TracingConfig::development();
+    #[serial]
+    async fn test_streaming_span_is_child_of_batch_span() {
+        let telemetry = create_test_telemetry("streaming-child-test").await;
 
-        // Attempt to create provider (may fail in CI without Tempo, but shouldn't panic)
-        let _provider =
-            velostream::velostream::observability::telemetry::TelemetryProvider::new(config).await;
+        // Create parent batch span
+        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let parent_ctx = batch_span
+            .span_context()
+            .expect("batch should have context");
+        let parent_trace_id = parent_ctx.trace_id();
+        let parent_span_id = parent_ctx.span_id();
 
-        // Test passes if no panics or compilation errors
-        assert!(true, "Span Links pattern is async-safe");
+        // Create child streaming span with parent context
+        let mut child_span =
+            telemetry.start_streaming_span("test-job", "deserialization", 100, Some(parent_ctx));
+        child_span.set_success();
+        drop(child_span);
+        drop(batch_span);
+
+        // Collect and verify spans
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        let streaming_span = spans
+            .iter()
+            .find(|s| s.name.contains("streaming:deserialization"))
+            .expect("Should find streaming span");
+
+        // Verify parent-child: same trace_id, parent_span_id matches batch span_id
+        assert_eq!(
+            streaming_span.span_context.trace_id(),
+            parent_trace_id,
+            "Child streaming span must share trace_id with parent batch span"
+        );
+        assert_eq!(
+            streaming_span.parent_span_id, parent_span_id,
+            "Streaming span parent_span_id must match batch span's span_id"
+        );
     }
 
-    /// Test 2: Verify parent_context parameter propagates through span methods
-    #[test]
-    fn test_parent_context_parameter_exists() {
-        // This test verifies that all span methods accept parent_context parameter
-        // by checking method signatures (compile-time verification)
+    /// Test 2: SQL query span is a child of batch span
+    #[tokio::test]
+    #[serial]
+    async fn test_sql_query_span_is_child_of_batch_span() {
+        let telemetry = create_test_telemetry("sql-child-test").await;
 
-        // If this compiles, the methods have the correct signatures:
-        // - start_sql_query_span(job_name, query, source, parent_context)
-        // - start_streaming_span(job_name, operation, record_count, parent_context)
-        // - start_aggregation_span(job_name, function, window_type, parent_context)
-        // - start_profiling_phase_span(job_name, phase, record_count, latency_ms, parent_context)
-        // - start_job_lifecycle_span(job_name, lifecycle_event, parent_context)
+        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let parent_ctx = batch_span
+            .span_context()
+            .expect("batch should have context");
+        let parent_trace_id = parent_ctx.trace_id();
+        let parent_span_id = parent_ctx.span_id();
 
-        assert!(true, "All span methods accept parent_context parameter");
+        let mut sql_span = telemetry.start_sql_query_span(
+            "test-job",
+            "SELECT * FROM test",
+            "test_source",
+            Some(parent_ctx),
+        );
+        sql_span.set_success();
+        drop(sql_span);
+        drop(batch_span);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        let sql_span_data = spans
+            .iter()
+            .find(|s| s.name.contains("sql_query"))
+            .expect("Should find SQL query span");
+
+        assert_eq!(
+            sql_span_data.span_context.trace_id(),
+            parent_trace_id,
+            "SQL span must share trace_id with parent"
+        );
+        assert_eq!(
+            sql_span_data.parent_span_id, parent_span_id,
+            "SQL span parent_span_id must match batch span's span_id"
+        );
     }
 
-    /// Test 3: Verify multi-source batch spans are created independently
-    #[test]
-    fn test_multi_source_spans_independence() {
-        // This test verifies that multi-source batch processing creates
-        // per-source batch spans for independent tracing
-        //
-        // Expected hierarchy:
-        // Parent Batch Span
-        // ├─ Per-Source Batch Span (source_0)
-        // ├─ Per-Source Batch Span (source_1)
-        // └─ Per-Source Batch Span (source_N)
+    /// Test 3: No parent context starts a new trace (root span)
+    #[tokio::test]
+    #[serial]
+    async fn test_no_parent_context_starts_new_trace() {
+        let telemetry = create_test_telemetry("root-span-test").await;
 
-        assert!(true, "Per-source batch spans are created independently");
-    }
+        let mut span = telemetry.start_streaming_span("test-job", "standalone", 50, None);
+        span.set_success();
+        drop(span);
 
-    /// Test 4: Verify job lifecycle spans are linked to parent context
-    #[test]
-    fn test_job_lifecycle_span_linking() {
-        // This test verifies that job lifecycle spans (submit, queue, execute, complete)
-        // are properly linked to parent context for full job tracing
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
 
-        // Expected lifecycle events:
-        // - job.lifecycle:submit
-        // - job.lifecycle:queue
-        // - job.lifecycle:execute
-        // - job.lifecycle:complete
+        let standalone = spans
+            .iter()
+            .find(|s| s.name.contains("streaming:standalone"))
+            .expect("Should find standalone span");
 
-        assert!(true, "Job lifecycle spans are linked to parent context");
-    }
+        // Root span should have invalid (zero) parent_span_id
+        assert_eq!(
+            standalone.parent_span_id,
+            SpanId::INVALID,
+            "Root span should have no parent"
+        );
 
-    /// Test 5: Verify error tracking spans are linked in spawned tasks
-    #[test]
-    fn test_error_tracking_spawned_task_linking() {
-        // This test verifies that error tracking in spawned tasks creates
-        // spans linked to parent context using Span Links pattern
-
-        // The error_tracking_helper now supports:
-        // - record_error() - simple async error recording
-        // - record_error_with_context() - error recording with parent context linking
-
-        assert!(true, "Error tracking spans are linked in spawned tasks");
-    }
-
-    /// Test 6: Verify observability_helper propagates context properly
-    #[test]
-    fn test_observability_helper_context_propagation() {
-        // This test verifies that observability_helper extracts and propagates
-        // parent context from batch spans to all child telemetry methods:
-        //
-        // - record_deserialization() - extracts parent context
-        // - record_sql_processing() - extracts parent context
-        // - record_serialization_success() - extracts parent context
-        // - record_serialization_failure() - extracts parent context
-
-        assert!(true, "Observability helper properly propagates context");
-    }
-
-    /// Test 7: Verify span context extraction from batch spans
-    #[test]
-    fn test_batch_span_context_extraction() {
-        // This test verifies that BatchSpan::span_context() returns
-        // valid SpanContext for linking to child spans
-
-        // The BatchSpan wrapper provides:
-        // - span_context() method to extract OpenTelemetry SpanContext
-        // - Used by observability_helper for parent context propagation
-
-        assert!(true, "Batch span context can be extracted for linking");
-    }
-
-    /// Test 8: Verify no Send/Sync trait violations with Span Links
-    #[test]
-    fn test_span_links_send_sync_safety() {
-        // This test (at compile time) verifies that:
-        // - SpanBuilder with Span Links is Send-safe
-        // - No ContextGuard (!Send) is used across async boundaries
-        // - Span Links pattern allows tokio::spawn without issues
-
-        // Compilation success indicates Send/Sync safety
-        assert!(true, "Span Links pattern is Send/Sync safe");
-    }
-
-    /// Test 9: Verify trace context flows through multi-stage pipeline
-    #[test]
-    fn test_trace_context_pipeline_flow() {
-        // This test verifies that trace context flows through the entire pipeline:
-        //
-        // Batch Span
-        //  ├─ Source Batch Span (per-source)
-        //  │  ├─ Deserialization Span
-        //  │  ├─ SQL Processing Span
-        //  │  └─ Serialization Span
-        //  └─ Job Lifecycle Spans
-        //     ├─ submit
-        //     ├─ queue
-        //     ├─ execute
-        //     └─ complete
-
-        assert!(true, "Trace context flows through multi-stage pipeline");
-    }
-
-    /// Test 10: Verify Optional parent_context doesn't break backward compatibility
-    #[test]
-    fn test_backward_compatibility_optional_parent_context() {
-        // This test verifies that Optional parent_context parameter
-        // allows existing code to work without passing parent context
-
-        // All span methods accept Option<SpanContext>, so:
-        // - None works (no parent linking)
-        // - Some(context) works (with parent linking)
-
+        // But should have a valid trace_id
         assert!(
-            true,
-            "Optional parent_context maintains backward compatibility"
+            standalone.span_context.is_valid(),
+            "Root span should have valid span context"
+        );
+    }
+
+    /// Test 4: Full pipeline hierarchy (batch -> deser -> sql -> ser)
+    #[tokio::test]
+    #[serial]
+    async fn test_full_pipeline_span_hierarchy() {
+        let telemetry = create_test_telemetry("pipeline-hierarchy-test").await;
+
+        // Create batch span
+        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let parent_ctx = batch_span
+            .span_context()
+            .expect("batch should have context");
+        let batch_trace_id = parent_ctx.trace_id();
+        let batch_span_id = parent_ctx.span_id();
+
+        // Create deserialization child
+        let mut deser = telemetry.start_streaming_span(
+            "test-job",
+            "deserialization",
+            100,
+            Some(parent_ctx.clone()),
+        );
+        deser.set_success();
+        drop(deser);
+
+        // Create SQL processing child
+        let mut sql = telemetry.start_sql_query_span(
+            "test-job",
+            "SELECT id FROM stream",
+            "stream",
+            Some(parent_ctx.clone()),
+        );
+        sql.set_success();
+        drop(sql);
+
+        // Create serialization child
+        let mut ser = telemetry.start_streaming_span(
+            "test-job",
+            "serialization",
+            95,
+            Some(parent_ctx.clone()),
+        );
+        ser.set_success();
+        drop(ser);
+
+        drop(batch_span);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        assert_eq!(spans.len(), 4, "Should have 4 spans: batch + 3 children");
+
+        // All spans must share the same trace_id
+        for span in &spans {
+            assert_eq!(
+                span.span_context.trace_id(),
+                batch_trace_id,
+                "All spans must share batch trace_id, but '{}' has different trace_id",
+                span.name
+            );
+        }
+
+        // All child spans must have batch as parent
+        let child_spans: Vec<_> = spans
+            .iter()
+            .filter(|s| !s.name.contains("batch:"))
+            .collect();
+        assert_eq!(child_spans.len(), 3, "Should have 3 child spans");
+
+        for child in &child_spans {
+            assert_eq!(
+                child.parent_span_id, batch_span_id,
+                "Child span '{}' must have batch span as parent",
+                child.name
+            );
+        }
+    }
+
+    /// Test 5: Job lifecycle span is a child of batch span
+    #[tokio::test]
+    #[serial]
+    async fn test_job_lifecycle_span_is_child_of_parent() {
+        let telemetry = create_test_telemetry("lifecycle-child-test").await;
+
+        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let parent_ctx = batch_span
+            .span_context()
+            .expect("batch should have context");
+        let parent_trace_id = parent_ctx.trace_id();
+        let parent_span_id = parent_ctx.span_id();
+
+        let mut lifecycle =
+            telemetry.start_job_lifecycle_span("test-job", "execute", Some(parent_ctx));
+        lifecycle.set_success();
+        drop(lifecycle);
+        drop(batch_span);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        let lifecycle_span = spans
+            .iter()
+            .find(|s| s.name.contains("job.lifecycle:execute"))
+            .expect("Should find lifecycle span");
+
+        assert_eq!(
+            lifecycle_span.span_context.trace_id(),
+            parent_trace_id,
+            "Lifecycle span must share trace_id with parent"
+        );
+        assert_eq!(
+            lifecycle_span.parent_span_id, parent_span_id,
+            "Lifecycle span parent_span_id must match parent's span_id"
+        );
+    }
+
+    /// Test 6: Multiple batches produce independent traces
+    #[tokio::test]
+    #[serial]
+    async fn test_independent_batches_have_separate_traces() {
+        let telemetry = create_test_telemetry("independent-batches-test").await;
+
+        let batch1 = telemetry.start_batch_span("job-1", 1, None);
+        let ctx1 = batch1.span_context().expect("batch1 should have context");
+        let trace_id_1 = ctx1.trace_id();
+        drop(batch1);
+
+        let batch2 = telemetry.start_batch_span("job-2", 2, None);
+        let ctx2 = batch2.span_context().expect("batch2 should have context");
+        let trace_id_2 = ctx2.trace_id();
+        drop(batch2);
+
+        assert_ne!(
+            trace_id_1, trace_id_2,
+            "Independent batches must have different trace IDs"
+        );
+    }
+
+    /// Test 7: Invalid parent context falls back to new trace
+    #[tokio::test]
+    #[serial]
+    async fn test_invalid_parent_context_starts_new_trace() {
+        let telemetry = create_test_telemetry("invalid-parent-test").await;
+
+        // Create an invalid SpanContext
+        let invalid_ctx = opentelemetry::trace::SpanContext::empty_context();
+        assert!(!invalid_ctx.is_valid(), "Empty context should be invalid");
+
+        let mut span = telemetry.start_streaming_span(
+            "test-job",
+            "with-invalid-parent",
+            10,
+            Some(invalid_ctx),
+        );
+        span.set_success();
+        drop(span);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        let span_data = spans
+            .iter()
+            .find(|s| s.name.contains("with-invalid-parent"))
+            .expect("Should find span");
+
+        // With invalid parent, should be a root span (no parent)
+        assert_eq!(
+            span_data.parent_span_id,
+            SpanId::INVALID,
+            "Invalid parent context should result in root span"
+        );
+    }
+
+    /// Test 8: Child spans from same parent all share trace_id
+    #[tokio::test]
+    #[serial]
+    async fn test_sibling_spans_share_trace_id() {
+        let telemetry = create_test_telemetry("sibling-spans-test").await;
+
+        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let parent_ctx = batch_span
+            .span_context()
+            .expect("batch should have context");
+        let batch_trace_id = parent_ctx.trace_id();
+
+        // Create multiple sibling spans from same parent
+        let operations = vec![
+            "kafka-read",
+            "deserialize-avro",
+            "sql-transform",
+            "serialize-json",
+        ];
+        for op in &operations {
+            let mut span =
+                telemetry.start_streaming_span("test-job", op, 50, Some(parent_ctx.clone()));
+            span.set_success();
+            drop(span);
+        }
+        drop(batch_span);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        // All spans (including batch) should share same trace_id
+        for span in &spans {
+            assert_eq!(
+                span.span_context.trace_id(),
+                batch_trace_id,
+                "Span '{}' must share trace_id with parent batch",
+                span.name
+            );
+        }
+    }
+
+    /// Test 9: Batch span is a root span (no parent) when no upstream context
+    #[tokio::test]
+    #[serial]
+    async fn test_batch_span_is_root_without_upstream() {
+        let telemetry = create_test_telemetry("batch-root-test").await;
+
+        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        drop(batch_span);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        let batch = spans
+            .iter()
+            .find(|s| s.name.contains("batch:"))
+            .expect("Should find batch span");
+
+        // Batch with no upstream context is a root span
+        assert_eq!(
+            batch.parent_span_id,
+            SpanId::INVALID,
+            "Batch span without upstream context should be root"
+        );
+    }
+
+    /// Test 10: Batch span with upstream context is a child of upstream
+    #[tokio::test]
+    #[serial]
+    async fn test_batch_span_child_of_upstream_context() {
+        let telemetry = create_test_telemetry("batch-upstream-test").await;
+
+        // Create a "upstream" batch span to get a valid SpanContext
+        let upstream_span = telemetry.start_batch_span("upstream-job", 0, None);
+        let upstream_ctx = upstream_span
+            .span_context()
+            .expect("upstream should have context");
+        let upstream_trace_id = upstream_ctx.trace_id();
+        let upstream_span_id = upstream_ctx.span_id();
+        drop(upstream_span);
+
+        // Create downstream batch span with upstream as parent
+        let downstream_span = telemetry.start_batch_span("downstream-job", 1, Some(upstream_ctx));
+        drop(downstream_span);
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let spans = telemetry.collected_spans();
+
+        let downstream = spans
+            .iter()
+            .find(|s| s.name.contains("batch:downstream"))
+            .expect("Should find downstream batch span");
+
+        assert_eq!(
+            downstream.span_context.trace_id(),
+            upstream_trace_id,
+            "Downstream batch must share upstream trace_id"
+        );
+        assert_eq!(
+            downstream.parent_span_id, upstream_span_id,
+            "Downstream batch parent must be upstream span"
         );
     }
 }

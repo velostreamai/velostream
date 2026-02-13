@@ -505,7 +505,7 @@ async fn test_kafka_preserves_trace_headers_round_trip() {
     env.produce_with_headers("header_roundtrip", r#"{"test":true}"#, &headers)
         .await;
 
-    let (payload, consumed_headers) = env.consume_one("header_roundtrip");
+    let (_payload, consumed_headers) = env.consume_one("header_roundtrip");
 
     assert_eq!(
         consumed_headers.get("traceparent").map(|s| s.as_str()),

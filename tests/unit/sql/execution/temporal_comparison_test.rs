@@ -4,7 +4,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 
 fn make_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
     StreamRecord {
@@ -144,7 +144,7 @@ fn test_resolve_column_qualified_system_columns() {
 
     // Unqualified system columns
     assert_eq!(
-        record.resolve_column("_event_time"),
+        record.resolve_column(system_columns::EVENT_TIME),
         FieldValue::Integer(event_millis)
     );
     assert_eq!(
@@ -152,15 +152,21 @@ fn test_resolve_column_qualified_system_columns() {
         FieldValue::Integer(event_millis)
     );
     assert_eq!(
-        record.resolve_column("_timestamp"),
+        record.resolve_column(system_columns::TIMESTAMP),
         FieldValue::Integer(999)
     );
-    assert_eq!(record.resolve_column("_offset"), FieldValue::Integer(42));
-    assert_eq!(record.resolve_column("_partition"), FieldValue::Integer(3));
+    assert_eq!(
+        record.resolve_column(system_columns::OFFSET),
+        FieldValue::Integer(42)
+    );
+    assert_eq!(
+        record.resolve_column(system_columns::PARTITION),
+        FieldValue::Integer(3)
+    );
 
     // Qualified system columns (table.column) — the bug that caused the empty panel
     assert_eq!(
-        record.resolve_column("m._event_time"),
+        record.resolve_column(&format!("m.{}", system_columns::EVENT_TIME)),
         FieldValue::Integer(event_millis)
     );
     assert_eq!(
@@ -168,12 +174,15 @@ fn test_resolve_column_qualified_system_columns() {
         FieldValue::Integer(event_millis)
     );
     assert_eq!(
-        record.resolve_column("t._timestamp"),
+        record.resolve_column(&format!("t.{}", system_columns::TIMESTAMP)),
         FieldValue::Integer(999)
     );
-    assert_eq!(record.resolve_column("x._offset"), FieldValue::Integer(42));
     assert_eq!(
-        record.resolve_column("x._partition"),
+        record.resolve_column(&format!("x.{}", system_columns::OFFSET)),
+        FieldValue::Integer(42)
+    );
+    assert_eq!(
+        record.resolve_column(&format!("x.{}", system_columns::PARTITION)),
         FieldValue::Integer(3)
     );
 

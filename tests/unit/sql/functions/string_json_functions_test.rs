@@ -1,4 +1,5 @@
 use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::execution::types::system_columns;
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
@@ -466,11 +467,16 @@ mod tests {
                 // Verify we have the expected system columns and JSON functions
                 let has_system_columns = fields.iter().any(|field| match field {
                     SelectField::AliasedColumn { column, .. } => {
-                        column == "_timestamp" || column == "_partition"
+                        column == system_columns::TIMESTAMP || column == system_columns::PARTITION
                     }
-                    SelectField::Column(column) => column == "_timestamp" || column == "_partition",
+                    SelectField::Column(column) => {
+                        column == system_columns::TIMESTAMP || column == system_columns::PARTITION
+                    }
                     SelectField::Expression { expr, .. } => match expr {
-                        Expr::Column(column) => column == "_timestamp" || column == "_partition",
+                        Expr::Column(column) => {
+                            column == system_columns::TIMESTAMP
+                                || column == system_columns::PARTITION
+                        }
                         _ => false,
                     },
                     _ => false,

@@ -106,11 +106,8 @@ async fn test_register_counter_metric_basic() {
     let config = PrometheusConfig::default();
     let provider = MetricsProvider::new(config).await.unwrap();
 
-    let result = provider.register_counter_metric(
-        "test_events_total",
-        "Total number of test events",
-        &vec![],
-    );
+    let result =
+        provider.register_counter_metric("test_events_total", "Total number of test events", &[]);
 
     assert!(result.is_ok(), "Failed to register counter metric");
 }
@@ -123,7 +120,7 @@ async fn test_register_counter_metric_with_labels() {
     let result = provider.register_counter_metric(
         "test_events_labeled_total",
         "Test events with labels",
-        &vec!["event_type".to_string(), "severity".to_string()],
+        &["event_type".to_string(), "severity".to_string()],
     );
 
     assert!(result.is_ok());
@@ -138,11 +135,11 @@ async fn test_emit_counter_metric() {
         .register_counter_metric(
             "test_counter_total",
             "Test counter",
-            &vec!["label1".to_string()],
+            &["label1".to_string()],
         )
         .ok();
 
-    let result = provider.emit_counter("test_counter_total", &vec!["value1".to_string()]);
+    let result = provider.emit_counter("test_counter_total", &["value1".to_string()]);
     assert!(result.is_ok());
 }
 
@@ -151,7 +148,7 @@ async fn test_emit_counter_unregistered() {
     let config = PrometheusConfig::default();
     let provider = MetricsProvider::new(config).await.unwrap();
 
-    let result = provider.emit_counter("nonexistent_counter", &vec![]);
+    let result = provider.emit_counter("nonexistent_counter", &[]);
     assert!(result.is_err());
 }
 
@@ -162,7 +159,7 @@ async fn test_register_gauge_metric_basic() {
     let config = PrometheusConfig::default();
     let provider = MetricsProvider::new(config).await.unwrap();
 
-    let result = provider.register_gauge_metric("test_gauge", "Test gauge metric", &vec![]);
+    let result = provider.register_gauge_metric("test_gauge", "Test gauge metric", &[]);
 
     assert!(result.is_ok());
 }
@@ -175,7 +172,7 @@ async fn test_register_gauge_metric_with_labels() {
     let result = provider.register_gauge_metric(
         "test_gauge_labeled",
         "Test gauge with labels",
-        &vec!["instance".to_string()],
+        &["instance".to_string()],
     );
 
     assert!(result.is_ok());
@@ -187,10 +184,10 @@ async fn test_emit_gauge_metric() {
     let provider = MetricsProvider::new(config).await.unwrap();
 
     provider
-        .register_gauge_metric("test_gauge", "Test gauge", &vec!["label1".to_string()])
+        .register_gauge_metric("test_gauge", "Test gauge", &["label1".to_string()])
         .ok();
 
-    let result = provider.emit_gauge("test_gauge", &vec!["value1".to_string()], 42.5);
+    let result = provider.emit_gauge("test_gauge", &["value1".to_string()], 42.5);
     assert!(result.is_ok());
 }
 
@@ -199,7 +196,7 @@ async fn test_emit_gauge_unregistered() {
     let config = PrometheusConfig::default();
     let provider = MetricsProvider::new(config).await.unwrap();
 
-    let result = provider.emit_gauge("nonexistent_gauge", &vec![], 0.0);
+    let result = provider.emit_gauge("nonexistent_gauge", &[], 0.0);
     assert!(result.is_err());
 }
 
@@ -210,12 +207,8 @@ async fn test_register_histogram_metric_basic() {
     let config = PrometheusConfig::default();
     let provider = MetricsProvider::new(config).await.unwrap();
 
-    let result = provider.register_histogram_metric(
-        "test_histogram",
-        "Test histogram metric",
-        &vec![],
-        None,
-    );
+    let result =
+        provider.register_histogram_metric("test_histogram", "Test histogram metric", &[], None);
 
     assert!(result.is_ok());
 }
@@ -228,7 +221,7 @@ async fn test_register_histogram_metric_custom_buckets() {
     let result = provider.register_histogram_metric(
         "test_histogram_custom",
         "Test histogram with custom buckets",
-        &vec![],
+        &[],
         Some(vec![0.1, 0.5, 1.0, 5.0]),
     );
 
@@ -244,12 +237,12 @@ async fn test_emit_histogram_metric() {
         .register_histogram_metric(
             "test_histogram",
             "Test histogram",
-            &vec!["label1".to_string()],
+            &["label1".to_string()],
             None,
         )
         .ok();
 
-    let result = provider.emit_histogram("test_histogram", &vec!["value1".to_string()], 0.5);
+    let result = provider.emit_histogram("test_histogram", &["value1".to_string()], 0.5);
     assert!(result.is_ok());
 }
 
@@ -258,7 +251,7 @@ async fn test_emit_histogram_unregistered() {
     let config = PrometheusConfig::default();
     let provider = MetricsProvider::new(config).await.unwrap();
 
-    let result = provider.emit_histogram("nonexistent_histogram", &vec![], 0.0);
+    let result = provider.emit_histogram("nonexistent_histogram", &[], 0.0);
     assert!(result.is_err());
 }
 
@@ -339,7 +332,7 @@ async fn test_emit_batch_single_counter() {
         .register_counter_metric(
             "batch_counter",
             "Counter for batch testing",
-            &vec!["type".to_string()],
+            &["type".to_string()],
         )
         .ok();
 
@@ -359,7 +352,7 @@ async fn test_emit_batch_single_gauge() {
         .register_gauge_metric(
             "batch_gauge",
             "Gauge for batch testing",
-            &vec!["type".to_string()],
+            &["type".to_string()],
         )
         .ok();
 
@@ -379,7 +372,7 @@ async fn test_emit_batch_single_histogram() {
         .register_histogram_metric(
             "batch_histogram",
             "Histogram for batch testing",
-            &vec!["type".to_string()],
+            &["type".to_string()],
             None,
         )
         .ok();
@@ -402,13 +395,13 @@ async fn test_emit_batch_multiple_mixed_events() {
 
     // Register all metric types
     provider
-        .register_counter_metric("batch_counter", "Test counter", &vec![])
+        .register_counter_metric("batch_counter", "Test counter", &[])
         .ok();
     provider
-        .register_gauge_metric("batch_gauge", "Test gauge", &vec![])
+        .register_gauge_metric("batch_gauge", "Test gauge", &[])
         .ok();
     provider
-        .register_histogram_metric("batch_histogram", "Test histogram", &vec![], None)
+        .register_histogram_metric("batch_histogram", "Test histogram", &[], None)
         .ok();
 
     // Create batch with multiple events
@@ -448,7 +441,7 @@ async fn test_emit_batch_with_labels() {
         .register_counter_metric(
             "labeled_counter",
             "Counter with labels",
-            &vec!["type".to_string(), "severity".to_string()],
+            &["type".to_string(), "severity".to_string()],
         )
         .ok();
 
@@ -476,7 +469,7 @@ async fn test_emit_batch_large_batch() {
         .register_counter_metric(
             "large_counter",
             "Counter for large batch",
-            &vec!["index".to_string()],
+            &["index".to_string()],
         )
         .ok();
 
@@ -528,7 +521,7 @@ async fn test_emit_batch_inactive_with_events() {
 
     // Register metrics before shutdown
     provider
-        .register_counter_metric("test_counter", "Test", &vec![])
+        .register_counter_metric("test_counter", "Test", &[])
         .ok();
 
     // Shutdown provider
@@ -549,7 +542,7 @@ async fn test_emit_batch_mixed_registered_unregistered() {
 
     // Register only counter
     provider
-        .register_counter_metric("registered_counter", "Registered", &vec![])
+        .register_counter_metric("registered_counter", "Registered", &[])
         .ok();
 
     // Create batch with mix of registered and unregistered
@@ -594,7 +587,7 @@ async fn test_emit_batch_repeated_same_metric() {
     let provider = MetricsProvider::new(config).await.unwrap();
 
     provider
-        .register_counter_metric("repeated_counter", "Test", &vec![])
+        .register_counter_metric("repeated_counter", "Test", &[])
         .ok();
 
     // Add same metric multiple times in batch
@@ -615,18 +608,13 @@ async fn test_emit_batch_all_three_types_same_batch() {
 
     // Register all metric types with same labels
     provider
-        .register_counter_metric("metric", "Counter", &vec!["type".to_string()])
+        .register_counter_metric("metric", "Counter", &["type".to_string()])
         .ok();
     provider
-        .register_gauge_metric("metric_gauge", "Gauge", &vec!["type".to_string()])
+        .register_gauge_metric("metric_gauge", "Gauge", &["type".to_string()])
         .ok();
     provider
-        .register_histogram_metric(
-            "metric_histogram",
-            "Histogram",
-            &vec!["type".to_string()],
-            None,
-        )
+        .register_histogram_metric("metric_histogram", "Histogram", &["type".to_string()], None)
         .ok();
 
     // Create batch with interleaved metric types

@@ -1,25 +1,24 @@
 //! Integration tests for SQL validation service
 
-use std::collections::HashMap;
 use velostream::velostream::sql::validation::SqlValidationService;
 
 #[test]
 fn test_sql_validation_service_creation() {
-    let service = SqlValidationService::new();
+    let _service = SqlValidationService::new();
     // Verify the service was created successfully
     assert!(true); // Basic creation test
 }
 
 #[test]
 fn test_sql_validation_service_strict() {
-    let service = SqlValidationService::new_strict();
+    let _service = SqlValidationService::new_strict();
     // Verify the strict service was created successfully
     assert!(true); // Basic creation test
 }
 
 #[test]
 fn test_sql_validation_service_with_performance_checks() {
-    let service = SqlValidationService::new().with_performance_checks(false);
+    let _service = SqlValidationService::new().with_performance_checks(false);
     // Verify the service was configured successfully
     assert!(true); // Basic configuration test
 }

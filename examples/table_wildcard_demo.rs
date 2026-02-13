@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await;
 
     match table_result {
-        Ok(table) => {
+        Ok(_table) => {
             println!("✅ Table created successfully for SQL wildcard demo");
 
             // Create portfolio data with nested positions
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sql_table.insert("portfolio_001".to_string(), portfolio_record)?;
 
             // Create SQL data source
-            let sql_source = TableDataSource::from_table(sql_table);
+            let _sql_source = TableDataSource::from_table(sql_table);
 
             // Example wildcard queries (would work if data was in table):
             println!("   Available wildcard query patterns:");

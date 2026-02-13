@@ -18,7 +18,7 @@ All tests use modern DataSource/DataReader traits with proper error handling.
 */
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -332,7 +332,7 @@ async fn test_bulk_load_throughput_scaling() {
             total_records += records.len();
 
             // Simulate table insertion
-            for record in records {
+            for _record in records {
                 let _ = table.as_ref().record_count(); // Performance test - record access
             }
         }
@@ -393,7 +393,7 @@ async fn test_incremental_loading_latency() {
             }
 
             // Process records
-            for record in records {
+            for _record in records {
                 let _ = table.as_ref().record_count(); // Performance test - record access
             }
 
@@ -471,7 +471,7 @@ async fn test_memory_efficiency_under_load() {
         total_records += records.len();
 
         // Process records in batches to simulate real usage
-        for record in records {
+        for _record in records {
             let _ = table.record_count(); // Performance test - record access
         }
 
@@ -557,7 +557,7 @@ async fn test_concurrent_loading_throughput() {
                 total_records += records.len();
 
                 // Simulate processing
-                for record in records {
+                for _record in records {
                     let _ = table.as_ref().record_count(); // Performance test - record access
                 }
             }
@@ -656,7 +656,7 @@ async fn test_backpressure_handling() {
         total_records += records.len();
 
         // Process records
-        for record in records {
+        for _record in records {
             let _ = table.record_count(); // Performance test - record access
         }
 
@@ -731,7 +731,7 @@ async fn test_optimal_batch_size_discovery() {
 
             total_records += records.len();
 
-            for record in records {
+            for _record in records {
                 let _ = table.as_ref().record_count(); // Performance test - record access
             }
         }
@@ -814,7 +814,7 @@ async fn test_sustained_high_volume_loading() {
 
         total_records_loaded += records.len();
 
-        for record in records {
+        for _record in records {
             let _ = table.record_count(); // Performance test - record access
         }
 
@@ -878,7 +878,6 @@ async fn test_sustained_high_volume_loading() {
 fn get_approximate_memory_usage() -> usize {
     // In a real implementation, this would use system memory APIs
     // For testing, we'll return a mock value
-    use std::alloc::{GlobalAlloc, Layout, System};
 
     // This is a simplified mock - in production you'd use actual memory monitoring
     std::process::id() as usize * 1024 // Mock memory usage
@@ -915,7 +914,7 @@ async fn test_error_recovery_during_performance_test() {
             }
             total_records += records.len();
 
-            for record in records {
+            for _record in records {
                 let _ = table.as_ref().record_count(); // Performance test - record access
             }
         }

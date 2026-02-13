@@ -10,6 +10,7 @@
 //! won't be caught by the generic ObservabilityHelper tests.
 
 use opentelemetry::trace::{SpanId, TraceId};
+use serial_test::serial;
 use std::sync::Arc;
 use std::time::Instant;
 use velostream::velostream::observability::SharedObservabilityManager;
@@ -28,6 +29,7 @@ use super::*;
 /// 2. Per-source child spans for each source
 /// 3. Trace injection uses PARENT span (not source spans)
 #[tokio::test]
+#[serial]
 async fn test_simple_processor_trace_pattern() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -143,6 +145,7 @@ async fn test_simple_processor_trace_pattern() {
 /// Simulates SimpleJobProcessor's span completion pattern:
 /// Creates batch span, sets total_records/batch_duration, then set_success or set_error.
 #[tokio::test]
+#[serial]
 async fn test_simple_processor_span_completion() {
     let obs_manager = create_test_observability_manager("processor-span-completion-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -176,6 +179,7 @@ async fn test_simple_processor_span_completion() {
 /// 2. Inject into output records
 /// 3. Complete span after simulated commit
 #[tokio::test]
+#[serial]
 async fn test_transactional_processor_trace_pattern() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -244,6 +248,7 @@ async fn test_transactional_processor_trace_pattern() {
 /// Simulates TransactionalJobProcessor's error path:
 /// Batch span created, processing fails, span completed with error.
 #[tokio::test]
+#[serial]
 async fn test_transactional_processor_error_path() {
     let obs_manager = create_test_observability_manager("processor-trace-error-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -269,6 +274,7 @@ async fn test_transactional_processor_error_path() {
 /// 2. THEN create batch span from ORIGINAL INPUT batch
 /// 3. Inject into output records
 #[tokio::test]
+#[serial]
 async fn test_partition_receiver_trace_pattern() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -332,6 +338,7 @@ async fn test_partition_receiver_trace_pattern() {
 /// 2. Clones first output record for span creation
 /// 3. Injects trace into ALL output records
 #[tokio::test]
+#[serial]
 async fn test_join_processor_trace_pattern() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -410,6 +417,7 @@ async fn test_join_processor_trace_pattern() {
 
 /// When join output records have NO traceparent, a new root trace should be started
 #[tokio::test]
+#[serial]
 async fn test_join_processor_no_upstream_trace_starts_new_root() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -471,6 +479,7 @@ async fn test_join_processor_no_upstream_trace_starts_new_root() {
 /// - Parent span and per-source spans each extract from their own input records
 /// - Output injection uses parent span context, not source spans
 #[tokio::test]
+#[serial]
 async fn test_simple_processor_multi_source_span_hierarchy() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -558,6 +567,7 @@ async fn test_simple_processor_multi_source_span_hierarchy() {
 
 /// Verifies graceful handling when input batch is empty (each processor's edge case)
 #[tokio::test]
+#[serial]
 async fn test_all_processors_handle_empty_batch() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
@@ -609,6 +619,7 @@ async fn test_all_processors_handle_empty_batch() {
 /// Verifies that inject_trace_context_into_records correctly handles
 /// Arc<StreamRecord> with refcount > 1, using Arc::make_mut for copy-on-write.
 #[tokio::test]
+#[serial]
 async fn test_trace_injection_with_shared_arc_records() {
     let obs_manager = create_test_observability_manager("processor-arc-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());

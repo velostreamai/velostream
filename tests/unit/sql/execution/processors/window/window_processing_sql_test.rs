@@ -10,9 +10,7 @@ Comprehensive tests for the newly implemented window processing functionality in
 */
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 

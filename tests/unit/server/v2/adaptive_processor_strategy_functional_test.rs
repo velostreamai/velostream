@@ -11,12 +11,10 @@
 
 use log::info;
 use std::collections::HashMap;
-use std::sync::Arc;
 use velostream::velostream::serialization::FieldValue;
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, FanInStrategy, PartitionedJobConfig, PartitioningStrategy, QueryMetadata,
-    RoundRobinStrategy, RoutingContext, SmartRepartitionStrategy, StickyPartitionStrategy,
-    StrategyFactory,
+    AlwaysHashStrategy, FanInStrategy, PartitioningStrategy, QueryMetadata, RoundRobinStrategy,
+    RoutingContext, SmartRepartitionStrategy, StickyPartitionStrategy, StrategyFactory,
 };
 use velostream::velostream::sql::execution::types::StreamRecord;
 

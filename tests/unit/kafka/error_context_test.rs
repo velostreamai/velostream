@@ -150,7 +150,7 @@ fn test_comprehensive_error_source_chain_preservation() {
 #[test]
 fn test_operational_error_metadata_tracking() {
     // Simulate a complex pipeline with multiple operations
-    let operations = vec![
+    let operations = [
         ("validate_schema", "user-events", "schema-validator-1"),
         ("transform_message", "user-events", "transformer-pod-3"),
         ("enrich_data", "user-events", "enricher-service-2"),

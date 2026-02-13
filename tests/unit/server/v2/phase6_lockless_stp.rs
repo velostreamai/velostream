@@ -74,7 +74,7 @@ async fn profile_lockless_stp_architecture() {
     let stp_start = Instant::now();
 
     for partition_id in 0..num_partitions {
-        let parser_clone = parser.clone();
+        let _parser_clone = parser.clone();
         let query_clone = query.clone();
 
         // Partition-specific records

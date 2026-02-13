@@ -2,7 +2,6 @@
 //!
 //! Tests the StatementExecutor and DebugSession functionality.
 
-use std::collections::HashSet;
 use std::time::Duration;
 use velostream::velostream::test_harness::infra::TestHarnessInfra;
 use velostream::velostream::test_harness::statement_executor::{

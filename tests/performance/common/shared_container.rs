@@ -6,7 +6,7 @@
 //!
 //! ## Design
 //!
-//! - Uses `OnceCell` for lazy initialization of a global container
+//! - Uses `OnceLock` for lazy initialization of a global container
 //! - Container starts on first use and remains running until process exit
 //! - Tests use unique topic prefixes for isolation
 //! - Supports both Confluent Kafka and Redpanda (Kafka-compatible, faster startup)
@@ -31,11 +31,11 @@
 //! - `redpanda` - Redpanda container (faster startup, ~3s vs ~10s)
 //! - `external` - Use external Kafka at `VELOSTREAM_KAFKA_BROKERS`
 
-use once_cell::sync::OnceCell;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use testcontainers::ContainerAsync;
@@ -45,7 +45,7 @@ use testcontainers_redpanda_rs::{REDPANDA_PORT, Redpanda};
 use tokio::sync::Mutex;
 
 /// Global shared container instance
-static SHARED_CONTAINER: OnceCell<Arc<SharedKafkaContainer>> = OnceCell::new();
+static SHARED_CONTAINER: OnceLock<Arc<SharedKafkaContainer>> = OnceLock::new();
 
 /// Counter for generating unique topic names
 static TOPIC_COUNTER: AtomicU64 = AtomicU64::new(0);

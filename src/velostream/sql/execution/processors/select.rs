@@ -3647,9 +3647,6 @@ fn substitute_correlation_expr(
         let mut fields = current_record.fields.clone();
         // Resolve _EVENT_TIME as a Timestamp so that correlated date/time
         // comparisons (e.g. `w.effective_date <= m._event_time`) work correctly.
-        // Insert under BOTH uppercase (_EVENT_TIME) and lowercase (_event_time) keys
-        // because the SQL parser preserves the original case from the query while
-        // system_columns constants are uppercase.
         let event_time_val = match ExpressionEvaluator::get_event_time_value(current_record) {
             FieldValue::Integer(ms) => chrono::DateTime::from_timestamp_millis(ms)
                 .map(|dt| FieldValue::Timestamp(dt.naive_utc()))
@@ -3658,27 +3655,15 @@ fn substitute_correlation_expr(
         };
         fields
             .entry(system_columns::EVENT_TIME.to_string())
-            .or_insert(event_time_val.clone());
-        fields
-            .entry(system_columns::EVENT_TIME.to_lowercase())
             .or_insert(event_time_val);
         fields
             .entry(system_columns::TIMESTAMP.to_string())
             .or_insert(FieldValue::Integer(current_record.timestamp));
         fields
-            .entry(system_columns::TIMESTAMP.to_lowercase())
-            .or_insert(FieldValue::Integer(current_record.timestamp));
-        fields
             .entry(system_columns::OFFSET.to_string())
             .or_insert(FieldValue::Integer(current_record.offset));
         fields
-            .entry(system_columns::OFFSET.to_lowercase())
-            .or_insert(FieldValue::Integer(current_record.offset));
-        fields
             .entry(system_columns::PARTITION.to_string())
-            .or_insert(FieldValue::Integer(current_record.partition as i64));
-        fields
-            .entry(system_columns::PARTITION.to_lowercase())
             .or_insert(FieldValue::Integer(current_record.partition as i64));
         query_parsing::substitute_correlation_variables_in_expr(
             &expr,
@@ -3892,16 +3877,8 @@ impl SelectProcessor {
     ) -> bool {
         let dummy_record = StreamRecord::new(result_fields.clone());
         let context = ProcessorContext::new("flush_having");
-        match Self::evaluate_having_expression(
-            having_expr,
-            accumulator,
-            fields,
-            &dummy_record,
-            &context,
-        ) {
-            Ok(result) => result,
-            Err(_) => true, // On error, include the record
-        }
+        Self::evaluate_having_expression(having_expr, accumulator, fields, &dummy_record, &context)
+            .unwrap_or(true) // On error, include the record
     }
 }
 

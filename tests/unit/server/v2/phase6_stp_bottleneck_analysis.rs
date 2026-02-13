@@ -2,7 +2,6 @@
 //! Identify what's making the lockless STP slow
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Instant;
 use velostream::velostream::sql::{
     StreamExecutionEngine, execution::types::StreamRecord, parser::StreamingSqlParser,
@@ -67,7 +66,7 @@ async fn profile_stp_bottlenecks() {
     let mut handles = vec![];
 
     for partition_id in 0..num_partitions {
-        let parser_clone = parser.clone();
+        let _parser_clone = parser.clone();
         let query_clone = query.clone();
 
         let start_idx = partition_id * records_per_partition;

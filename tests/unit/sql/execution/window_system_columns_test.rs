@@ -1,22 +1,22 @@
-//! Tests for _window_start and _window_end system column population
+//! Tests for _WINDOW_START and _WINDOW_END system column population
 //!
 //! These tests verify that window system columns are correctly
 //! populated in result records from windowed aggregation queries.
 //!
-//! Also includes tests for GROUP BY key → record.key functionality (FR-089).
+//! Also includes tests for GROUP BY key -> record.key functionality (FR-089).
 
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use velostream::velostream::sql::StreamingQuery;
 use velostream::velostream::sql::ast::{Expr, SelectField};
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 use velostream::velostream::sql::execution::window_v2::adapter::WindowAdapter;
 use velostream::velostream::sql::execution::window_v2::traits::WindowStats;
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 /// Test that the parser correctly parses _window_start AS alias
-/// Parser produces Expression { expr: Column("_window_start"), alias: Some("window_start") }
+/// Parser normalizes to UPPERCASE: Expression { expr: Column("_WINDOW_START"), alias: Some("window_start") }
 #[test]
 fn test_parser_window_system_columns_aliased() {
     let sql = "SELECT _window_start AS window_start, _window_end AS window_end FROM test";
@@ -26,33 +26,33 @@ fn test_parser_window_system_columns_aliased() {
     if let StreamingQuery::Select { fields, .. } = query {
         assert_eq!(fields.len(), 2);
 
-        // Check first field: _window_start AS window_start
+        // Check first field: _WINDOW_START AS window_start
         // Parser produces Expression with Column expr, not AliasedColumn
         match &fields[0] {
             SelectField::Expression {
                 expr: Expr::Column(col),
                 alias: Some(alias),
             } => {
-                assert_eq!(col, "_window_start");
+                assert_eq!(col, system_columns::WINDOW_START);
                 assert_eq!(alias, "window_start");
             }
             other => panic!(
-                "Expected Expression {{ expr: Column(_window_start), alias: Some(window_start) }}, got {:?}",
+                "Expected Expression {{ expr: Column(_WINDOW_START), alias: Some(window_start) }}, got {:?}",
                 other
             ),
         }
 
-        // Check second field: _window_end AS window_end
+        // Check second field: _WINDOW_END AS window_end
         match &fields[1] {
             SelectField::Expression {
                 expr: Expr::Column(col),
                 alias: Some(alias),
             } => {
-                assert_eq!(col, "_window_end");
+                assert_eq!(col, system_columns::WINDOW_END);
                 assert_eq!(alias, "window_end");
             }
             other => panic!(
-                "Expected Expression {{ expr: Column(_window_end), alias: Some(window_end) }}, got {:?}",
+                "Expected Expression {{ expr: Column(_WINDOW_END), alias: Some(window_end) }}, got {:?}",
                 other
             ),
         }
@@ -62,7 +62,7 @@ fn test_parser_window_system_columns_aliased() {
 }
 
 /// Test that the parser correctly parses _window_start without alias
-/// Parser produces Expression { expr: Column("_window_start"), alias: None }
+/// Parser normalizes to UPPERCASE: Expression { expr: Column("_WINDOW_START"), alias: None }
 #[test]
 fn test_parser_window_system_columns_unaliased() {
     let sql = "SELECT _window_start, _window_end FROM test";
@@ -72,31 +72,31 @@ fn test_parser_window_system_columns_unaliased() {
     if let StreamingQuery::Select { fields, .. } = query {
         assert_eq!(fields.len(), 2);
 
-        // Check first field: _window_start (no alias)
+        // Check first field: _WINDOW_START (no alias)
         // Parser produces Expression with Column expr
         match &fields[0] {
             SelectField::Expression {
                 expr: Expr::Column(col),
                 alias: None,
             } => {
-                assert_eq!(col, "_window_start");
+                assert_eq!(col, system_columns::WINDOW_START);
             }
             other => panic!(
-                "Expected Expression {{ expr: Column(_window_start), alias: None }}, got {:?}",
+                "Expected Expression {{ expr: Column(_WINDOW_START), alias: None }}, got {:?}",
                 other
             ),
         }
 
-        // Check second field: _window_end (no alias)
+        // Check second field: _WINDOW_END (no alias)
         match &fields[1] {
             SelectField::Expression {
                 expr: Expr::Column(col),
                 alias: None,
             } => {
-                assert_eq!(col, "_window_end");
+                assert_eq!(col, system_columns::WINDOW_END);
             }
             other => panic!(
-                "Expected Expression {{ expr: Column(_window_end), alias: None }}, got {:?}",
+                "Expected Expression {{ expr: Column(_WINDOW_END), alias: None }}, got {:?}",
                 other
             ),
         }
@@ -285,7 +285,6 @@ fn test_window_stats_with_multiple_groups() {
 #[test]
 fn test_window_adapter_populates_system_columns() {
     use velostream::velostream::sql::execution::processors::context::ProcessorContext;
-    use velostream::velostream::sql::execution::window_v2::types::SharedRecord;
 
     // Create a windowed aggregation query with _window_start and _window_end
     let sql = r#"

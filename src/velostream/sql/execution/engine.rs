@@ -132,7 +132,7 @@ use super::processors::{
     HeaderMutation, HeaderOperation, JoinContext, ProcessorContext, QueryProcessor,
     SelectProcessor, WindowContext, WindowProcessor,
 };
-use super::types::{FieldValue, StreamRecord};
+use super::types::{FieldValue, StreamRecord, system_columns};
 // FieldValueConverter no longer needed since we use StreamRecord directly
 use crate::velostream::datasource::{DataReader, DataWriter, create_sink, create_source};
 use crate::velostream::sql::ast::{EmitMode, Expr, SelectField, StreamSource, StreamingQuery};
@@ -1453,7 +1453,13 @@ impl StreamExecutionEngine {
                             }
                         }
 
-                        results.push(StreamRecord::new(result_fields));
+                        // FR-090: Propagate headers from last input record (last-event-wins)
+                        let result = if let Some(sample) = &accumulator.sample_record {
+                            StreamRecord::with_headers_from(result_fields, sample)
+                        } else {
+                            StreamRecord::new(result_fields)
+                        };
+                        results.push(result);
                     }
                 }
             }
@@ -1821,7 +1827,7 @@ impl StreamExecutionEngine {
             window: Some(_), ..
         } = query
         {
-            if let Some(ts_field) = stream_record.fields.get("_timestamp") {
+            if let Some(ts_field) = stream_record.fields.get(system_columns::TIMESTAMP) {
                 let mut modified_record = stream_record.clone();
                 match ts_field {
                     FieldValue::Integer(ts) => {

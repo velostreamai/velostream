@@ -33,7 +33,7 @@ use velostream::velostream::schema::Schema;
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::table::loading_helpers::{
-    LoadingConfig, LoadingStats, bulk_load_table, incremental_load_table, unified_load_table,
+    LoadingConfig, bulk_load_table, incremental_load_table, unified_load_table,
 };
 use velostream::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
 

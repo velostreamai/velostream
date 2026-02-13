@@ -6,7 +6,6 @@ Includes instrumentation of window emit path to profile filtering, cloning, and 
 */
 
 use rustc_hash::FxHashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 /// Minimal mock of what gets stored in window buffer
@@ -65,7 +64,7 @@ fn generate_partition_batched_records(count: usize, unique_keys: usize) -> Vec<M
 }
 
 /// Simple FNV hash (consistent with codebase)
-fn fxhash(mut value: u64) -> u64 {
+fn fxhash(value: u64) -> u64 {
     let mut hash = 2166136261u64;
     hash ^= value;
     hash = hash.wrapping_mul(16777619);

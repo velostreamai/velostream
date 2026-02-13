@@ -74,7 +74,7 @@ async fn test_job_processor_with_tracing_enabled_impl() {
         )
         .expect("Failed to create producer");
 
-        let test_messages = vec![
+        let test_messages = [
             serde_json::json!({"id": 1, "value": 100}),
             serde_json::json!({"id": 2, "value": 200}),
             serde_json::json!({"id": 3, "value": 300}),

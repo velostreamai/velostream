@@ -1,6 +1,5 @@
 //! Tests for SQL validator @metric annotation validation (FR-073)
 
-use std::path::PathBuf;
 use velostream::velostream::sql::validator::SqlValidator;
 
 #[test]

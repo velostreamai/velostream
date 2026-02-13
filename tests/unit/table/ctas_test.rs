@@ -61,7 +61,7 @@ fn test_source_extraction() {
 
 #[test]
 fn test_properties_handling() {
-    let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
+    let _executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
 
     // Test that the implementation can handle properties
     let mut properties = HashMap::new();
@@ -143,7 +143,7 @@ async fn test_create_table_into_queries() {
 
 #[test]
 fn test_data_source_types() {
-    let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
+    let _executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
     let parser = StreamingSqlParser::new();
 
     // Test different source types
@@ -162,7 +162,7 @@ fn test_data_source_types() {
         ),
     ];
 
-    for (query, expected_source) in test_cases {
+    for (query, _expected_source) in test_cases {
         match parser.parse(query) {
             Ok(StreamingQuery::CreateTable { .. }) => {
                 // Parser successfully parsed - would extract correct source in real execution

@@ -59,7 +59,7 @@ async fn execute_query(
     query: &str,
 ) -> Result<Vec<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format =
+    let _serialization_format =
         std::sync::Arc::new(velostream::velostream::serialization::JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();

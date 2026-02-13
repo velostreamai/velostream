@@ -8,11 +8,10 @@ Tests verify that errors are properly recorded and appear in observability metri
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::observability::SharedObservabilityManager;
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor, TransactionalJobProcessor,
 };

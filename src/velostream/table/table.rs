@@ -19,6 +19,7 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime};
+use tokio::sync::watch;
 use tokio::time::sleep;
 
 /// A Table represents a materialized view of a Kafka topic where each record
@@ -79,6 +80,8 @@ where
     topic: String,
     group_id: String,
     running: Arc<AtomicBool>,
+    shutdown_tx: Arc<watch::Sender<bool>>,
+    shutdown_rx: watch::Receiver<bool>,
     last_updated: Arc<RwLock<Option<SystemTime>>>,
     // Maintain API compatibility - KS is now boxed inside FastConsumer
     _phantom: PhantomData<KS>,
@@ -370,6 +373,7 @@ where
         // This is where the error occurs if topic doesn't exist
         consumer.subscribe(&[&topic])?;
 
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         Ok(Table {
             consumer: Arc::new(consumer),
             value_format: Arc::new(value_format),
@@ -377,6 +381,8 @@ where
             topic: topic.clone(),
             group_id,
             running: Arc::new(AtomicBool::new(false)),
+            shutdown_tx: Arc::new(shutdown_tx),
+            shutdown_rx,
             last_updated: Arc::new(RwLock::new(None)),
             _phantom: PhantomData,
         })
@@ -400,6 +406,7 @@ where
         group_id: String,
         value_format: VS,
     ) -> Self {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         Table {
             consumer: Arc::new(consumer),
             value_format: Arc::new(value_format),
@@ -407,6 +414,8 @@ where
             topic,
             group_id,
             running: Arc::new(AtomicBool::new(false)),
+            shutdown_tx: Arc::new(shutdown_tx),
+            shutdown_rx,
             last_updated: Arc::new(RwLock::new(None)),
             _phantom: PhantomData,
         }
@@ -420,29 +429,37 @@ where
         self.running.store(true, Ordering::Relaxed);
 
         let mut stream = self.consumer.stream();
+        let mut shutdown_rx = self.shutdown_rx.clone();
 
-        while self.running.load(Ordering::Relaxed) {
-            match stream.next().await {
-                Some(Ok(message)) => {
-                    self.process_message(message).await;
+        loop {
+            tokio::select! {
+                msg = stream.next() => {
+                    match msg {
+                        Some(Ok(message)) => {
+                            self.process_message(message).await;
+                        }
+                        Some(Err(e)) => {
+                            println!("Table error processing message: {:?}", e);
+                        }
+                        None => {
+                            sleep(Duration::from_millis(100)).await;
+                        }
+                    }
                 }
-                Some(Err(e)) => {
-                    println!("Table error processing message: {:?}", e);
-                    // Continue processing despite errors
-                }
-                None => {
-                    // Stream ended, wait briefly and continue
-                    sleep(Duration::from_millis(100)).await;
+                _ = shutdown_rx.changed() => {
+                    break;
                 }
             }
         }
 
+        self.running.store(false, Ordering::Relaxed);
         Ok(())
     }
 
     /// Stops the table updates
     pub fn stop(&self) {
         self.running.store(false, Ordering::Relaxed);
+        let _ = self.shutdown_tx.send(true);
     }
 
     /// Checks if the table is currently running
@@ -744,6 +761,8 @@ where
             topic: self.topic.clone(),
             group_id: self.group_id.clone(),
             running: self.running.clone(),
+            shutdown_tx: self.shutdown_tx.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
             last_updated: self.last_updated.clone(),
             _phantom: PhantomData,
         }

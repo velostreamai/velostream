@@ -61,6 +61,7 @@
 //! - Empty batch handling via `empty_batch_count` and `wait_on_empty_batch_ms`
 
 use crate::velostream::datasource::DataWriter;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::metrics_helper::extract_job_name;
@@ -132,6 +133,8 @@ pub struct PartitionReceiver {
     eof_flag: Option<Arc<AtomicBool>>,
     /// Job name for metric emission (derived from query)
     job_name: String,
+    /// Pre-computed query metadata for span enrichment
+    query_metadata: QuerySpanMetadata,
 }
 
 impl PartitionReceiver {
@@ -176,6 +179,9 @@ impl PartitionReceiver {
         // Extract job name from query for metric emission
         let job_name = extract_job_name(&query);
 
+        // Pre-compute query metadata once for span enrichment
+        let query_metadata = QuerySpanMetadata::from_query(&query);
+
         Self {
             partition_id,
             execution_engine,
@@ -189,6 +195,7 @@ impl PartitionReceiver {
             queue: None,
             eof_flag: None,
             job_name,
+            query_metadata,
         }
     }
 
@@ -239,6 +246,9 @@ impl PartitionReceiver {
         // Extract job name from query for metric emission
         let job_name = extract_job_name(&query);
 
+        // Pre-compute query metadata once for span enrichment
+        let query_metadata = QuerySpanMetadata::from_query(&query);
+
         Self {
             partition_id,
             execution_engine,
@@ -252,6 +262,7 @@ impl PartitionReceiver {
             queue: Some(queue),
             eof_flag: Some(eof_flag),
             job_name,
+            query_metadata,
         }
     }
 
@@ -261,43 +272,14 @@ impl PartitionReceiver {
     /// with the Prometheus metrics registry. Follows the same pattern as
     /// SimpleJobProcessor and TransactionalJobProcessor for consistency.
     async fn register_sql_metrics(&self) {
-        let obs = self.observability_wrapper.observability_ref();
-
-        // Register counter metrics
+        // Register all SQL-annotated metrics (counter, gauge, histogram) in a single pass
         if let Err(e) = self
             .observability_wrapper
-            .metrics_helper()
-            .register_counter_metrics(&self.query, obs, &self.job_name)
+            .register_all_metrics(&self.query, &self.job_name)
             .await
         {
             warn!(
-                "PartitionReceiver {}: Failed to register counter metrics: {}",
-                self.partition_id, e
-            );
-        }
-
-        // Register gauge metrics
-        if let Err(e) = self
-            .observability_wrapper
-            .metrics_helper()
-            .register_gauge_metrics(&self.query, obs, &self.job_name)
-            .await
-        {
-            warn!(
-                "PartitionReceiver {}: Failed to register gauge metrics: {}",
-                self.partition_id, e
-            );
-        }
-
-        // Register histogram metrics
-        if let Err(e) = self
-            .observability_wrapper
-            .metrics_helper()
-            .register_histogram_metrics(&self.query, obs, &self.job_name)
-            .await
-        {
-            warn!(
-                "PartitionReceiver {}: Failed to register histogram metrics: {}",
+                "PartitionReceiver {}: Failed to register metrics: {}",
                 self.partition_id, e
             );
         }
@@ -311,25 +293,9 @@ impl PartitionReceiver {
     ///
     /// NOTE: register_sql_metrics() must be called first to register metrics with Prometheus.
     async fn emit_sql_metrics(&self, output_records: &[Arc<StreamRecord>]) {
-        // Get observability reference for metric emission
-        let obs = self.observability_wrapper.observability_ref();
-
-        // Emit counter metrics
+        // Emit all SQL-annotated metrics (counter, gauge, histogram) in a single pass
         self.observability_wrapper
-            .metrics_helper()
-            .emit_counter_metrics(&self.query, output_records, obs, &self.job_name)
-            .await;
-
-        // Emit gauge metrics
-        self.observability_wrapper
-            .metrics_helper()
-            .emit_gauge_metrics(&self.query, output_records, obs, &self.job_name)
-            .await;
-
-        // Emit histogram metrics
-        self.observability_wrapper
-            .metrics_helper()
-            .emit_histogram_metrics(&self.query, output_records, obs, &self.job_name)
+            .emit_all_metrics(&self.query, output_records, &self.job_name)
             .await;
     }
 
@@ -440,15 +406,51 @@ impl PartitionReceiver {
                 let start = Instant::now();
                 let batch_size = batch.len();
 
+                // Create batch span BEFORE processing so inner spans are children
+                let mut batch_span = ObservabilityHelper::start_batch_span(
+                    self.observability_wrapper.observability_ref(),
+                    &self.job_name,
+                    batch_count + 1,
+                    &batch,
+                );
+                ObservabilityHelper::enrich_batch_span_with_query_metadata(
+                    &mut batch_span,
+                    &self.query_metadata,
+                );
+                ObservabilityHelper::enrich_batch_span_with_record_metadata(
+                    &mut batch_span,
+                    &batch,
+                );
+
                 // Process batch with retry logic
                 let mut retry_count = 0;
 
                 while retry_count <= self.config.max_retries {
-                    // Process batch synchronously (Phase 6.7: no async overhead)
+                    // SQL processing phase: time and record span
+                    let sql_start = Instant::now();
                     match self.process_batch(&batch) {
                         Ok((processed, mut output_records, pending_dlq_entries)) => {
+                            let sql_elapsed = sql_start.elapsed();
                             total_records += processed as u64;
                             batch_count += 1;
+
+                            // Record SQL processing span
+                            let batch_result = crate::velostream::server::processors::common::BatchProcessingResultWithOutput {
+                                records_processed: processed,
+                                records_failed: pending_dlq_entries.len(),
+                                processing_time: sql_elapsed,
+                                batch_size,
+                                error_details: vec![],
+                                output_records: output_records.clone(),
+                            };
+                            ObservabilityHelper::record_sql_processing(
+                                self.observability_wrapper.observability_ref(),
+                                &self.job_name,
+                                &batch_span,
+                                &batch_result,
+                                sql_elapsed.as_millis() as u64,
+                                Some(&self.query_metadata),
+                            );
 
                             // Write any pending DLQ entries asynchronously (fix for block_on panic)
                             if !pending_dlq_entries.is_empty() {
@@ -476,12 +478,6 @@ impl PartitionReceiver {
 
                             // Inject distributed trace context into output records
                             // so downstream consumers can link their traces
-                            let mut batch_span = ObservabilityHelper::start_batch_span(
-                                self.observability_wrapper.observability_ref(),
-                                &self.job_name,
-                                batch_count,
-                                &batch,
-                            );
                             if !output_records.is_empty() {
                                 ObservabilityHelper::inject_trace_context_into_records(
                                     &batch_span,
@@ -490,14 +486,7 @@ impl PartitionReceiver {
                                 );
                             }
 
-                            // Complete batch span with success
-                            ObservabilityHelper::complete_batch_span_success(
-                                &mut batch_span,
-                                &start,
-                                processed as u64,
-                            );
-
-                            // Write output records to sink if available
+                            // Serialization phase: write output records to sink with timing
                             if !output_records.is_empty() {
                                 if let Some(ref writer_arc) = self.writer {
                                     let output_count = output_records.len();
@@ -505,30 +494,60 @@ impl PartitionReceiver {
                                         "PartitionReceiver {}: Writing {} output records to sink",
                                         self.partition_id, output_count
                                     );
+                                    let ser_start = Instant::now();
                                     let mut writer = writer_arc.lock().await;
                                     match writer.write_batch(output_records).await {
                                         Ok(()) => {
                                             // Flush the writer to ensure records are persisted
                                             if let Err(e) = writer.flush().await {
+                                                let ser_elapsed = ser_start.elapsed();
                                                 error!(
                                                     "PartitionReceiver {}: Failed to flush {} records to sink: {}",
                                                     self.partition_id, output_count, e
                                                 );
                                                 self.job_metrics.record_failed(output_count);
+                                                ObservabilityHelper::record_serialization_failure(
+                                                    self.observability_wrapper.observability_ref(),
+                                                    &self.job_name,
+                                                    &batch_span,
+                                                    output_count,
+                                                    ser_elapsed.as_millis() as u64,
+                                                    &format!("Flush failed: {}", e),
+                                                    None,
+                                                );
                                             } else {
+                                                let ser_elapsed = ser_start.elapsed();
                                                 debug!(
                                                     "PartitionReceiver {}: Successfully wrote and flushed {} records to sink",
                                                     self.partition_id, output_count
                                                 );
+                                                ObservabilityHelper::record_serialization_success(
+                                                    self.observability_wrapper.observability_ref(),
+                                                    &self.job_name,
+                                                    &batch_span,
+                                                    output_count,
+                                                    ser_elapsed.as_millis() as u64,
+                                                    None,
+                                                );
                                             }
                                         }
                                         Err(e) => {
+                                            let ser_elapsed = ser_start.elapsed();
                                             error!(
                                                 "PartitionReceiver {}: Failed to write {} output records to sink: {}",
                                                 self.partition_id, output_count, e
                                             );
                                             // Track write failures - these records are lost
                                             self.job_metrics.record_failed(output_count);
+                                            ObservabilityHelper::record_serialization_failure(
+                                                self.observability_wrapper.observability_ref(),
+                                                &self.job_name,
+                                                &batch_span,
+                                                output_count,
+                                                ser_elapsed.as_millis() as u64,
+                                                &format!("Write failed: {}", e),
+                                                None,
+                                            );
                                         }
                                     }
                                 } else {
@@ -539,6 +558,13 @@ impl PartitionReceiver {
                                     );
                                 }
                             }
+
+                            // Complete batch span with success
+                            ObservabilityHelper::complete_batch_span_success(
+                                &mut batch_span,
+                                &start,
+                                processed as u64,
+                            );
 
                             break; // Batch processed successfully, exit retry loop
                         }
@@ -572,14 +598,8 @@ impl PartitionReceiver {
                                 );
 
                                 // Complete batch span with error for the failed batch
-                                let mut error_batch_span = ObservabilityHelper::start_batch_span(
-                                    self.observability_wrapper.observability_ref(),
-                                    &self.job_name,
-                                    batch_count,
-                                    &batch,
-                                );
                                 ObservabilityHelper::complete_batch_span_error(
-                                    &mut error_batch_span,
+                                    &mut batch_span,
                                     &start,
                                     0,
                                     batch_size,
@@ -610,48 +630,22 @@ impl PartitionReceiver {
 
                                         let dlq_record = StreamRecord::new(record_data);
 
-                                        // Add to DLQ
-                                        let dlq_ref = Arc::clone(dlq);
-                                        let fut = dlq_ref.add_entry(
+                                        // Add to DLQ (proper async/await in async context)
+                                        dlq.add_entry(
                                             dlq_record,
                                             error_msg,
                                             retry_count as usize,
                                             false, // not recoverable after max retries
-                                        );
+                                        )
+                                        .await;
 
-                                        // Use a blocking runtime to execute the async add_entry
-                                        if let Ok(runtime) =
-                                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                                || tokio::runtime::Handle::current(),
-                                            ))
-                                        {
-                                            if let Err(_) = std::panic::catch_unwind(
-                                                std::panic::AssertUnwindSafe(|| {
-                                                    runtime.block_on(fut)
-                                                }),
-                                            ) {
-                                                error!(
-                                                    "PartitionReceiver {}: Panic occurred while adding batch DLQ entry after {} retries. Batch will be logged for manual recovery.",
-                                                    self.partition_id, self.config.max_retries
-                                                );
-                                                error!(
-                                                    "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Batch Size: {}, Error: '{}', Recoverable: false",
-                                                    self.partition_id,
-                                                    self.partition_id,
-                                                    batch_size,
-                                                    e
-                                                );
-                                            }
-                                        } else {
-                                            error!(
-                                                "PartitionReceiver {}: Failed to obtain Tokio runtime for batch DLQ write after {} retries. Batch will be logged for manual recovery.",
-                                                self.partition_id, self.config.max_retries
-                                            );
-                                            error!(
-                                                "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Batch Size: {}, Error: '{}', Recoverable: false",
-                                                self.partition_id, self.partition_id, batch_size, e
-                                            );
-                                        }
+                                        debug!(
+                                            "PartitionReceiver {}: DLQ entry added after {} retries - Batch Size: {}, Error: '{}'",
+                                            self.partition_id,
+                                            self.config.max_retries,
+                                            batch_size,
+                                            e
+                                        );
                                     }
                                 }
                             }

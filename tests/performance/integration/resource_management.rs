@@ -4,14 +4,11 @@
 //! circuit breakers, resource managers, watermark processing, and
 //! comprehensive system resource monitoring.
 
-use super::super::common::{
-    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
-};
+use super::super::common::MetricsCollector;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use velostream::velostream::sql::execution::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    config::{LateDataStrategy, StreamingConfig, WatermarkStrategy as ConfigWatermarkStrategy},
     error::StreamingError,
     resource_manager::{ResourceLimits, ResourceManager},
     types::{FieldValue, StreamRecord},
@@ -34,12 +31,12 @@ async fn benchmark_resource_management_overhead() {
         // Baseline: No resource management
         metrics.start();
         let baseline_throughput = benchmark_baseline_processing(load).await;
-        let baseline_duration = metrics.end(&format!("baseline_{}", load));
+        let _baseline_duration = metrics.end(&format!("baseline_{}", load));
 
         // With resource management enabled
         metrics.start();
         let managed_throughput = benchmark_with_resource_management(load).await;
-        let managed_duration = metrics.end(&format!("managed_{}", load));
+        let _managed_duration = metrics.end(&format!("managed_{}", load));
 
         // Calculate overhead
         let overhead_percent =
@@ -97,7 +94,7 @@ async fn benchmark_circuit_breaker_performance() {
 
         metrics.start();
         let result = benchmark_circuit_breaker_with_failures(1_000, failure_rate, config).await;
-        let duration = metrics.end(&format!(
+        let _duration = metrics.end(&format!(
             "circuit_breaker_{}",
             (failure_rate * 100.0) as u32
         ));
@@ -169,7 +166,7 @@ async fn benchmark_watermark_processing_performance() {
 
         metrics.start();
         let throughput = benchmark_watermark_strategy(10_000, strategy).await;
-        let duration = metrics.end(&format!("watermark_{}", name.to_lowercase()));
+        let _duration = metrics.end(&format!("watermark_{}", name.to_lowercase()));
 
         println!("   Throughput: {:.0} records/sec", throughput);
 

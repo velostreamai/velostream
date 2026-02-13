@@ -11,31 +11,23 @@
 //! 5. Update the wrapper configuration for your processor's specific needs
 
 use super::stream_job_test_infrastructure::{
-    AdvancedMockDataReader, AdvancedMockDataWriter, StreamJobProcessor, create_test_engine,
-    create_test_query, create_test_record, run_comprehensive_failure_tests,
-    test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
+    StreamJobProcessor, create_test_record, run_comprehensive_failure_tests,
+    test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
-    test_sink_write_failure_scenario, test_source_read_failure_scenario,
+    test_source_read_failure_scenario,
 };
 
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
     // TODO: Replace with your actual processor module
     // multi_job_your_processor::YourJobProcessor,
 };
-use velostream::velostream::sql::{
-    ast::{SelectField, StreamSource, StreamingQuery},
-    execution::{
-        engine::StreamExecutionEngine,
-        types::{FieldValue, StreamRecord},
-    },
-};
+use velostream::velostream::sql::{ast::StreamingQuery, execution::engine::StreamExecutionEngine};
 
 // =====================================================
 // YOUR PROCESSOR WRAPPER FOR TESTING (TEMPLATE)
@@ -48,7 +40,7 @@ struct YourJobProcessorWrapper {
 }
 
 impl YourJobProcessorWrapper {
-    fn new(config: JobProcessingConfig) -> Self {
+    fn new(_config: JobProcessingConfig) -> Self {
         Self {
             // processor: YourJobProcessor::new(config),
         }
@@ -61,12 +53,12 @@ impl StreamJobProcessor for YourJobProcessorWrapper {
 
     async fn process_job(
         &self,
-        reader: Box<dyn DataReader>,
-        writer: Option<Box<dyn DataWriter>>,
-        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
-        query: StreamingQuery,
-        job_name: String,
-        shutdown_rx: mpsc::Receiver<()>,
+        _reader: Box<dyn DataReader>,
+        _writer: Option<Box<dyn DataWriter>>,
+        _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        _query: StreamingQuery,
+        _job_name: String,
+        _shutdown_rx: mpsc::Receiver<()>,
         _shared_stats: Option<std::sync::Arc<std::sync::RwLock<JobExecutionStats>>>,
     ) -> Result<Self::StatsType, Box<dyn std::error::Error + Send + Sync>> {
         // TODO: Call your processor's process_job method
@@ -194,9 +186,9 @@ async fn test_your_processor_specific_behavior() {
     // - Performance optimizations
     // - Integration with specific systems
 
-    let test_batches = vec![vec![create_test_record(1), create_test_record(2)]];
+    let _test_batches = [vec![create_test_record(1), create_test_record(2)]];
 
-    let config = JobProcessingConfig {
+    let _config = JobProcessingConfig {
         // TODO: Configure for your processor's specific test case
         use_transactions: false,
         failure_strategy: FailureStrategy::LogAndContinue,
@@ -228,7 +220,7 @@ async fn test_your_processor_vs_other_processors() {
     // behaves differently from SimpleJobProcessor and TransactionalJobProcessor
     // This helps demonstrate the value of your new processor
 
-    let test_batches = vec![vec![create_test_record(1)]];
+    let _test_batches = [vec![create_test_record(1)]];
 
     // TODO: Create test scenarios that highlight the differences
     // between your processor and existing ones

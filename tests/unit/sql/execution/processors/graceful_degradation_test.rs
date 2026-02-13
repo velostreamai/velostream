@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use velostream::velostream::server::graceful_degradation::{
-    GracefulDegradationConfig, GracefulDegradationHandler, TableMissingDataStrategy,
+    GracefulDegradationConfig, TableMissingDataStrategy,
 };
 use velostream::velostream::sql::SqlError;
 use velostream::velostream::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType, StreamSource};
@@ -15,9 +15,7 @@ use velostream::velostream::sql::execution::processors::ProcessorContext;
 use velostream::velostream::sql::execution::processors::stream_table_join::StreamTableJoinProcessor;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::table::UnifiedTable;
-use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
-};
+use velostream::velostream::table::streaming::{RecordBatch, RecordStream, StreamResult};
 
 /// Mock table that simulates missing data scenarios
 struct MockEmptyTable {

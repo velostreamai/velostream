@@ -2,7 +2,6 @@
 //!
 //! Comprehensive test suite for parallel table loading with dependency management.
 
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use velostream::velostream::server::parallel_loader::{
     ParallelLoader, ParallelLoadingConfig, TableDefinition,

@@ -8,9 +8,7 @@
 
 #[cfg(test)]
 mod tests {
-    use velostream::velostream::server::processors::metrics_helper::{
-        MetricsPerformanceTelemetry, ProcessorMetricsHelper,
-    };
+    use velostream::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 
     /// Test 1: Telemetry recording initializes to zero
     #[tokio::test]

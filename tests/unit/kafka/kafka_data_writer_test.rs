@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use velostream::velostream::datasource::kafka::reader::SerializationFormat;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 
 /// Test helper to create a StreamRecord for testing
 fn create_test_record(id: i64, name: &str, amount: f64, timestamp: i64) -> StreamRecord {
@@ -132,7 +132,7 @@ mod kafka_data_writer_tests {
         let record = create_test_record(1, "Test", 42.0, 1640995200000);
 
         // Test JSON serialization conceptually by verifying field conversion
-        for (field_name, field_value) in &record.fields {
+        for (_field_name, field_value) in &record.fields {
             match field_value {
                 FieldValue::String(s) => {
                     // Should serialize as JSON string
@@ -398,7 +398,7 @@ mod kafka_data_writer_tests {
         // Note: _timestamp, _offset, _partition are NOT injected by writer
         // They should be preserved from upstream if present in fields
         assert!(
-            json_payload.get("_timestamp").is_none(),
+            json_payload.get(system_columns::TIMESTAMP).is_none(),
             "Writer should not inject _timestamp - it should come from upstream fields"
         );
 

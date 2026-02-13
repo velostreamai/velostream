@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
@@ -18,7 +17,7 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
-    MockTable, StandardTestData, TestDataBuilder, TestExecutor,
+    MockTable, StandardTestData, TestDataBuilder,
 };
 
 fn create_test_record_for_on_condition() -> StreamRecord {
@@ -139,7 +138,7 @@ async fn execute_on_condition_test(
     query: &str,
 ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = std::sync::Arc::new(JsonFormat);
+    let _serialization_format = std::sync::Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Set up the context customizer with extended test tables

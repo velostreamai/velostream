@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::types::system_columns;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -339,8 +340,8 @@ mod tests {
                 Some(FieldValue::Integer(id)) => assert_eq!(*id, 1),
                 _ => panic!("Unexpected customer_id type"),
             }
-            assert!(output.fields.contains_key("_timestamp"));
-            assert!(output.fields.contains_key("_partition"));
+            assert!(output.fields.contains_key(system_columns::TIMESTAMP));
+            assert!(output.fields.contains_key(system_columns::PARTITION));
         }
 
         // Should not receive second record

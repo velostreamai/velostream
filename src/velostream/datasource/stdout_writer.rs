@@ -2,7 +2,7 @@
 
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::serialization::helpers::field_value_to_json;
-use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::sql::execution::types::{StreamRecord, system_columns};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::error::Error;
@@ -63,15 +63,15 @@ impl StdoutWriter {
         // Add metadata if requested
         if self.include_metadata {
             json_obj.insert(
-                "_timestamp".to_string(),
+                system_columns::TIMESTAMP.to_string(),
                 Value::Number(serde_json::Number::from(record.timestamp)),
             );
             json_obj.insert(
-                "_offset".to_string(),
+                system_columns::OFFSET.to_string(),
                 Value::Number(serde_json::Number::from(record.offset)),
             );
             json_obj.insert(
-                "_partition".to_string(),
+                system_columns::PARTITION.to_string(),
                 Value::Number(serde_json::Number::from(record.partition)),
             );
         }

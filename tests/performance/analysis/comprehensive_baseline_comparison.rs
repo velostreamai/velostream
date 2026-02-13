@@ -29,7 +29,7 @@ use super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 
 /// Get the selected partitioning strategy for a query
 fn get_selected_strategy(query_str: &str) -> String {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     match parser.parse(query_str) {
         Ok(query) => {
             let selection = PartitionerSelector::select(&query);
@@ -157,7 +157,7 @@ impl ScenarioResult {
 
 /// Measure SQL Engine (sync version) - execute_with_record_sync
 async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f64, usize, usize) {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
@@ -194,7 +194,7 @@ async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f6
 
 /// Measure SQL Engine (async version) - execute_with_record
 async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> (f64, usize, usize) {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
@@ -248,7 +248,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     let data_writer = MockDataWriter::new();
 
     // Engine is managed internally by processor, no need to create/manage it here
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -298,7 +298,7 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -347,7 +347,7 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
     // With query-based auto-selection for optimal strategy
     // See: docs/developer/adaptive_processor_performance_analysis.md
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -407,7 +407,7 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
     // With query-based auto-selection for optimal strategy
     // See: docs/developer/adaptive_processor_performance_analysis.md
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 

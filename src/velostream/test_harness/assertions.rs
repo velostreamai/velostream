@@ -21,7 +21,7 @@ use super::spec::{
     WindowBoundaryAssertion,
 };
 use super::utils::{field_value_to_string, resolve_path};
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -3112,7 +3112,7 @@ impl AssertionRunner {
             "timestamp",
             "created_at",
             "updated_at",
-            "_timestamp",
+            system_columns::TIMESTAMP,
         ];
         let mut latest_timestamp: Option<i64> = None;
 
@@ -3797,7 +3797,7 @@ mod tests {
     ) -> CapturedOutput {
         let stream_records: Vec<StreamRecord> = records
             .into_iter()
-            .zip(keys.into_iter())
+            .zip(keys)
             .map(|(fields, key)| {
                 let mut rec = StreamRecord::new(fields);
                 rec.key = key.map(|k| FieldValue::String(k));

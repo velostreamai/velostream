@@ -132,7 +132,7 @@ impl SessionWindowStrategy {
     /// # Example
     /// ```rust,ignore
     /// // 5-minute session gap
-    /// let strategy = SessionWindowStrategy::new(300000, "_TIMESTAMP".to_string());
+    /// let strategy = SessionWindowStrategy::new(300000, system_columns::TIMESTAMP.to_string());
     /// ```
     pub fn new(gap_duration_ms: i64, time_field: String) -> Self {
         Self::with_estimated_capacity(gap_duration_ms, time_field, 10_000)
@@ -162,7 +162,7 @@ impl SessionWindowStrategy {
     /// // 5-minute session gap, expecting ~10K events per session
     /// let strategy = SessionWindowStrategy::with_estimated_capacity(
     ///     300000,    // 5 minute gap
-    ///     "_TIMESTAMP".to_string(),
+    ///     system_columns::TIMESTAMP.to_string(),
     ///     10_000     // 10K events typical
     /// );
     /// ```
@@ -424,7 +424,7 @@ impl WindowStrategy for SessionWindowStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+    use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
     use std::collections::HashMap;
 
     fn create_test_record(timestamp: i64) -> SharedRecord {
@@ -440,7 +440,8 @@ mod tests {
     #[test]
     fn test_session_window_basic() {
         // 5-minute session gap
-        let mut strategy = SessionWindowStrategy::new(300000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SessionWindowStrategy::new(300000, system_columns::TIMESTAMP.to_string());
 
         // Add events within gap
         let r1 = create_test_record(1000);
@@ -459,7 +460,8 @@ mod tests {
     #[test]
     fn test_session_window_gap_detection() {
         // 5-minute session gap
-        let mut strategy = SessionWindowStrategy::new(300000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SessionWindowStrategy::new(300000, system_columns::TIMESTAMP.to_string());
 
         // First session
         let r1 = create_test_record(1000);
@@ -476,7 +478,8 @@ mod tests {
     #[test]
     fn test_session_window_clear() {
         // 5-minute session gap
-        let mut strategy = SessionWindowStrategy::new(300000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SessionWindowStrategy::new(300000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         let r2 = create_test_record(20000);
@@ -500,7 +503,7 @@ mod tests {
     #[test]
     fn test_session_window_multiple_sessions() {
         // 1-minute session gap
-        let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         // Session 1: 0-2s
         let r1 = create_test_record(0);
@@ -522,7 +525,8 @@ mod tests {
 
     #[test]
     fn test_session_window_stats() {
-        let mut strategy = SessionWindowStrategy::new(300000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SessionWindowStrategy::new(300000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -536,7 +540,7 @@ mod tests {
 
     #[test]
     fn test_session_window_should_emit() {
-        let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -553,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_session_window_get_records() {
-        let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         let r2 = create_test_record(20000);
@@ -575,7 +579,7 @@ mod tests {
 
     #[test]
     fn test_session_window_empty_after_clear() {
-        let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+        let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -593,7 +597,7 @@ mod tests {
     #[test]
     fn test_session_window_short_gap() {
         // 10-second session gap
-        let mut strategy = SessionWindowStrategy::new(10000, "_TIMESTAMP".to_string());
+        let mut strategy = SessionWindowStrategy::new(10000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(1000);
         let r2 = create_test_record(5000); // 4s later - within gap

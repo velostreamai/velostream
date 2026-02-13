@@ -6,9 +6,7 @@ Heavy benchmarks are run as examples in the performance-tests.yml workflow.
 */
 
 use std::collections::HashMap;
-use velostream::velostream::serialization::{
-    AvroFormat, JsonFormat, ProtobufFormat, SerializationFormat,
-};
+use velostream::velostream::serialization::{AvroFormat, JsonFormat, SerializationFormat};
 use velostream::velostream::sql::FieldValue;
 
 fn create_test_data_small() -> HashMap<String, FieldValue> {
@@ -113,7 +111,7 @@ fn test_large_payload_serialization_performance() {
 #[test]
 fn test_field_value_memory_footprint() {
     // Test that FieldValue variants don't have excessive memory overhead
-    let values = vec![
+    let values = [
         FieldValue::Null,
         FieldValue::Boolean(true),
         FieldValue::Integer(12345),

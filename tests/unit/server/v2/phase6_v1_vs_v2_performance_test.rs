@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
@@ -84,7 +84,7 @@ impl DataReader for PerformanceTestReader {
         }
 
         let batch_end = std::cmp::min(yielded + self.batch_size as u64, self.total_records);
-        let batch_size = (batch_end - yielded) as usize;
+        let _batch_size = (batch_end - yielded) as usize;
 
         let batch: Vec<StreamRecord> = (yielded..batch_end)
             .map(|i| self.create_record(i))

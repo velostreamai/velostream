@@ -6,7 +6,6 @@ Tests the complete pipeline from JSON → FieldValue → SQL operations.
 */
 
 use async_trait::async_trait;
-use futures::stream;
 use serde_json::{Value as JsonValue, json};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -441,7 +440,7 @@ impl UnifiedTable for FinancialDataSource {
     async fn stream_aggregate(
         &self,
         aggregate_expr: &str,
-        where_clause: Option<&str>,
+        _where_clause: Option<&str>,
     ) -> StreamResult<FieldValue> {
         // Basic aggregate support for testing
         if aggregate_expr.contains("COUNT(positions.*)") {

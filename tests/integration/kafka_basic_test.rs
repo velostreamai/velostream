@@ -761,7 +761,7 @@ async fn test_fluent_api_patterns() {
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
     // Send test messages
-    let messages = vec![
+    let messages = [
         TestMessage::new(1, "Pattern message 1"),
         TestMessage::new(2, "Pattern message 2"),
         TestMessage::new(3, "Pattern message 3"),

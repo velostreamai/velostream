@@ -32,7 +32,7 @@ mod unified_window_tests {
             // Add comprehensive value assertions for each aggregation type
             match agg_func {
                 "COUNT" => {
-                    for (idx, result) in results.iter().enumerate() {
+                    for (_idx, result) in results.iter().enumerate() {
                         if let Some(count_field) = result.fields.get("result") {
                             match count_field {
                                 velostream::velostream::sql::execution::FieldValue::Integer(
@@ -51,7 +51,7 @@ mod unified_window_tests {
                     }
                 }
                 "SUM" | "AVG" => {
-                    for (idx, result) in results.iter().enumerate() {
+                    for (_idx, result) in results.iter().enumerate() {
                         if let Some(agg_field) = result.fields.get("result") {
                             match agg_field {
                                 velostream::velostream::sql::execution::FieldValue::Float(val) => {
@@ -409,7 +409,7 @@ mod unified_window_tests {
                 result.fields.get("customer_segment")
             {
                 assert!(
-                    vec!["HIGH_VALUE", "MEDIUM_VALUE", "LOW_VALUE"].contains(&segment.as_str()),
+                    ["HIGH_VALUE", "MEDIUM_VALUE", "LOW_VALUE"].contains(&segment.as_str()),
                     "Result {}: customer_segment should be one of HIGH_VALUE, MEDIUM_VALUE, or LOW_VALUE, got {}",
                     idx,
                     segment

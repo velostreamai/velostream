@@ -228,7 +228,7 @@ async fn test_adaptive_processor_simple_select() {
 
     // Create simple SELECT query
     let query_str = "SELECT id, value FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     // Create AdaptiveJobProcessor with 2 partitions
@@ -301,7 +301,7 @@ async fn test_adaptive_processor_writes_records() {
 
     // Create simple SELECT query
     let query_str = "SELECT id, value FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     // Create AdaptiveJobProcessor with 2 partitions
@@ -406,7 +406,7 @@ async fn test_adaptive_processor_comprehensive_scenario_1() {
     let reader = MockDataSource::new(test_records.clone(), 10);
     let writer = MockDataWriter::new();
 
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
@@ -496,7 +496,7 @@ async fn test_adaptive_processor_large_single_batch() {
         WHERE total_amount > 100
     "#;
 
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
@@ -582,7 +582,7 @@ async fn test_adaptive_processor_group_by() {
 
     // Create GROUP BY query
     let query_str = "SELECT trader_id, COUNT(*) as trade_count, SUM(quantity) as total_qty FROM input_stream GROUP BY trader_id";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     // Create AdaptiveJobProcessor with 4 partitions
@@ -665,7 +665,7 @@ async fn test_adaptive_processor_partition_routing() {
 
     // Create simple SELECT query
     let query_str = "SELECT id, trader_id FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     // Create AdaptiveJobProcessor with 4 partitions
@@ -694,7 +694,7 @@ async fn test_adaptive_processor_partition_routing() {
 
     // Create dummy engine wrapper for process_job (coordinator will create its own)
     let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
+    let _dummy_engine = Arc::new(tokio::sync::RwLock::new(
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
@@ -853,7 +853,7 @@ async fn test_adaptive_processor_with_zero_empty_batch_count() {
 
     // Simple SELECT query
     let query_str = "SELECT id, value FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     // Create AdaptiveJobProcessor with 2 partitions
@@ -957,7 +957,7 @@ async fn test_adaptive_processor_factory_test_optimized() {
         GROUP BY symbol
     "#;
 
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     // Create AdaptiveJobProcessor using JobProcessorFactory::create_adaptive_test_optimized()
@@ -1082,7 +1082,7 @@ async fn test_adaptive_processor_shared_stats_are_updated() {
 
     // Parse simple query
     let query_str = "SELECT id, value, trader_id FROM test";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
     let query = parser.parse(query_str).expect("Failed to parse query");
 
     // Create shared stats for real-time monitoring

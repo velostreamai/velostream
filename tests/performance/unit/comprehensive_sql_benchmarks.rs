@@ -163,7 +163,7 @@ fn benchmark_where_clause_parsing() {
 
     for (clause, description) in &test_cases {
         let start = Instant::now();
-        let predicate = parse_where_clause_cached(clause).expect("Failed to parse");
+        let _predicate = parse_where_clause_cached(clause).expect("Failed to parse");
         let parse_time = start.elapsed();
 
         println!(
@@ -642,7 +642,7 @@ async fn benchmark_subquery_in() {
     let outer_records = generate_test_records(&outer_data);
 
     // Simulate: SELECT * FROM outer WHERE category IN (SELECT category FROM inner WHERE active = true)
-    let valid_categories = vec!["A", "B", "C", "D", "E"];
+    let valid_categories = ["A", "B", "C", "D", "E"];
     let category_set: HashMap<&str, bool> = valid_categories.iter().map(|&c| (c, true)).collect();
 
     metrics.start();
@@ -1092,8 +1092,8 @@ async fn performance_dashboard() {
     println!("═══════════════════════════════════════════════════════════════");
     println!();
 
-    let mut metrics = MetricsCollector::verbose();
-    let config = BenchmarkConfig::basic();
+    let metrics = MetricsCollector::verbose();
+    let _config = BenchmarkConfig::basic();
 
     // Run quick performance tests for each category
     let categories = vec![

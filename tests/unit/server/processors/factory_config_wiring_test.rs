@@ -6,11 +6,10 @@
 //! 3. Default config is used when no explicit config is provided
 //! 4. Config values affect processor behavior correctly
 
-use std::sync::Arc;
 use std::time::Duration;
 use velostream::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
-    SimpleJobProcessor, TransactionalJobProcessor,
+    FailureStrategy, JobProcessingConfig, JobProcessorFactory, SimpleJobProcessor,
+    TransactionalJobProcessor,
 };
 
 #[test]

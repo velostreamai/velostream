@@ -1,11 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 use std::time::Duration;
 use tokio::time::sleep;
-use velostream::velostream::datasource::config::SourceConfig;
 use velostream::velostream::datasource::file::data_source::FileDataSource;
-use velostream::velostream::datasource::traits::DataSource;
 use velostream::velostream::table::retry_utils::{
     format_file_missing_error, parse_duration, wait_for_file_to_exist, wait_for_pattern_match,
 };

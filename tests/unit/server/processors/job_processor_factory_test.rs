@@ -5,7 +5,6 @@
 //! - MockJobProcessor provides proper testing capabilities
 //! - Factory pattern enables processor abstraction for testing
 
-use std::collections::HashMap;
 use velostream::velostream::server::processors::{
     JobProcessor, JobProcessorConfig, JobProcessorFactory, MockJobProcessor,
 };

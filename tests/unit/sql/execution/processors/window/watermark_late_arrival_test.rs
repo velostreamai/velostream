@@ -11,7 +11,7 @@
 //! - Memory cleanup removes expired windows/sessions
 
 use std::collections::HashMap;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 use velostream::velostream::sql::execution::window_v2::strategies::{
     SessionWindowStrategy, SlidingWindowStrategy, TumblingWindowStrategy,
 };
@@ -35,7 +35,7 @@ fn create_record_with_timestamp(timestamp: i64, id: i32) -> SharedRecord {
 #[test]
 fn test_tumbling_watermark_monotonically_increases() {
     // Verify watermark never decreases
-    let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
     let r1 = create_record_with_timestamp(1000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
@@ -59,7 +59,7 @@ fn test_tumbling_watermark_monotonically_increases() {
 #[test]
 fn test_tumbling_late_arrival_buffering() {
     // Verify late records within grace period are buffered
-    let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(30000); // 30s grace period
 
     // Add on-time records to fill first window
@@ -85,7 +85,7 @@ fn test_tumbling_late_arrival_buffering() {
 #[test]
 fn test_tumbling_grace_period_cleanup() {
     // Verify historical windows are cleaned up after grace period expires
-    let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(30000); // 30s grace period
 
     // Add records
@@ -108,7 +108,7 @@ fn test_tumbling_grace_period_cleanup() {
 #[test]
 fn test_tumbling_metrics_tracking() {
     // Verify metrics are correctly tracked
-    let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
     let r1 = create_record_with_timestamp(10000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
@@ -133,7 +133,8 @@ fn test_tumbling_metrics_tracking() {
 #[test]
 fn test_sliding_watermark_with_overlapping_windows() {
     // Verify watermark tracking with overlapping windows
-    let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+    let mut strategy =
+        SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(30000);
 
     // Window 1: [0-60000)
@@ -154,7 +155,8 @@ fn test_sliding_watermark_with_overlapping_windows() {
 #[test]
 fn test_sliding_late_record_with_overlap() {
     // Verify late records are handled in overlapping window scenario
-    let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+    let mut strategy =
+        SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(40000);
 
     // Fill first window and advance
@@ -178,7 +180,8 @@ fn test_sliding_late_record_with_overlap() {
 #[test]
 fn test_sliding_grace_period_with_multiple_windows() {
     // Verify multiple overlapping windows in grace period
-    let mut strategy = SlidingWindowStrategy::new(60000, 20000, "_TIMESTAMP".to_string());
+    let mut strategy =
+        SlidingWindowStrategy::new(60000, 20000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(50000);
 
     // Create records across multiple windows
@@ -198,7 +201,8 @@ fn test_sliding_grace_period_with_multiple_windows() {
 #[test]
 fn test_sliding_metrics_with_overlapping_windows() {
     // Verify metrics tracking with overlapping windows
-    let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+    let mut strategy =
+        SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
 
     let r1 = create_record_with_timestamp(10000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
@@ -222,7 +226,7 @@ fn test_sliding_metrics_with_overlapping_windows() {
 #[test]
 fn test_session_watermark_gap_detection() {
     // Verify watermark with gap-based session boundaries
-    let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
     // Session 1: events within gap
     let r1 = create_record_with_timestamp(1000, 1);
@@ -242,7 +246,7 @@ fn test_session_watermark_gap_detection() {
 #[test]
 fn test_session_late_arrival_extending_session() {
     // Verify late data can extend a closed session
-    let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(50000);
 
     // Session 1: 1000-90000 (1000 + 60000 gap)
@@ -268,7 +272,7 @@ fn test_session_late_arrival_extending_session() {
 #[test]
 fn test_session_late_arrival_merging_sessions() {
     // Verify late data can merge multiple sessions
-    let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(100000);
 
     // Session 1: [0-60000]
@@ -296,7 +300,7 @@ fn test_session_late_arrival_merging_sessions() {
 #[test]
 fn test_session_grace_period_cleanup() {
     // Verify historical sessions are cleaned up
-    let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
     strategy.set_allowed_lateness_ms(30000);
 
     // Session 1
@@ -319,7 +323,7 @@ fn test_session_grace_period_cleanup() {
 #[test]
 fn test_session_metrics_tracking() {
     // Verify metrics with session windows
-    let mut strategy = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut strategy = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
     let r1 = create_record_with_timestamp(1000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
@@ -343,9 +347,10 @@ fn test_session_metrics_tracking() {
 #[test]
 fn test_all_window_types_watermark_updates() {
     // Verify all window types update watermark correctly
-    let mut tumbling = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
-    let mut sliding = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
-    let mut session = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut tumbling = TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
+    let mut sliding =
+        SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
+    let mut session = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
     let records = vec![
         create_record_with_timestamp(10000, 1),
@@ -371,9 +376,10 @@ fn test_all_window_types_watermark_updates() {
 #[test]
 fn test_all_window_types_metrics_consistency() {
     // Verify all window types track consistent metrics
-    let mut tumbling = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
-    let mut sliding = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
-    let mut session = SessionWindowStrategy::new(60000, "_TIMESTAMP".to_string());
+    let mut tumbling = TumblingWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
+    let mut sliding =
+        SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
+    let mut session = SessionWindowStrategy::new(60000, system_columns::TIMESTAMP.to_string());
 
     let records = vec![
         create_record_with_timestamp(10000, 1),

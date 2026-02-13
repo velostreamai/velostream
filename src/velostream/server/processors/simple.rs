@@ -5,6 +5,7 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
@@ -210,21 +211,22 @@ impl SimpleJobProcessor {
         job_name: &str,
     ) {
         let obs = self.observability_wrapper.observability().cloned();
+        let queue = self.observability_wrapper.observability_queue().cloned();
 
         // Emit all metric types with a single clone
         self.observability_wrapper
             .metrics_helper()
-            .emit_counter_metrics(query, output_records, &obs, job_name)
+            .emit_counter_metrics(query, output_records, &obs, &queue, job_name)
             .await;
 
         self.observability_wrapper
             .metrics_helper()
-            .emit_gauge_metrics(query, output_records, &obs, job_name)
+            .emit_gauge_metrics(query, output_records, &obs, &queue, job_name)
             .await;
 
         self.observability_wrapper
             .metrics_helper()
-            .emit_histogram_metrics(query, output_records, &obs, job_name)
+            .emit_histogram_metrics(query, output_records, &obs, &queue, job_name)
             .await
     }
 
@@ -251,9 +253,10 @@ impl SimpleJobProcessor {
         job_name: &str,
     ) {
         let obs = self.observability_wrapper.observability().cloned();
+        let queue = self.observability_wrapper.observability_queue().cloned();
         self.observability_wrapper
             .metrics_helper()
-            .emit_gauge_metrics(query, output_records, &obs, job_name)
+            .emit_gauge_metrics(query, output_records, &obs, &queue, job_name)
             .await
     }
 
@@ -280,9 +283,10 @@ impl SimpleJobProcessor {
         job_name: &str,
     ) {
         let obs = self.observability_wrapper.observability().cloned();
+        let queue = self.observability_wrapper.observability_queue().cloned();
         self.observability_wrapper
             .metrics_helper()
-            .emit_histogram_metrics(query, output_records, &obs, job_name)
+            .emit_histogram_metrics(query, output_records, &obs, &queue, job_name)
             .await
     }
 
@@ -430,7 +434,11 @@ impl SimpleJobProcessor {
         );
 
         // Register all metrics (counter, gauge, histogram) from SQL annotations in a single pass
-        if let Err(e) = self.register_all_metrics(&query, &job_name).await {
+        if let Err(e) = self
+            .observability_wrapper
+            .register_all_metrics(&query, &job_name)
+            .await
+        {
             warn!("Job '{}': Failed to register metrics: {:?}", job_name, e);
         }
 
@@ -458,6 +466,9 @@ impl SimpleJobProcessor {
                 Arc::new(std::sync::Mutex::new(sql_context)),
             );
         }
+
+        // Pre-compute query metadata once for span enrichment (zero per-batch overhead)
+        let query_metadata = QuerySpanMetadata::from_query(&query);
 
         // Create enhanced context with multiple sources and sinks
         let mut context = ProcessorContext::new_with_sources(&job_name, readers, writers);
@@ -526,7 +537,14 @@ impl SimpleJobProcessor {
 
             // Process from all sources
             let result = self
-                .process_data(&mut context, &engine, &query, &job_name, &mut stats)
+                .process_data(
+                    &mut context,
+                    &engine,
+                    &query,
+                    &job_name,
+                    &mut stats,
+                    &query_metadata,
+                )
                 .await;
 
             // Calculate batch time and records
@@ -575,11 +593,8 @@ impl SimpleJobProcessor {
                     );
                 } else {
                     warn!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        &job_name,
-                        error_msg,
-                    );
+                    self.observability_wrapper
+                        .record_error(&job_name, error_msg);
                 }
             } else {
                 info!(
@@ -592,11 +607,8 @@ impl SimpleJobProcessor {
         if let Err(e) = context.flush_all().await {
             let error_msg = format!("Failed to flush all sinks: {:?}", e);
             warn!("Job '{}': {}", job_name, error_msg);
-            ErrorTracker::record_error(
-                &self.observability_wrapper.observability().cloned(),
-                &job_name,
-                error_msg,
-            );
+            self.observability_wrapper
+                .record_error(&job_name, error_msg);
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
@@ -647,11 +659,7 @@ impl SimpleJobProcessor {
             Err(e) => {
                 let error_msg = format!("Source commit failed: {:?}", e);
                 error!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    &self.observability_wrapper.observability().cloned(),
-                    job_name,
-                    error_msg,
-                );
+                self.observability_wrapper.record_error(job_name, error_msg);
                 return Err(format!("Source commit failed: {:?}", e).into());
             }
         }
@@ -667,6 +675,7 @@ impl SimpleJobProcessor {
         query: &StreamingQuery,
         job_name: &str,
         stats: &mut JobExecutionStats,
+        query_metadata: &QuerySpanMetadata,
     ) -> DataSourceResult<()> {
         debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
@@ -717,10 +726,18 @@ impl SimpleJobProcessor {
             .map(|(_, batch, _)| batch.as_slice())
             .unwrap_or(&[]);
 
-        let parent_batch_span_guard = ObservabilityHelper::start_batch_span(
+        let mut parent_batch_span_guard = ObservabilityHelper::start_batch_span(
             self.observability_wrapper.observability_ref(),
             job_name,
             stats.batches_processed,
+            first_batch,
+        );
+        ObservabilityHelper::enrich_batch_span_with_query_metadata(
+            &mut parent_batch_span_guard,
+            query_metadata,
+        );
+        ObservabilityHelper::enrich_batch_span_with_record_metadata(
+            &mut parent_batch_span_guard,
             first_batch,
         );
 
@@ -780,6 +797,7 @@ impl SimpleJobProcessor {
                 &source_batch_span_guard,
                 &batch_result,
                 sql_duration,
+                Some(query_metadata),
             );
 
             total_records_processed += batch_result.records_processed;
@@ -805,7 +823,8 @@ impl SimpleJobProcessor {
             // FR-073: Emit SQL-native metrics for processed records from this source
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
             // Consolidation: Emit all metrics in a single pass with one observability clone
-            self.emit_all_metrics(query, &batch_result.output_records, job_name)
+            self.observability_wrapper
+                .emit_all_metrics(query, &batch_result.output_records, job_name)
                 .await;
 
             // Handle failures according to strategy
@@ -814,10 +833,8 @@ impl SimpleJobProcessor {
                 self.job_metrics.record_failed(batch_result.records_failed);
 
                 // Record individual error messages to error tracker
-                let obs_manager = self.observability_wrapper.observability().cloned();
                 for error in &batch_result.error_details {
-                    ErrorTracker::record_error(
-                        &obs_manager,
+                    self.observability_wrapper.record_error(
                         job_name,
                         format!("[{}] {}", source_name, error.error_message),
                     );
@@ -880,59 +897,19 @@ impl SimpleJobProcessor {
                                         record_data,
                                     );
 
-                                // Attempt to add entry to DLQ with error handling
-                                // (add_entry returns (), so we just await it and catch any panics)
-                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    tokio::runtime::Handle::current()
-                                })) {
-                                    Ok(handle) => {
-                                        let dlq_ref = Arc::clone(dlq);
-                                        let fut = dlq_ref.add_entry(
-                                            record,
-                                            error.error_message.clone(),
-                                            error.record_index,
-                                            error.recoverable,
-                                        );
+                                // Add entry to DLQ (proper async/await in async context)
+                                dlq.add_entry(
+                                    record,
+                                    error.error_message.clone(),
+                                    error.record_index,
+                                    error.recoverable,
+                                )
+                                .await;
 
-                                        if let Err(_) = std::panic::catch_unwind(
-                                            std::panic::AssertUnwindSafe(|| handle.block_on(fut)),
-                                        ) {
-                                            error!(
-                                                "Job '{}': Panic occurred while adding DLQ entry for Source '{}', Record {}. Record will be logged for manual recovery.",
-                                                job_name, source_name, error.record_index
-                                            );
-                                            error!(
-                                                "Job '{}': DLQ Failure Context - Source: '{}', Record Index: {}, Error: '{}', Recoverable: {}",
-                                                job_name,
-                                                source_name,
-                                                error.record_index,
-                                                error.error_message,
-                                                error.recoverable
-                                            );
-                                        } else {
-                                            debug!(
-                                                "DLQ Entry Added: Record {} from Source '{}' - {}",
-                                                error.record_index,
-                                                source_name,
-                                                error.error_message
-                                            );
-                                        }
-                                    }
-                                    Err(_) => {
-                                        error!(
-                                            "Job '{}': Failed to obtain Tokio runtime for DLQ write for Source '{}', Record {}. Record will be logged for manual recovery.",
-                                            job_name, source_name, error.record_index
-                                        );
-                                        error!(
-                                            "Job '{}': DLQ Failure Context - Source: '{}', Record Index: {}, Error: '{}', Recoverable: {}",
-                                            job_name,
-                                            source_name,
-                                            error.record_index,
-                                            error.error_message,
-                                            error.recoverable
-                                        );
-                                    }
-                                }
+                                debug!(
+                                    "Job '{}': DLQ entry added - Source: '{}', Record: {}, Error: '{}'",
+                                    job_name, source_name, error.record_index, error.error_message
+                                );
                             }
                         } else {
                             warn!("DLQ not enabled, logging failures only");
@@ -1016,11 +993,7 @@ impl SimpleJobProcessor {
                                 record_count, &sink_names[0], e
                             );
                             warn!("Job '{}': {}", job_name, error_msg);
-                            ErrorTracker::record_error(
-                                &self.observability_wrapper.observability().cloned(),
-                                job_name,
-                                error_msg,
-                            );
+                            self.observability_wrapper.record_error(job_name, error_msg);
                             if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                                 return Err(format!(
                                     "Failed to write to sink '{}': {:?}",
@@ -1155,11 +1128,7 @@ impl SimpleJobProcessor {
             if let Err(e) = context.flush_all().await {
                 let error_msg = format!("Failed to flush sinks: {:?}", e);
                 warn!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    &self.observability_wrapper.observability().cloned(),
-                    job_name,
-                    error_msg,
-                );
+                self.observability_wrapper.record_error(job_name, error_msg);
                 if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                     return Err(format!("Failed to flush sinks: {:?}", e).into());
                 }

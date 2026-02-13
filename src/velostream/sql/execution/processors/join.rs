@@ -422,7 +422,8 @@ impl JoinProcessor {
             timestamp: left_record.timestamp.max(right_record.timestamp),
             offset: left_record.offset,
             partition: left_record.partition,
-            headers: Self::merge_headers(&left_record.headers, &right_record.headers),
+            // FR-090: Use left-side headers by default (matches Kafka Streams behavior)
+            headers: left_record.headers.clone(),
             event_time: merged_event_time,
             topic: None,
             key: None,

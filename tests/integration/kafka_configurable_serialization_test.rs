@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use velostream::ProducerBuilder;
 use velostream::velostream::kafka::{
     configurable_consumer::ConfigurableFastConsumerBuilder,
     configurable_producer::ConfigurableKafkaProducerBuilder,

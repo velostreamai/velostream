@@ -9,35 +9,35 @@ use velostream::velostream::sql::validation::result_types::{
 
 #[test]
 fn test_error_formatter_creation() {
-    let formatter = ValidationErrorFormatter::new();
+    let _formatter = ValidationErrorFormatter::new();
     // Verify the formatter was created successfully
     assert!(true); // Basic creation test
 }
 
 #[test]
 fn test_error_formatter_minimal() {
-    let formatter = ValidationErrorFormatter::new_minimal();
+    let _formatter = ValidationErrorFormatter::new_minimal();
     // Verify the minimal formatter was created successfully
     assert!(true); // Basic creation test
 }
 
 #[test]
 fn test_error_formatter_with_context() {
-    let formatter = ValidationErrorFormatter::new().with_context(false);
+    let _formatter = ValidationErrorFormatter::new().with_context(false);
     // Verify the formatter was configured successfully
     assert!(true); // Basic configuration test
 }
 
 #[test]
 fn test_error_formatter_with_colors() {
-    let formatter = ValidationErrorFormatter::new().with_colors(false);
+    let _formatter = ValidationErrorFormatter::new().with_colors(false);
     // Verify the formatter was configured successfully
     assert!(true); // Basic configuration test
 }
 
 #[test]
 fn test_error_formatter_with_verbose() {
-    let formatter = ValidationErrorFormatter::new().with_verbose(true);
+    let _formatter = ValidationErrorFormatter::new().with_verbose(true);
     // Verify the formatter was configured successfully
     assert!(true); // Basic configuration test
 }

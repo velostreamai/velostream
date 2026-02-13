@@ -26,8 +26,6 @@ from streaming queries, particularly important for:
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
-use rust_decimal::Decimal;
-use std::str::FromStr;
 use velostream::velostream::sql::execution::types::FieldValue;
 
 /// Test basic EMIT CHANGES functionality without windows

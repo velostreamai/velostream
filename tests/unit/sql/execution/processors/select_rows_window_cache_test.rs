@@ -421,7 +421,6 @@ mod window_context_buffer_includes_current_tests {
 
 #[cfg(test)]
 mod state_key_prefix_tests {
-    use super::*;
 
     /// Test that state key prefix is correctly formatted
     #[test]

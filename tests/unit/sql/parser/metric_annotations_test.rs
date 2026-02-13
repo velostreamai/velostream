@@ -1,6 +1,4 @@
-use velostream::velostream::sql::parser::annotations::{
-    MetricAnnotation, MetricType, parse_metric_annotations,
-};
+use velostream::velostream::sql::parser::annotations::{MetricType, parse_metric_annotations};
 
 #[test]
 fn test_parse_simple_counter_annotation() {

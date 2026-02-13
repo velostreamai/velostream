@@ -17,7 +17,7 @@
 //! - ✅ No data loss or correctness issues
 //! - ✅ Record flow through SQL engine (process_record_with_sql)
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -63,13 +63,13 @@ async fn test_v2_baseline_group_by_with_sql_execution() {
         AdaptiveJobProcessor::new(config).with_group_by_columns(vec!["group_id".to_string()]);
 
     // Phase 6.1: Set up execution engine and query
-    let (output_tx, mut output_rx) = mpsc::unbounded_channel::<StreamRecord>();
-    let engine = Arc::new(StreamExecutionEngine::new(output_tx));
+    let (output_tx, _output_rx) = mpsc::unbounded_channel::<StreamRecord>();
+    let _engine = Arc::new(StreamExecutionEngine::new(output_tx));
 
     // Parse a simple GROUP BY query
     let sql = "SELECT group_id, COUNT(*) as count FROM stream GROUP BY group_id";
     let parser = StreamingSqlParser::new();
-    let query = match parser.parse(sql) {
+    let _query = match parser.parse(sql) {
         Ok(q) => Arc::new(q),
         Err(e) => {
             eprintln!("Failed to parse query: {}", e);
@@ -93,7 +93,7 @@ async fn test_v2_baseline_group_by_with_sql_execution() {
 
     // Phase 6.2: Send records and measure throughput
     let num_records = 20_000;
-    let start = Instant::now();
+    let _start = Instant::now();
     let mut sent = 0;
 
     println!(
@@ -175,11 +175,11 @@ async fn test_v2_baseline_scaling_100k_records() {
 
     // Setup execution
     let (output_tx, _output_rx) = mpsc::unbounded_channel::<StreamRecord>();
-    let engine = Arc::new(StreamExecutionEngine::new(output_tx));
+    let _engine = Arc::new(StreamExecutionEngine::new(output_tx));
 
     let sql = "SELECT group_id, COUNT(*) as count, SUM(value) as total_value FROM stream GROUP BY group_id";
     let parser = StreamingSqlParser::new();
-    let query = match parser.parse(sql) {
+    let _query = match parser.parse(sql) {
         Ok(q) => Arc::new(q),
         Err(e) => {
             eprintln!("Query parse error: {}", e);
@@ -255,11 +255,11 @@ async fn test_v2_partition_isolation_multi_group() {
         AdaptiveJobProcessor::new(config).with_group_by_columns(vec!["group_id".to_string()]);
 
     let (output_tx, _output_rx) = mpsc::unbounded_channel::<StreamRecord>();
-    let engine = Arc::new(StreamExecutionEngine::new(output_tx));
+    let _engine = Arc::new(StreamExecutionEngine::new(output_tx));
 
     let sql = "SELECT group_id, COUNT(*) as cnt FROM stream GROUP BY group_id";
     let parser = StreamingSqlParser::new();
-    let query = match parser.parse(sql) {
+    let _query = match parser.parse(sql) {
         Ok(q) => Arc::new(q),
         Err(e) => {
             eprintln!("Parse error: {}", e);

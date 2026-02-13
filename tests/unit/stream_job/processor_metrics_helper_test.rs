@@ -466,7 +466,6 @@ mod edge_cases {
 // ===== NEW: Performance Telemetry Tests (Task 2) =====
 mod performance_telemetry_tests {
     use super::*;
-    use velostream::velostream::server::processors::LabelHandlingConfig;
 
     #[tokio::test]
     async fn test_telemetry_initialization() {

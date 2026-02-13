@@ -81,8 +81,6 @@ mod tests {
     /// Test 6: Edge case - Multiple metrics in same container
     #[test]
     fn test_multiple_metrics_same_type() {
-        use prometheus::IntCounterVec;
-
         let metrics = DynamicMetrics::new();
         // Verify structure can hold multiple metrics of same type
         assert_eq!(metrics.counters.capacity(), 0);
