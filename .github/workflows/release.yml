@@ -107,9 +107,11 @@ jobs:
           cargo install cross --git https://github.com/cross-rs/cross --locked
         shell: bash
 
-      - name: Build with cross-rs (Linux ARM64/x86_64 musl)
+      - name: Build with cross-rs (Linux ARM64/x86_64 gnu)
         if: matrix.use_cross
         run: |
+          # Clean to avoid cross-target contamination
+          cargo clean --target ${{ matrix.target }}
           cross build --release --target ${{ matrix.target }} --locked --no-default-features
         shell: bash
 
