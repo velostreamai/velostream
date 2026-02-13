@@ -59,8 +59,8 @@ use crate::velostream::server::processors::common::DeadLetterQueue;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
-use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::StreamingQuery;
+use crate::velostream::sql::execution::StreamRecord;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

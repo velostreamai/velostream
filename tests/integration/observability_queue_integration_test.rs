@@ -51,17 +51,16 @@
 //! ).await;
 //! ```
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use velostream::velostream::observability::async_queue::ObservabilityQueue;
 use velostream::velostream::observability::queue_config::ObservabilityQueueConfig;
 use velostream::velostream::observability::telemetry::TelemetryProvider;
-use velostream::velostream::sql::execution::config::TracingConfig;
 
 // Import shared test helpers
 use crate::unit::observability_test_helpers::{
-    CountingExporter, NoOpExporter, create_test_tracing_config, create_test_span_with_ids,
+    create_test_span_with_ids, create_test_tracing_config, CountingExporter, NoOpExporter,
 };
 
 #[tokio::test]
@@ -250,7 +249,7 @@ async fn test_fully_wired_observability_wrapper() {
         Some(tracing_config), // Enable queue-based tracing
         ObservabilityQueueConfig::default(),
     )
-    .await;
+        .await;
 
     // Verify queue is initialized
     assert!(
@@ -276,7 +275,7 @@ async fn test_wrapper_without_tracing() {
         None, // No tracing config - span export disabled
         ObservabilityQueueConfig::default(),
     )
-    .await;
+        .await;
 
     // Queue should still be initialized (for metrics)
     assert!(

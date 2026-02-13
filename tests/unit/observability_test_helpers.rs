@@ -17,10 +17,10 @@ use velostream::velostream::sql::execution::config::{StreamingConfig, TracingCon
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 // OpenTelemetry imports for mock exporters
-use opentelemetry_sdk::export::trace::{SpanData, SpanExporter};
 use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
 use opentelemetry_sdk::InstrumentationLibrary;
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::export::trace::{SpanData, SpanExporter};
 use std::borrow::Cow;
 
 /// Well-known upstream traceparent for testing

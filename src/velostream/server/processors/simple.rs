@@ -434,7 +434,11 @@ impl SimpleJobProcessor {
         );
 
         // Register all metrics (counter, gauge, histogram) from SQL annotations in a single pass
-        if let Err(e) = self.observability_wrapper.register_all_metrics(&query, &job_name).await {
+        if let Err(e) = self
+            .observability_wrapper
+            .register_all_metrics(&query, &job_name)
+            .await
+        {
             warn!("Job '{}': Failed to register metrics: {:?}", job_name, e);
         }
 
@@ -589,7 +593,8 @@ impl SimpleJobProcessor {
                     );
                 } else {
                     warn!("Job '{}': {}", job_name, error_msg);
-                    self.observability_wrapper.record_error(&job_name, error_msg);
+                    self.observability_wrapper
+                        .record_error(&job_name, error_msg);
                 }
             } else {
                 info!(
@@ -602,7 +607,8 @@ impl SimpleJobProcessor {
         if let Err(e) = context.flush_all().await {
             let error_msg = format!("Failed to flush all sinks: {:?}", e);
             warn!("Job '{}': {}", job_name, error_msg);
-            self.observability_wrapper.record_error(&job_name, error_msg);
+            self.observability_wrapper
+                .record_error(&job_name, error_msg);
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
@@ -817,7 +823,8 @@ impl SimpleJobProcessor {
             // FR-073: Emit SQL-native metrics for processed records from this source
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
             // Consolidation: Emit all metrics in a single pass with one observability clone
-            self.observability_wrapper.emit_all_metrics(query, &batch_result.output_records, job_name)
+            self.observability_wrapper
+                .emit_all_metrics(query, &batch_result.output_records, job_name)
                 .await;
 
             // Handle failures according to strategy
@@ -901,10 +908,7 @@ impl SimpleJobProcessor {
 
                                 debug!(
                                     "Job '{}': DLQ entry added - Source: '{}', Record: {}, Error: '{}'",
-                                    job_name,
-                                    source_name,
-                                    error.record_index,
-                                    error.error_message
+                                    job_name, source_name, error.record_index, error.error_message
                                 );
                             }
                         } else {

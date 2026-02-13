@@ -154,7 +154,11 @@ impl TransactionalJobProcessor {
         log_job_configuration(&job_name, &self.config);
 
         // Register SQL-annotated metrics (counter, gauge, histogram) in a single pass
-        if let Err(e) = self.observability_wrapper.register_all_metrics(&query, &job_name).await {
+        if let Err(e) = self
+            .observability_wrapper
+            .register_all_metrics(&query, &job_name)
+            .await
+        {
             warn!("Job '{}': Failed to register metrics: {:?}", job_name, e);
         }
 
@@ -294,7 +298,8 @@ impl TransactionalJobProcessor {
                         e
                     );
                     warn!("Job '{}' {}", job_name, error_msg);
-                    self.observability_wrapper.record_error(&job_name, error_msg);
+                    self.observability_wrapper
+                        .record_error(&job_name, error_msg);
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
@@ -327,7 +332,8 @@ impl TransactionalJobProcessor {
                     );
                 } else {
                     warn!("Job '{}': {}", job_name, error_msg);
-                    self.observability_wrapper.record_error(&job_name, error_msg);
+                    self.observability_wrapper
+                        .record_error(&job_name, error_msg);
                 }
             } else {
                 info!(
@@ -340,7 +346,8 @@ impl TransactionalJobProcessor {
         if let Err(e) = context.flush_all().await {
             let error_msg = format!("Failed to flush all sinks: {:?}", e);
             warn!("Job '{}': {}", job_name, error_msg);
-            self.observability_wrapper.record_error(&job_name, error_msg);
+            self.observability_wrapper
+                .record_error(&job_name, error_msg);
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }

@@ -6,9 +6,9 @@
 //! - Graceful termination with final flush
 //! - Multiple flush triggers (batch size, time interval)
 
-use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 use velostream::velostream::observability::async_queue::ObservabilityQueue;
 use velostream::velostream::observability::background_flusher::BackgroundFlusher;
 use velostream::velostream::observability::queue_config::ObservabilityQueueConfig;

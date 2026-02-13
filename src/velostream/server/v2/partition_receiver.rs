@@ -273,7 +273,11 @@ impl PartitionReceiver {
     /// SimpleJobProcessor and TransactionalJobProcessor for consistency.
     async fn register_sql_metrics(&self) {
         // Register all SQL-annotated metrics (counter, gauge, histogram) in a single pass
-        if let Err(e) = self.observability_wrapper.register_all_metrics(&self.query, &self.job_name).await {
+        if let Err(e) = self
+            .observability_wrapper
+            .register_all_metrics(&self.query, &self.job_name)
+            .await
+        {
             warn!(
                 "PartitionReceiver {}: Failed to register metrics: {}",
                 self.partition_id, e
@@ -290,7 +294,9 @@ impl PartitionReceiver {
     /// NOTE: register_sql_metrics() must be called first to register metrics with Prometheus.
     async fn emit_sql_metrics(&self, output_records: &[Arc<StreamRecord>]) {
         // Emit all SQL-annotated metrics (counter, gauge, histogram) in a single pass
-        self.observability_wrapper.emit_all_metrics(&self.query, output_records, &self.job_name).await;
+        self.observability_wrapper
+            .emit_all_metrics(&self.query, output_records, &self.job_name)
+            .await;
     }
 
     /// Partition ID accessor
