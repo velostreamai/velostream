@@ -1,0 +1,32 @@
+# Cross-compilation configuration for Velostream multi-platform builds
+# Used by GitHub Actions release workflow for building Linux musl static binaries
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-musl-gcc"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# macOS targets use native toolchains (no special config needed)
+# Windows MSVC targets use native toolchains (no special config needed)
+
+[build]
+# Additional jobs for faster parallel compilation during release builds
+jobs = 4
+
+[profile.release]
+# Size optimization for smaller binaries
+opt-level = "z"      # Optimize for size
+lto = true           # Link-time optimization (already in Cargo.toml)
+codegen-units = 1    # Better optimization (already in Cargo.toml)
+strip = true         # Strip symbols (already in Cargo.toml)
+panic = "abort"      # Reduce binary size (already in Cargo.toml)
+
+[net]
+# Use sparse protocol for faster dependency resolution
+git-fetch-with-cli = false
+
+[registries.crates-io]
+protocol = "sparse"
