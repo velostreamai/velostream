@@ -92,7 +92,6 @@ jobs:
         shell: bash
 
       - name: Setup protobuf compiler
-        if: ${{ !matrix.use_cross }}  # cross-rs includes protobuf in Docker images
         uses: ./.github/actions/setup-protobuf
 
       - name: Setup Rust toolchain
