@@ -555,6 +555,8 @@ pub struct SqlAnalysis {
     pub numeric_fields: HashSet<String>,
     /// Data generation hints parsed from @data.* annotations
     pub data_hints: Vec<DataHint>,
+    /// Existing @job_mode annotation from source SQL (if present)
+    pub existing_job_mode: Option<String>,
     /// Global data generation hints
     pub global_data_hints: GlobalDataHints,
 }
@@ -617,6 +619,9 @@ impl Annotator {
             log::warn!("Failed to parse data hints: {}", e);
         }
 
+        // Parse existing @job_mode annotation from source SQL (if present)
+        let existing_job_mode = Self::extract_annotation(sql_content, "@job_mode");
+
         let mut analysis = SqlAnalysis {
             queries: Vec::new(),
             metrics: Vec::new(),
@@ -629,6 +634,7 @@ impl Annotator {
             numeric_fields: HashSet::new(),
             data_hints: hint_parser.get_field_hints(),
             global_data_hints: hint_parser.global_hints.clone(),
+            existing_job_mode,
         };
 
         // Split by semicolons
@@ -811,6 +817,33 @@ impl Annotator {
         analysis
     }
 
+    /// Extract annotation value from SQL content
+    /// Returns the first value found for the given annotation name
+    fn extract_annotation(sql_content: &str, annotation_name: &str) -> Option<String> {
+        for line in sql_content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("--") {
+                let comment = trimmed.trim_start_matches("--").trim();
+                if comment.starts_with(annotation_name) {
+                    // Extract value after annotation: "@job_mode: simple" -> "simple"
+                    if let Some(colon_pos) = comment.find(':') {
+                        let value = comment[colon_pos + 1..].trim();
+                        // Remove any trailing comment
+                        let value = if let Some(hash_pos) = value.find('#') {
+                            value[..hash_pos].trim()
+                        } else {
+                            value
+                        };
+                        if !value.is_empty() {
+                            return Some(value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Convert a parser MetricType to the local MetricType
     fn convert_metric_type(
         mt: &crate::velostream::sql::parser::annotations::MetricType,
@@ -890,15 +923,51 @@ impl Annotator {
         Ok(output)
     }
 
-    /// Pass through the original SQL queries, preserving developer-authored `@metric`
-    /// annotations as the single authoritative source.
+    /// Insert @job_mode annotations before each CREATE STREAM/TABLE query.
     ///
-    /// `analysis.metrics` is derived from parsing those same source annotations, so
-    /// re-inserting them would always produce duplicates. The annotator's role is to
-    /// generate the header (deployment, observability, SLA) and external artifacts
-    /// (dashboards, prometheus config) — not to rewrite metric annotations.
-    fn insert_metrics_before_queries(&self, original_sql: &str, _analysis: &SqlAnalysis) -> String {
-        original_sql.to_string()
+    /// Preserves existing @metric annotations while adding per-query @job_mode
+    /// based on query characteristics (aggregations/windows → adaptive, simple queries → simple).
+    fn insert_metrics_before_queries(&self, original_sql: &str, analysis: &SqlAnalysis) -> String {
+        let mut output = String::new();
+        let mut remaining_sql = original_sql;
+
+        // Process each query in the analysis
+        for query in &analysis.queries {
+            // Find the query in the original SQL by looking for its @name annotation
+            // or CREATE STREAM statement
+            let query_pattern = if !query.name.is_empty() {
+                format!("CREATE STREAM {}", query.name)
+            } else {
+                continue; // Skip queries without names
+            };
+
+            if let Some(pos) = remaining_sql.find(&query_pattern) {
+                // Add everything before this query
+                output.push_str(&remaining_sql[..pos]);
+
+                // Determine job_mode for this specific query
+                let job_mode = if query.has_window
+                    || query.has_count
+                    || query.has_sum
+                    || query.has_avg
+                    || query.has_minmax
+                {
+                    analysis.existing_job_mode.as_deref().unwrap_or("adaptive")
+                } else {
+                    analysis.existing_job_mode.as_deref().unwrap_or("simple")
+                };
+
+                // Insert @job_mode before the CREATE STREAM
+                output.push_str(&format!("-- @job_mode: {}\n", job_mode));
+
+                // Add the rest (from CREATE STREAM onwards)
+                remaining_sql = &remaining_sql[pos..];
+            }
+        }
+
+        // Add any remaining SQL after the last query
+        output.push_str(remaining_sql);
+        output
     }
 
     /// Generate header annotations
@@ -953,15 +1022,9 @@ impl Annotator {
         )
     }
 
-    /// Generate job processing annotations
+    /// Generate job processing annotations (file-level defaults)
+    /// Note: @job_mode is now per-query and inserted before each CREATE STREAM
     fn generate_job_annotations(&self, analysis: &SqlAnalysis) -> String {
-        // Recommend job mode based on query complexity
-        let job_mode = if analysis.has_aggregations || analysis.has_windows {
-            "adaptive"
-        } else {
-            "simple"
-        };
-
         let batch_size = if analysis.has_aggregations { 1000 } else { 100 };
 
         let partitioning = if !analysis.group_by_fields.is_empty() {
@@ -972,14 +1035,14 @@ impl Annotator {
 
         format!(
             r#"--
--- JOB PROCESSING
+-- JOB PROCESSING (Defaults)
 -- =============================================================================
--- @job_mode: {}  # Options: simple (low latency), transactional (exactly-once), adaptive (parallel)
+-- NOTE: @job_mode is set per-query before each CREATE STREAM
 -- @batch_size: {}  # Records per batch (higher = throughput, lower = latency)
 -- @num_partitions: 8  # Parallel partitions for adaptive mode (default: CPU cores)
 -- @partitioning_strategy: {}  # Options: sticky, hash, smart, roundrobin, fanin
 "#,
-            job_mode, batch_size, partitioning
+            batch_size, partitioning
         )
     }
 
@@ -1493,9 +1556,9 @@ overrides:
         }
 
         // Add panels for @metric annotations
-        let metrics_to_show: Vec<_> = analysis.metrics.iter().take(12).collect();
+        // Create appropriate panel for EACH metric (no cycling/skipping)
+        let metrics_to_show: Vec<_> = analysis.metrics.iter().collect();
         for (i, metric) in metrics_to_show.iter().enumerate() {
-            let panel_type = i % 4; // Cycle through different panel types
             let x_pos = (i % 2) * 12;
             if i % 2 == 0 && i > 0 {
                 y_pos += 8;
@@ -1524,33 +1587,13 @@ overrides:
                 }
             };
 
-            // Vary panel type based on position and metric type
-            let panel = match (panel_type, &metric.metric_type) {
-                // First in each row: gauge for gauges, timeseries for counters
-                (0, MetricType::Gauge) => self.create_gauge_panel(
+            // Create appropriate panel based on metric type (not position)
+            let panel = match &metric.metric_type {
+                // Counters: timeseries with rate() to show throughput
+                MetricType::Counter => self.create_timeseries_panel_with_legend(
                     panel_id,
                     &metric.help,
                     &expr,
-                    x_pos as i32,
-                    y_pos,
-                    12,
-                    8,
-                    unit,
-                    1000.0,
-                ),
-                // Second: bar gauge for counters with symbol grouping
-                (1, MetricType::Counter) => self.create_bargauge_panel(
-                    panel_id,
-                    &metric.help,
-                    &if metric.labels.is_empty() {
-                        format!("sum({})", metric.name)
-                    } else {
-                        format!(
-                            "topk(5, sum by ({}) ({}))",
-                            metric.labels.join(", "),
-                            metric.name
-                        )
-                    },
                     x_pos as i32,
                     y_pos,
                     12,
@@ -1558,8 +1601,8 @@ overrides:
                     unit,
                     &Self::legend_format_from_labels(&metric.labels),
                 ),
-                // Third: table for showing raw metric values
-                (2, _) if i < 8 => self.create_table_panel(
+                // Gauges: timeseries to show value changes over time
+                MetricType::Gauge => self.create_timeseries_panel_with_legend(
                     panel_id,
                     &metric.help,
                     &expr,
@@ -1567,9 +1610,11 @@ overrides:
                     y_pos,
                     12,
                     8,
+                    unit,
+                    &Self::legend_format_from_labels(&metric.labels),
                 ),
-                // Default: timeseries
-                _ => self.create_timeseries_panel_with_legend(
+                // Histograms: timeseries showing P95 quantile
+                MetricType::Histogram => self.create_timeseries_panel_with_legend(
                     panel_id,
                     &metric.help,
                     &expr,
