@@ -17,22 +17,12 @@ pub struct KafkaSchemaProvider {
 }
 
 /// File schema provider - infers schema from file content
-pub struct FileSchemaProvider {
-    /// Maximum number of records to sample for schema inference
-    sample_size: usize,
-}
+pub struct FileSchemaProvider;
 
 /// S3 schema provider - discovers schema from S3 objects
 pub struct S3SchemaProvider {
     /// AWS region for S3 operations
     region: String,
-    /// Sample size for schema inference
-    sample_size: usize,
-}
-
-/// Generic JSON schema provider - infers schema from JSON data
-pub struct JsonSchemaProvider {
-    sample_size: usize,
 }
 
 impl Default for KafkaSchemaProvider {
@@ -154,12 +144,7 @@ impl Default for FileSchemaProvider {
 
 impl FileSchemaProvider {
     pub fn new() -> Self {
-        Self { sample_size: 100 }
-    }
-
-    pub fn with_sample_size(mut self, sample_size: usize) -> Self {
-        self.sample_size = sample_size;
-        self
+        Self
     }
 
     /// Infer schema from file extension and optional sampling
@@ -294,15 +279,7 @@ impl SchemaProvider for FileSchemaProvider {
 
 impl S3SchemaProvider {
     pub fn new(region: String) -> Self {
-        Self {
-            region,
-            sample_size: 10,
-        }
-    }
-
-    pub fn with_sample_size(mut self, sample_size: usize) -> Self {
-        self.sample_size = sample_size;
-        self
+        Self { region }
     }
 
     /// Parse S3 URI and extract bucket/key information

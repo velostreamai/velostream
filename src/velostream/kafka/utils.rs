@@ -39,10 +39,12 @@ pub fn adaptive_poll_loop(
 
         if producer.in_flight_count() == 0 {
             idle_streak = idle_streak.saturating_add(1);
-            let sleep_ms = match idle_streak {
-                0..=IDLE_TIGHT_LOOP_THRESHOLD => 0,
-                ..=IDLE_SHORT_SLEEP_THRESHOLD => SHORT_SLEEP_MS,
-                _ => LONG_SLEEP_MS,
+            let sleep_ms = if idle_streak <= IDLE_TIGHT_LOOP_THRESHOLD {
+                0
+            } else if idle_streak <= IDLE_SHORT_SLEEP_THRESHOLD {
+                SHORT_SLEEP_MS
+            } else {
+                LONG_SLEEP_MS
             };
             if sleep_ms > 0 {
                 thread::sleep(Duration::from_millis(sleep_ms));

@@ -30,9 +30,7 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
-use super::super::test_helpers::{
-    create_adaptive_processor, get_perf_record_count, print_perf_config, validate_sql_query,
-};
+use super::super::test_helpers::{get_perf_record_count, validate_sql_query};
 
 /// Generate test data for Stream-Table JOIN: click and purchase events
 fn generate_stream_table_join_records(count: usize) -> (Vec<StreamRecord>, Vec<StreamRecord>) {
@@ -90,7 +88,7 @@ struct BenchmarkResult {
 
 /// Create the clicks table for the stream-stream join test
 fn create_clicks_table() -> Arc<dyn UnifiedTable> {
-    let mut table = OptimizedTableImpl::new();
+    let table = OptimizedTableImpl::new();
     for i in 0..10 {
         let mut fields = HashMap::new();
         let user_id = (i % 20) as i64;
@@ -109,7 +107,7 @@ fn create_clicks_table() -> Arc<dyn UnifiedTable> {
 
 /// Create the purchases table for the stream-stream join test
 fn create_purchases_table() -> Arc<dyn UnifiedTable> {
-    let mut table = OptimizedTableImpl::new();
+    let table = OptimizedTableImpl::new();
     for i in 0..10 {
         let mut fields = HashMap::new();
         let user_id = (i % 20) as i64;
@@ -181,7 +179,7 @@ async fn measure_sql_engine_sync(
     purchases: Vec<StreamRecord>,
     query: &str,
 ) -> (f64, usize, usize) {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (_tx, mut _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(_tx);
@@ -226,7 +224,7 @@ async fn measure_sql_engine(
     purchases: Vec<StreamRecord>,
     query: &str,
 ) -> (f64, usize, usize) {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (_tx, mut _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(_tx);
@@ -315,7 +313,7 @@ async fn measure_v1(
     let data_source = KafkaSimulatorDataSource::new(combined, 100);
     let data_writer = MockDataWriter::new();
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -377,7 +375,7 @@ async fn measure_transactional_jp(
     let data_source = KafkaSimulatorDataSource::new(combined, 100);
     let data_writer = MockDataWriter::new();
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -434,7 +432,7 @@ async fn measure_adaptive_jp(
     let data_source = KafkaSimulatorDataSource::new(combined.clone(), 100);
     let data_writer = MockDataWriter::new();
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 

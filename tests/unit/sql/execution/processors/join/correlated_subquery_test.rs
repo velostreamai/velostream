@@ -29,7 +29,7 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 /// Create employees table for testing correlated subqueries
 fn create_employees_table() -> Arc<dyn UnifiedTable> {
-    let mut table = OptimizedTableImpl::new();
+    let table = OptimizedTableImpl::new();
 
     // Create 10 employees across 2 departments
     // Department 1: employees with salaries 50000, 55000, 60000, 65000, 70000
@@ -82,7 +82,7 @@ async fn execute_correlated_subquery_test(
     // Set up the context with employees table
     engine.context_customizer = Some(create_employees_context());
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query)?;
 
     engine

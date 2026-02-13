@@ -6,18 +6,14 @@ in EXISTS clauses. This test specifically checks if `users.id` references
 are properly resolved to outer query values.
 */
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import shared test utilities
-use crate::unit::sql::execution::common_test_utils::{
-    MockTable, StandardTestData, TestDataBuilder, TestExecutor,
-};
+use crate::unit::sql::execution::common_test_utils::{MockTable, TestDataBuilder};
 
 /// Create a context customizer with specific test data for correlation testing
 fn create_correlation_test_context() -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync> {

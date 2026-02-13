@@ -238,7 +238,7 @@ fn test_sync_multiple_sequential_records_no_leakage() {
 #[test]
 fn test_sync_error_condition_returns_err_not_empty_vec() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx);
+    let _engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     // Invalid SQL that should fail to parse

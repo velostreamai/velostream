@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
-use velostream::velostream::table::sql::{ExpressionEvaluator, TableDataSource};
+use velostream::velostream::table::sql::ExpressionEvaluator;
 use velostream::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
@@ -373,7 +373,7 @@ fn test_null_handling() {
     let datasource = MockDataSource { records };
 
     // Note: Using iter_records from UnifiedTable trait
-    let all_records: HashMap<String, HashMap<String, FieldValue>> =
+    let _all_records: HashMap<String, HashMap<String, FieldValue>> =
         datasource.iter_records().collect();
 
     // Test NULL comparison
@@ -860,7 +860,7 @@ impl UnifiedTable for MockDataSource {
     }
 
     fn sql_exists(&self, where_clause: &str) -> Result<bool, SqlError> {
-        for (key, value) in &self.records {
+        for (_key, value) in &self.records {
             if let FieldValue::Struct(fields) = value {
                 let should_include = self.evaluate_where_clause(where_clause, fields);
 
@@ -876,7 +876,7 @@ impl UnifiedTable for MockDataSource {
     fn sql_column_values(&self, column: &str, where_clause: &str) -> TableResult<Vec<FieldValue>> {
         let mut values = Vec::new();
 
-        for (key, value) in &self.records {
+        for (_key, value) in &self.records {
             if let FieldValue::Struct(fields) = value {
                 let should_include = self.evaluate_where_clause(where_clause, fields);
 
@@ -894,7 +894,7 @@ impl UnifiedTable for MockDataSource {
     fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> TableResult<FieldValue> {
         let mut matching_records = Vec::new();
 
-        for (key, value) in &self.records {
+        for (_key, value) in &self.records {
             if let FieldValue::Struct(fields) = value {
                 let should_include = self.evaluate_where_clause(where_clause, fields);
 

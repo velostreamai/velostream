@@ -14,9 +14,7 @@ In real windowed implementations, these would calculate actual statistics across
 
 use std::collections::HashMap;
 use std::f64::consts::PI;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::ast::{
     Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };

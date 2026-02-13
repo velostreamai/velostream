@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::processors::SharedJobStats;
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::metrics_helper::{
@@ -172,46 +173,50 @@ impl JoinJobProcessor {
         metrics_helper: &ProcessorMetricsHelper,
         query: &Option<Arc<StreamingQuery>>,
         observability: &Option<SharedObservabilityManager>,
+        queue: &Option<
+            std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+        >,
         job_name_for_metrics: &Option<String>,
         stats: &mut JoinJobStats,
         flush_writer: bool,
         flush_count: u64,
+        query_metadata: &QuerySpanMetadata,
     ) -> Result<(), SqlError> {
         // Emit metrics for the batch
         if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
             metrics_helper
-                .emit_all_metrics(q, output_buffer, observability, jn)
+                .emit_all_metrics(q, output_buffer, observability, queue, jn)
                 .await;
         }
 
         // Inject distributed trace context into output records.
         // Creates a batch span that downstream consumers can link to.
-        if !output_buffer.is_empty() {
+        let mut batch_span = if !output_buffer.is_empty() {
             let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
             // Use first output record to extract any upstream trace context
             let first_records: Vec<StreamRecord> = output_buffer
                 .first()
                 .map(|r| vec![(**r).clone()])
                 .unwrap_or_default();
-            let mut batch_span = ObservabilityHelper::start_batch_span(
+            let mut span = ObservabilityHelper::start_batch_span(
                 observability,
                 job_name,
                 flush_count,
                 &first_records,
             );
-            ObservabilityHelper::inject_trace_context_into_records(
-                &batch_span,
-                output_buffer,
-                job_name,
-            );
-            // Complete batch span with record count and success
-            if let Some(ref mut span) = batch_span {
-                span.set_total_records(output_buffer.len() as u64);
-                span.set_success();
-            }
-        }
+            ObservabilityHelper::enrich_batch_span_with_query_metadata(&mut span, query_metadata);
+            ObservabilityHelper::enrich_batch_span_with_record_metadata(&mut span, &first_records);
+            ObservabilityHelper::inject_trace_context_into_records(&span, output_buffer, job_name);
+            span
+        } else {
+            None
+        };
+
+        let record_count = output_buffer.len();
+        let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
 
         if let Some(writer) = writer {
+            let ser_start = Instant::now();
             let mut w = writer.lock().await;
             for rec in output_buffer.drain(..) {
                 let owned = Arc::try_unwrap(rec).unwrap_or_else(|arc| (*arc).clone());
@@ -227,9 +232,27 @@ impl JoinJobProcessor {
                     query: None,
                 })?;
             }
+            let ser_elapsed = ser_start.elapsed();
+            // Record serialization span as child of batch span
+            if record_count > 0 {
+                ObservabilityHelper::record_serialization_success(
+                    observability,
+                    job_name,
+                    &batch_span,
+                    record_count,
+                    ser_elapsed.as_millis() as u64,
+                    None,
+                );
+            }
         } else {
             stats.records_written += output_buffer.len() as u64;
             output_buffer.clear();
+        }
+
+        // Complete batch span after all phases (including serialization)
+        if let Some(ref mut span) = batch_span {
+            span.set_total_records(record_count as u64);
+            span.set_success();
         }
 
         Ok(())
@@ -267,6 +290,12 @@ impl JoinJobProcessor {
             "JoinJobProcessor: Starting join between '{}' and '{}'",
             left_name, right_name
         );
+
+        // Pre-compute query metadata once for span enrichment
+        let query_metadata = query
+            .as_ref()
+            .map(|q| QuerySpanMetadata::from_query(q))
+            .unwrap_or_else(QuerySpanMetadata::empty);
 
         // Set up metrics helper and register SQL-annotated metrics if query is provided
         let mut metrics_helper = ProcessorMetricsHelper::new();
@@ -371,16 +400,21 @@ impl JoinJobProcessor {
                         // Flush when buffer is full
                         if output_buffer.len() >= self.config.output_batch_size {
                             flush_count += 1;
+                            // Note: JoinJobProcessor doesn't have access to ObservabilityWrapper,
+                            // so queue is not available here. Pass None for now.
+                            let queue: Option<std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>> = None;
                             Self::flush_output_buffer(
                                 &mut output_buffer,
                                 &writer,
                                 &metrics_helper,
                                 &query,
                                 &observability,
+                                &queue,
                                 &job_name_for_metrics,
                                 &mut stats,
                                 false,
                                 flush_count,
+                                &query_metadata,
                             )
                             .await?;
                         }
@@ -400,16 +434,23 @@ impl JoinJobProcessor {
                             output_buffer.len()
                         );
                         flush_count += 1;
+                        let queue: Option<
+                            std::sync::Arc<
+                                crate::velostream::observability::async_queue::ObservabilityQueue,
+                            >,
+                        > = None;
                         Self::flush_output_buffer(
                             &mut output_buffer,
                             &writer,
                             &metrics_helper,
                             &query,
                             &observability,
+                            &queue,
                             &job_name_for_metrics,
                             &mut stats,
                             true,
                             flush_count,
+                            &query_metadata,
                         )
                         .await?;
                     }
@@ -435,16 +476,21 @@ impl JoinJobProcessor {
         // Flush remaining output
         if !output_buffer.is_empty() {
             flush_count += 1;
+            let queue: Option<
+                std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+            > = None;
             Self::flush_output_buffer(
                 &mut output_buffer,
                 &writer,
                 &metrics_helper,
                 &query,
                 &observability,
+                &queue,
                 &job_name_for_metrics,
                 &mut stats,
                 true,
                 flush_count,
+                &query_metadata,
             )
             .await?;
         }
@@ -840,8 +886,10 @@ mod tests {
         assert!(stats.join_matches > 0, "Expected join matches");
 
         // Verify shared_stats was updated
-        let final_shared = shared_stats.read().unwrap();
-        assert_eq!(final_shared.records_processed, 6); // 3 left + 3 right
+        {
+            let final_shared = shared_stats.read().unwrap();
+            assert_eq!(final_shared.records_processed, 6); // 3 left + 3 right
+        }
 
         // Check output records have only projected fields
         let written = output.lock().await;
@@ -944,10 +992,12 @@ mod tests {
             &metrics_helper,
             &None, // no query
             &observability,
+            &None, // no queue
             &Some("test-flush-job".to_string()),
             &mut stats,
             false,
             1,
+            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed");
@@ -974,10 +1024,12 @@ mod tests {
             &metrics_helper,
             &None, // no query
             &None, // no observability
+            &None, // no queue
             &Some("test-no-obs-job".to_string()),
             &mut stats,
             false,
             1,
+            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed without observability");
@@ -1008,10 +1060,12 @@ mod tests {
             &metrics_helper,
             &None, // no query
             &observability,
+            &None, // no queue
             &None, // no job name — should fall back to "join"
             &mut stats,
             false,
             1,
+            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed with None job_name");

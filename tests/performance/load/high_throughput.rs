@@ -3,9 +3,7 @@
 //! Benchmarks designed to test Velostream under extreme throughput conditions,
 //! validating performance with large datasets and high-speed data ingestion.
 
-use super::super::common::{
-    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
-};
+use super::super::common::{MetricsCollector, TestRecordConfig, generate_test_records};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;

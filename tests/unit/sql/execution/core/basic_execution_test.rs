@@ -189,7 +189,7 @@ async fn test_execute_with_literals() {
 
 #[tokio::test]
 async fn test_missing_column_returns_error() {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {

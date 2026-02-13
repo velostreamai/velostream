@@ -6,12 +6,11 @@ These tests verify that session window-specific functions work correctly with wi
 */
 
 use std::collections::HashMap;
-use tokio::sync::mpsc;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Use shared test utilities from the same module directory
-use super::shared_test_utils::{SqlExecutor, TestDataBuilder};
+use super::shared_test_utils::SqlExecutor;
 
 fn create_test_record(id: i64, customer_id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     let mut fields = HashMap::new();

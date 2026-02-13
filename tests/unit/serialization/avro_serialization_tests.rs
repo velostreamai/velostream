@@ -466,7 +466,7 @@ mod avro_tests {
         // These convenience functions are not implemented yet
         // use velostream::velostream::serialization::{deserialize_from_avro, serialize_to_avro};
 
-        let schema_json = r#"
+        let _schema_json = r#"
         {
             "type": "record",
             "name": "SimpleRecord",

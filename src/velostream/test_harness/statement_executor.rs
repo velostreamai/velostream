@@ -30,7 +30,7 @@ use super::infra::TestHarnessInfra;
 use super::log_capture::{self, CapturedLogEntry};
 use super::spec::{QueryTest, TestSpec};
 use super::table_state::TableSnapshot;
-use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::sql::execution::types::{StreamRecord, system_columns};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -1734,15 +1734,15 @@ impl DebugSession {
                                         );
                                     }
                                     obj.insert(
-                                        "_partition".to_string(),
+                                        system_columns::PARTITION.to_string(),
                                         serde_json::Value::Number(rec.partition.into()),
                                     );
                                     obj.insert(
-                                        "_offset".to_string(),
+                                        system_columns::OFFSET.to_string(),
                                         serde_json::Value::Number(rec.offset.into()),
                                     );
                                     obj.insert(
-                                        "_timestamp".to_string(),
+                                        system_columns::TIMESTAMP.to_string(),
                                         serde_json::Value::Number(rec.timestamp.into()),
                                     );
                                     serde_json::Value::Object(obj)

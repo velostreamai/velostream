@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::types::system_columns;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -31,7 +32,7 @@ mod tests {
     async fn test_header_function_execution() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -85,7 +86,7 @@ mod tests {
     async fn test_header_function_missing_key() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -132,7 +133,7 @@ mod tests {
     async fn test_header_keys_function() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -185,7 +186,7 @@ mod tests {
     async fn test_has_header_function() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -235,7 +236,7 @@ mod tests {
     async fn test_header_in_where_clause() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -301,7 +302,7 @@ mod tests {
     async fn test_header_with_csas() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -362,7 +363,7 @@ mod tests {
     async fn test_mixed_headers_and_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -398,19 +399,19 @@ mod tests {
         assert_eq!(output.fields.len(), 4);
 
         assert!(output.fields.contains_key("customer_id"));
-        assert!(output.fields.contains_key("_timestamp"));
-        assert!(output.fields.contains_key("_partition"));
+        assert!(output.fields.contains_key(system_columns::TIMESTAMP));
+        assert!(output.fields.contains_key(system_columns::PARTITION));
         assert!(output.fields.contains_key("request_id"));
 
         match output.fields.get("request_id").unwrap() {
             FieldValue::String(s) => assert_eq!(s, "req-789"),
             _ => panic!("Expected String value for request_id"),
         }
-        match output.fields.get("_timestamp").unwrap() {
+        match output.fields.get(system_columns::TIMESTAMP).unwrap() {
             FieldValue::Float(_) | FieldValue::Integer(_) => (),
             _ => panic!("Expected numeric value for _timestamp"),
         }
-        match output.fields.get("_partition").unwrap() {
+        match output.fields.get(system_columns::PARTITION).unwrap() {
             FieldValue::Float(_) | FieldValue::Integer(_) => (),
             _ => panic!("Expected numeric value for _partition"),
         }
@@ -439,7 +440,7 @@ mod tests {
     async fn test_header_function_execution_errors() {
         // Setup execution engine
         let (tx, _rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let _engine = StreamExecutionEngine::new(tx);
 
@@ -458,7 +459,7 @@ mod tests {
     async fn test_header_case_sensitivity() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -510,7 +511,7 @@ mod tests {
     async fn test_empty_headers() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let serialization_format = std::sync::Arc::new(JsonFormat);
+        let _serialization_format = std::sync::Arc::new(JsonFormat);
 
         let mut engine = StreamExecutionEngine::new(tx);
 

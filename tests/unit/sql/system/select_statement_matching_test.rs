@@ -96,7 +96,7 @@ fn test_job_name_generation_logic() {
 fn test_topic_generation_logic() {
     // Test topic determination logic
     let job_name = "test_job";
-    let dependencies = vec!["input_topic".to_string()];
+    let dependencies = ["input_topic".to_string()];
     let default_topic = Some("default_topic".to_string());
 
     // Test with dependencies - should use first dependency

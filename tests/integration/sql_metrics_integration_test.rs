@@ -1,11 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use velostream::velostream::observability::{
     ObservabilityManager, PrometheusConfig, TelemetryConfig,
 };
 use velostream::velostream::sql::StreamingQuery;
-use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -101,7 +98,7 @@ mod tests {
                     .to_display_string();
 
                 metrics
-                    .emit_counter(&annotations[0].name, &vec![symbol])
+                    .emit_counter(&annotations[0].name, &[symbol])
                     .expect("Failed to emit counter");
             }
         }
@@ -150,7 +147,7 @@ mod tests {
                 .register_counter_metric(
                     "test_events_total",
                     "Total events",
-                    &vec!["symbol".to_string(), "exchange".to_string()],
+                    &["symbol".to_string(), "exchange".to_string()],
                 )
                 .expect("Failed to register counter metric");
 
@@ -158,21 +155,21 @@ mod tests {
             metrics
                 .emit_counter(
                     "test_events_total",
-                    &vec!["AAPL".to_string(), "NYSE".to_string()],
+                    &["AAPL".to_string(), "NYSE".to_string()],
                 )
                 .expect("Failed to emit counter");
 
             metrics
                 .emit_counter(
                     "test_events_total",
-                    &vec!["GOOGL".to_string(), "NASDAQ".to_string()],
+                    &["GOOGL".to_string(), "NASDAQ".to_string()],
                 )
                 .expect("Failed to emit counter");
 
             metrics
                 .emit_counter(
                     "test_events_total",
-                    &vec!["AAPL".to_string(), "NYSE".to_string()],
+                    &["AAPL".to_string(), "NYSE".to_string()],
                 )
                 .expect("Failed to emit counter");
 
@@ -236,10 +233,10 @@ mod tests {
 
             // Emit to both metrics
             metrics
-                .emit_counter("test_total_events", &vec![])
+                .emit_counter("test_total_events", &[])
                 .expect("Failed to emit");
             metrics
-                .emit_counter("test_high_volume_events", &vec!["AAPL".to_string()])
+                .emit_counter("test_high_volume_events", &["AAPL".to_string()])
                 .expect("Failed to emit");
 
             // Verify both metrics exist
@@ -304,10 +301,10 @@ mod tests {
         // Emit gauge values
         if let Some(metrics) = obs_manager.metrics() {
             metrics
-                .emit_gauge("test_current_volume", &vec!["AAPL".to_string()], 1000.5)
+                .emit_gauge("test_current_volume", &["AAPL".to_string()], 1000.5)
                 .expect("Failed to emit gauge");
             metrics
-                .emit_gauge("test_current_volume", &vec!["GOOGL".to_string()], 2500.75)
+                .emit_gauge("test_current_volume", &["GOOGL".to_string()], 2500.75)
                 .expect("Failed to emit gauge");
 
             // Verify metrics were recorded
@@ -350,7 +347,7 @@ mod tests {
                 .register_gauge_metric(
                     "test_current_price",
                     "Current price per symbol and exchange",
-                    &vec!["symbol".to_string(), "exchange".to_string()],
+                    &["symbol".to_string(), "exchange".to_string()],
                 )
                 .expect("Failed to register gauge metric");
 
@@ -358,7 +355,7 @@ mod tests {
             metrics
                 .emit_gauge(
                     "test_current_price",
-                    &vec!["AAPL".to_string(), "NYSE".to_string()],
+                    &["AAPL".to_string(), "NYSE".to_string()],
                     150.25,
                 )
                 .expect("Failed to emit gauge");
@@ -366,7 +363,7 @@ mod tests {
             metrics
                 .emit_gauge(
                     "test_current_price",
-                    &vec!["GOOGL".to_string(), "NASDAQ".to_string()],
+                    &["GOOGL".to_string(), "NASDAQ".to_string()],
                     2800.50,
                 )
                 .expect("Failed to emit gauge");
@@ -375,7 +372,7 @@ mod tests {
             metrics
                 .emit_gauge(
                     "test_current_price",
-                    &vec!["AAPL".to_string(), "NYSE".to_string()],
+                    &["AAPL".to_string(), "NYSE".to_string()],
                     151.75,
                 )
                 .expect("Failed to emit gauge");
@@ -453,21 +450,21 @@ mod tests {
             metrics
                 .emit_histogram(
                     "test_trade_volume_distribution",
-                    &vec!["AAPL".to_string()],
+                    &["AAPL".to_string()],
                     250.0,
                 )
                 .expect("Failed to emit histogram");
             metrics
                 .emit_histogram(
                     "test_trade_volume_distribution",
-                    &vec!["AAPL".to_string()],
+                    &["AAPL".to_string()],
                     750.0,
                 )
                 .expect("Failed to emit histogram");
             metrics
                 .emit_histogram(
                     "test_trade_volume_distribution",
-                    &vec!["AAPL".to_string()],
+                    &["AAPL".to_string()],
                     1500.0,
                 )
                 .expect("Failed to emit histogram");
@@ -476,7 +473,7 @@ mod tests {
             metrics
                 .emit_histogram(
                     "test_trade_volume_distribution",
-                    &vec!["GOOGL".to_string()],
+                    &["GOOGL".to_string()],
                     3000.0,
                 )
                 .expect("Failed to emit histogram");
@@ -526,20 +523,20 @@ mod tests {
                 .register_histogram_metric(
                     "test_default_buckets",
                     "Test histogram with default buckets",
-                    &vec!["category".to_string()],
+                    &["category".to_string()],
                     None, // No custom buckets
                 )
                 .expect("Failed to register histogram metric");
 
             // Emit observations
             metrics
-                .emit_histogram("test_default_buckets", &vec!["test".to_string()], 0.5)
+                .emit_histogram("test_default_buckets", &["test".to_string()], 0.5)
                 .expect("Failed to emit histogram");
             metrics
-                .emit_histogram("test_default_buckets", &vec!["test".to_string()], 1.5)
+                .emit_histogram("test_default_buckets", &["test".to_string()], 1.5)
                 .expect("Failed to emit histogram");
             metrics
-                .emit_histogram("test_default_buckets", &vec!["test".to_string()], 5.0)
+                .emit_histogram("test_default_buckets", &["test".to_string()], 5.0)
                 .expect("Failed to emit histogram");
 
             // Verify metrics
@@ -631,13 +628,13 @@ mod tests {
 
             // Emit to all metrics
             metrics
-                .emit_counter("test_event_count", &vec!["AAPL".to_string()])
+                .emit_counter("test_event_count", &["AAPL".to_string()])
                 .expect("Failed to emit counter");
             metrics
-                .emit_gauge("test_current_value", &vec!["AAPL".to_string()], 100.5)
+                .emit_gauge("test_current_value", &["AAPL".to_string()], 100.5)
                 .expect("Failed to emit gauge");
             metrics
-                .emit_histogram("test_value_distribution", &vec!["AAPL".to_string()], 100.5)
+                .emit_histogram("test_value_distribution", &["AAPL".to_string()], 100.5)
                 .expect("Failed to emit histogram");
 
             // Verify all metrics exist

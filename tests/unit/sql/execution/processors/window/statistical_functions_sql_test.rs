@@ -10,7 +10,7 @@ use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Use shared test utilities
-use super::shared_test_utils::{SqlExecutor, TestDataBuilder};
+use super::shared_test_utils::SqlExecutor;
 
 fn create_test_record(id: i64, value: f64, timestamp: i64) -> StreamRecord {
     let mut fields = HashMap::new();
@@ -538,7 +538,7 @@ async fn test_sliding_window_percentile_execution() {
 #[test]
 fn test_avg_calculation_verification() {
     // Test data: [10, 20, 30, 40, 50] - average should be 30
-    let values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+    let values = [10.0, 20.0, 30.0, 40.0, 50.0];
     let sum: f64 = values.iter().sum();
     let avg = sum / values.len() as f64;
 
@@ -566,7 +566,7 @@ fn test_avg_calculation_verification() {
 fn test_percentile_cont_manual_calculation() {
     // For sorted data [10, 20, 30, 40, 50]
     // PERCENTILE_CONT(0.5) should return the median = 30.0
-    let sorted_values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+    let sorted_values = [10.0, 20.0, 30.0, 40.0, 50.0];
     let p = 0.5; // 50th percentile (median)
     let n = sorted_values.len() as f64;
     let h = (n - 1.0) * p; // Linear interpolation position
@@ -600,7 +600,7 @@ fn test_stddev_manual_calculation() {
     //          = (400 + 100 + 0 + 100 + 400) / 5 = 1000 / 5 = 200
     // StdDev = sqrt(200) ≈ 14.142
 
-    let values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+    let values = [10.0, 20.0, 30.0, 40.0, 50.0];
     let mean = values.iter().sum::<f64>() / values.len() as f64;
     let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64;
     let stddev = variance.sqrt();
@@ -624,7 +624,7 @@ fn test_stddev_manual_calculation() {
 /// Test COUNT aggregation
 #[test]
 fn test_count_aggregation_verification() {
-    let records = vec![
+    let records = [
         create_test_record(1, 100.0, 1000),
         create_test_record(2, 200.0, 2000),
         create_test_record(3, 300.0, 3000),
@@ -640,7 +640,7 @@ fn test_count_aggregation_verification() {
 /// Test SUM aggregation
 #[test]
 fn test_sum_aggregation_verification() {
-    let values = vec![100.0, 200.0, 300.0, 400.0, 500.0];
+    let values = [100.0, 200.0, 300.0, 400.0, 500.0];
     let sum = values.iter().sum::<f64>();
 
     println!("✓ SUM(value) on [100,200,300,400,500] = {}", sum);

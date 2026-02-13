@@ -59,7 +59,7 @@ fn create_edge_case_record() -> StreamRecord {
 #[tokio::test]
 async fn test_like_operator() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
@@ -126,7 +126,7 @@ async fn test_like_operator() {
 #[tokio::test]
 async fn test_not_like_operator() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
@@ -193,7 +193,7 @@ async fn test_not_like_operator() {
 #[tokio::test]
 async fn test_like_operator_edge_cases() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record with various types
@@ -348,7 +348,7 @@ async fn test_like_operator_edge_cases() {
 #[tokio::test]
 async fn test_in_operator_basic() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
@@ -437,7 +437,7 @@ async fn test_in_operator_basic() {
 #[tokio::test]
 async fn test_not_in_operator_basic() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
@@ -514,7 +514,7 @@ async fn test_not_in_operator_basic() {
 #[tokio::test]
 async fn test_in_operator_with_null_values() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record with NULL value
@@ -616,7 +616,7 @@ async fn test_in_operator_with_null_values() {
 #[tokio::test]
 async fn test_in_operator_edge_cases() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record

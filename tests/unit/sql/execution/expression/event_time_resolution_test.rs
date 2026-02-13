@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::Expr;
 use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
-use velostream::velostream::sql::execution::types::system_columns::EventTimeFallback;
+use velostream::velostream::sql::execution::types::system_columns::{self, EventTimeFallback};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// A regular field named `timestamp` (no underscore) resolves to the HashMap field,
@@ -56,7 +56,7 @@ fn test_event_time_resolves_to_system_column_metadata() {
 
     let mut fields = HashMap::new();
     fields.insert(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         FieldValue::Integer(field_value_ms),
     );
 
@@ -75,7 +75,7 @@ fn test_event_time_resolves_to_system_column_metadata() {
     };
 
     // Bare _event_time should resolve to system column metadata
-    let expr = Expr::Column("_event_time".to_string());
+    let expr = Expr::Column(system_columns::EVENT_TIME.to_string());
     let result = ExpressionEvaluator::evaluate_expression_value(&expr, &record).unwrap();
 
     assert_eq!(
@@ -94,7 +94,7 @@ fn test_qualified_event_time_resolves_to_system_column_metadata() {
 
     let mut fields = HashMap::new();
     fields.insert(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         FieldValue::Integer(field_value_ms),
     );
 
@@ -141,7 +141,7 @@ fn test_event_time_falls_back_to_processing_time_when_unset() {
         key: None,
     };
 
-    let expr = Expr::Column("_event_time".to_string());
+    let expr = Expr::Column(system_columns::EVENT_TIME.to_string());
     let result = ExpressionEvaluator::evaluate_expression_value(&expr, &record).unwrap();
 
     assert_eq!(

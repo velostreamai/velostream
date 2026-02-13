@@ -1,9 +1,7 @@
 // Tests for QueryAnalyzer - SQL query analysis for resource requirements
 use std::collections::HashMap;
 use velostream::velostream::sql::{
-    ast::{
-        ConfigProperties, IntoClause, SelectField, ShowResourceType, StreamSource, StreamingQuery,
-    },
+    ast::{SelectField, ShowResourceType, StreamSource, StreamingQuery},
     query_analyzer::{DataSinkType, DataSourceType, QueryAnalysis, QueryAnalyzer},
 };
 
@@ -245,7 +243,7 @@ fn test_show_query_analysis() {
 
 #[test]
 fn test_avro_serialization_format_analysis() {
-    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    let _analyzer = QueryAnalyzer::new("test-group".to_string());
 
     // Create a mock analysis with Avro configuration
     let mut analysis = QueryAnalysis {

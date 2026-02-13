@@ -14,7 +14,7 @@ use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 
 #[test]
 fn test_batch_config_schema_provider_basic() {
-    let batch_config = BatchConfig::default();
+    let _batch_config = BatchConfig::default();
 
     // Test config type ID
     assert_eq!(BatchConfig::config_type_id(), "batch_config");
@@ -666,7 +666,7 @@ fn test_timeout_and_interval_validation_patterns() {
 
 #[test]
 fn test_file_data_source_schema_provider_basic() {
-    let file_source = FileDataSource::default();
+    let _file_source = FileDataSource::default();
 
     // Test config type ID
     assert_eq!(FileDataSource::config_type_id(), "file_source");
@@ -1113,7 +1113,7 @@ fn test_file_data_source_registry_integration() {
 
 #[test]
 fn test_file_sink_schema_provider_basic() {
-    let file_sink = FileDataSink::default();
+    let _file_sink = FileDataSink::default();
 
     // Test config type ID
     assert_eq!(FileDataSink::config_type_id(), "file_sink");

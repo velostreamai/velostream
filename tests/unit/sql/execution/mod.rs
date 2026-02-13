@@ -23,10 +23,6 @@ pub mod utils;
 // Stream-stream join tests
 pub mod join;
 
-// Phase 1A: Streaming tests
-// TODO: Fix compilation errors - tests unimplemented FR-058 features
-// pub mod phase_1a_streaming_test;
-
 // Phase 1B: Time Semantics & Watermarks tests
 pub mod phase_1b_watermarks_test;
 

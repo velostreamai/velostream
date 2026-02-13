@@ -4,9 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
 use velostream::velostream::kafka::serialization_format::SerializationConfig;
-use velostream::velostream::sql::query_analyzer::{
-    DataSinkType, DataSourceType, QueryAnalysis, QueryAnalyzer,
-};
+use velostream::velostream::sql::query_analyzer::{QueryAnalysis, QueryAnalyzer};
 
 #[test]
 fn test_extends_functionality() {

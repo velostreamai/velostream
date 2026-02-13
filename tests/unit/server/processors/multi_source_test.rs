@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::{BatchConfig, DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor, TransactionalJobProcessor,
@@ -603,7 +603,7 @@ async fn test_error_handling_in_multi_source_processing() {
 #[tokio::test]
 async fn test_processor_configuration_handling() {
     // Test different configurations
-    let configs = vec![
+    let configs = [
         JobProcessingConfig {
             use_transactions: true,
             failure_strategy: FailureStrategy::FailBatch,

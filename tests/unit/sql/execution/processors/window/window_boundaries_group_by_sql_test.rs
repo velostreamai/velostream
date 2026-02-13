@@ -17,7 +17,6 @@ Each test spans multiple window boundaries to verify:
 */
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::ast::{
@@ -96,7 +95,7 @@ fn build_tumbling_query(window_size_ms: u64, emit_mode: Option<EmitMode>) -> Str
 
 /// Build a ROWS window + GROUP BY query
 fn build_rows_query(buffer_size: u32, emit_mode: Option<EmitMode>) -> StreamingQuery {
-    use velostream::velostream::sql::ast::{OrderByExpr, RowExpirationMode, RowsEmitMode};
+    use velostream::velostream::sql::ast::{RowExpirationMode, RowsEmitMode};
 
     StreamingQuery::Select {
         distinct: false,

@@ -130,7 +130,7 @@ async fn measure_sql_engine_emit_changes(records: &[StreamRecord], query: &str) 
     println!("Test: SQL Engine EMIT CHANGES Baseline");
     println!("─────────────────────────────────────");
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
 
     let (tx, mut rx) = mpsc::unbounded_channel();

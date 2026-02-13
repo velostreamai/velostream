@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::serialization::{
-    BytesSerializer, JsonSerializer, StringSerializer,
-};
+use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerializer};
 use velostream::velostream::kafka::*;
 use velostream::velostream::serialization::{FieldValue, JsonFormat};
 use velostream::velostream::table::Table;

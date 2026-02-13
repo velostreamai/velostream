@@ -7,14 +7,12 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, mpsc};
-use velostream::velostream::sql::{StreamExecutionEngine, execution::types::StreamRecord};
+use tokio::sync::{RwLock, mpsc};
+use velostream::velostream::sql::StreamExecutionEngine;
 
 // Import test utilities
 use super::stream_job_test_utils::*;
-use velostream::velostream::server::processors::{
-    JobProcessor, common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
-};
+use velostream::velostream::server::processors::JobProcessor;
 
 #[tokio::test]
 async fn test_transactional_processor_sink_failure() {
@@ -33,7 +31,7 @@ async fn test_transactional_processor_sink_failure() {
     let query = create_test_query();
 
     // Create shutdown channel
-    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     // Run processor
     let job_handle = tokio::spawn({
@@ -99,7 +97,7 @@ async fn test_conservative_simple_processor_failure_handling() {
     let engine = Arc::new(RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
-    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     // Run processor
     let job_handle = tokio::spawn({
@@ -199,7 +197,7 @@ async fn test_transactional_processor_writer_begin_tx_failure() {
     let engine = Arc::new(RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
-    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let job_handle = tokio::spawn({
         let engine = engine.clone();
@@ -250,7 +248,7 @@ async fn test_simple_processor_sink_failure_continues_processing() {
     let engine = Arc::new(RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
-    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let job_handle = tokio::spawn({
         let engine = engine.clone();
@@ -293,12 +291,12 @@ async fn test_transactional_vs_simple_failure_behavior() {
     // Direct comparison test showing different failure handling
     let create_failing_scenario = |use_transactional: bool| async move {
         let batch1 = create_test_records(2);
-        let mock_reader = MockDataReader::new(vec![batch1]).with_transaction_support();
-        let mock_writer = MockDataWriter::new()
+        let _mock_reader = MockDataReader::new(vec![batch1]).with_transaction_support();
+        let _mock_writer = MockDataWriter::new()
             .with_transaction_support()
             .with_commit_tx_failure(); // This will fail for transactional
 
-        let processor = if use_transactional {
+        let _processor = if use_transactional {
             Box::new(create_transactional_processor()) as Box<dyn Send + Sync>
         } else {
             Box::new(create_simple_processor()) as Box<dyn Send + Sync>

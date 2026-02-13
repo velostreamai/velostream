@@ -5,12 +5,12 @@ Tests that explicitly enable window_v2 and validate the integration works correc
 These tests provide CI/CD coverage for the feature-flagged window_v2 architecture.
 */
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use std::collections::HashMap;
 use std::time::Duration;
 use velostream::velostream::sql::ast::{
-    DataType, EmitMode, Expr, RowExpirationMode, RowsEmitMode, SelectField, StreamSource,
-    StreamingQuery, WindowSpec,
+    EmitMode, Expr, RowExpirationMode, RowsEmitMode, SelectField, StreamSource, StreamingQuery,
+    WindowSpec,
 };
 use velostream::velostream::sql::execution::config::StreamingConfig;
 use velostream::velostream::sql::execution::processors::WindowProcessor;
@@ -36,7 +36,7 @@ fn create_test_record(timestamp: i64, value: i64) -> StreamRecord {
 }
 
 fn create_context_with_window_v2_enabled() -> ProcessorContext {
-    let mut context = ProcessorContext {
+    let context = ProcessorContext {
         record_count: 0,
         max_records: None,
         window_context: None,

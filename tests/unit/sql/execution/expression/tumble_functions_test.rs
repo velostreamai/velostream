@@ -16,7 +16,7 @@ for tumbling window queries.
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::{Expr, LiteralValue};
 use velostream::velostream::sql::execution::expression::functions::BuiltinFunctions;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 
 /// Create test record with window metadata
 fn create_windowed_record(
@@ -30,10 +30,13 @@ fn create_windowed_record(
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("value".to_string(), FieldValue::Float(value));
     fields.insert(
-        "_window_start".to_string(),
+        system_columns::WINDOW_START.to_string(),
         FieldValue::Integer(window_start),
     );
-    fields.insert("_window_end".to_string(), FieldValue::Integer(window_end));
+    fields.insert(
+        system_columns::WINDOW_END.to_string(),
+        FieldValue::Integer(window_end),
+    );
 
     StreamRecord {
         fields,
@@ -169,8 +172,7 @@ mod tumble_function_tests {
             let record = create_windowed_record(i as i64, 100.0, *end, *start, *end);
 
             // Test TUMBLE_START
-            let result =
-                BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &vec![], &record);
+            let result = BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &[], &record);
             assert!(result.is_ok(), "TUMBLE_START failed for window {}", i);
             match result.unwrap() {
                 FieldValue::Integer(ts) => {
@@ -180,8 +182,7 @@ mod tumble_function_tests {
             }
 
             // Test TUMBLE_END
-            let result =
-                BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &vec![], &record);
+            let result = BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &[], &record);
             assert!(result.is_ok(), "TUMBLE_END failed for window {}", i);
             match result.unwrap() {
                 FieldValue::Integer(ts) => {
@@ -248,7 +249,7 @@ mod tumble_function_tests {
 
             // TUMBLE_START should give bucket start
             let start_result =
-                BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &vec![], &record);
+                BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &[], &record);
             assert!(start_result.is_ok());
             match start_result.unwrap() {
                 FieldValue::Integer(ts) => {
@@ -263,7 +264,7 @@ mod tumble_function_tests {
 
             // TUMBLE_END should give bucket end
             let end_result =
-                BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &vec![], &record);
+                BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &[], &record);
             assert!(end_result.is_ok());
             match end_result.unwrap() {
                 FieldValue::Integer(ts) => {
@@ -284,12 +285,11 @@ mod tumble_function_tests {
         let record = create_windowed_record(1, 100.0, 0, 0, 1000);
 
         let start_result =
-            BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &vec![], &record);
+            BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &[], &record);
         assert!(start_result.is_ok());
         assert_eq!(start_result.unwrap(), FieldValue::Integer(0));
 
-        let end_result =
-            BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &vec![], &record);
+        let end_result = BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &[], &record);
         assert!(end_result.is_ok());
         assert_eq!(end_result.unwrap(), FieldValue::Integer(1000));
     }
@@ -309,12 +309,11 @@ mod tumble_function_tests {
         );
 
         let start_result =
-            BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &vec![], &record);
+            BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &[], &record);
         assert!(start_result.is_ok());
         assert_eq!(start_result.unwrap(), FieldValue::Integer(epoch_2024));
 
-        let end_result =
-            BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &vec![], &record);
+        let end_result = BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &[], &record);
         assert!(end_result.is_ok());
         assert_eq!(
             end_result.unwrap(),
@@ -328,8 +327,14 @@ mod tumble_function_tests {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(1));
         fields.insert("value".to_string(), FieldValue::Float(100.0));
-        fields.insert("_window_start".to_string(), FieldValue::Integer(0));
-        fields.insert("_window_end".to_string(), FieldValue::Integer(5000));
+        fields.insert(
+            system_columns::WINDOW_START.to_string(),
+            FieldValue::Integer(0),
+        );
+        fields.insert(
+            system_columns::WINDOW_END.to_string(),
+            FieldValue::Integer(5000),
+        );
         fields.insert("_window_record_count".to_string(), FieldValue::Integer(42)); // Additional metadata
         fields.insert(
             "custom_field".to_string(),
@@ -349,11 +354,10 @@ mod tumble_function_tests {
 
         // Should still read the correct window boundaries
         let start_result =
-            BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &vec![], &record);
+            BuiltinFunctions::evaluate_function_by_name("TUMBLE_START", &[], &record);
         assert_eq!(start_result.unwrap(), FieldValue::Integer(0));
 
-        let end_result =
-            BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &vec![], &record);
+        let end_result = BuiltinFunctions::evaluate_function_by_name("TUMBLE_END", &[], &record);
         assert_eq!(end_result.unwrap(), FieldValue::Integer(5000));
     }
 }

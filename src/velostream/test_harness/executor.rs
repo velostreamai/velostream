@@ -24,7 +24,7 @@ use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
 use crate::velostream::sql::execution::config::StreamingConfig;
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 use rdkafka::producer::BaseRecord;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1494,8 +1494,14 @@ impl QueryExecutor {
         record.key.as_ref().map(|k| k.to_string())
     }
 
-    /// Get timestamp from StreamRecord (prefers record.timestamp, falls back to event_time field)
-    fn get_record_timestamp(record: &StreamRecord) -> Option<i64> {
+    /// Get timestamp from StreamRecord for Kafka message CreateTime.
+    /// Priority: event_time (time simulation) > timestamp > payload field extraction.
+    pub fn get_record_timestamp(record: &StreamRecord) -> Option<i64> {
+        // Prefer event_time from time simulation — this becomes the Kafka
+        // message CreateTime which downstream consumers read as _event_time.
+        if let Some(et) = record.event_time {
+            return Some(et.timestamp_millis());
+        }
         if record.timestamp > 0 {
             Some(record.timestamp)
         } else {
@@ -1510,6 +1516,7 @@ impl QueryExecutor {
         payload: &str,
         key: Option<&str>,
         timestamp: Option<i64>,
+        event_time_ms: Option<i64>,
     ) -> TestHarnessResult<()> {
         let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
         if let Some(ts) = timestamp {
@@ -1520,6 +1527,21 @@ impl QueryExecutor {
         } else {
             base_record
         };
+
+        // Inject _event_time as a Kafka header so consumers can extract it
+        let et_str;
+        let headers;
+        let base_record = if let Some(et) = event_time_ms {
+            et_str = et.to_string();
+            headers = rdkafka::message::OwnedHeaders::new().insert(rdkafka::message::Header {
+                key: system_columns::EVENT_TIME,
+                value: Some(et_str.as_bytes()),
+            });
+            base_record.headers(headers)
+        } else {
+            base_record
+        };
+
         if let Err((e, _)) = producer.send(base_record) {
             return Err(TestHarnessError::ExecutionError {
                 message: format!("Failed to queue message for topic '{}': {}", topic, e),
@@ -1602,7 +1624,15 @@ impl QueryExecutor {
             let payload = Self::serialize_record(record)?;
             let key = Self::extract_key_string(record);
             let timestamp = Self::get_record_timestamp(record);
-            Self::send_record(&mut producer, topic, &payload, key.as_deref(), timestamp)?;
+            let event_time_ms = record.event_time.map(|et| et.timestamp_millis());
+            Self::send_record(
+                &mut producer,
+                topic,
+                &payload,
+                key.as_deref(),
+                timestamp,
+                event_time_ms,
+            )?;
         }
 
         let queue_time = start_time.elapsed();
@@ -1677,7 +1707,15 @@ impl QueryExecutor {
             let payload = Self::serialize_record(record)?;
             let key = Self::extract_key_string(record);
             let timestamp = Self::get_record_timestamp(record);
-            Self::send_record(&mut producer, topic, &payload, key.as_deref(), timestamp)?;
+            let event_time_ms = record.event_time.map(|et| et.timestamp_millis());
+            Self::send_record(
+                &mut producer,
+                topic,
+                &payload,
+                key.as_deref(),
+                timestamp,
+                event_time_ms,
+            )?;
 
             // Log progress every 10000 records
             if (idx + 1) % 10000 == 0 {

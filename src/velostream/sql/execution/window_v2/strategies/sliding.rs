@@ -132,7 +132,7 @@ impl SlidingWindowStrategy {
     /// # Example
     /// ```rust,ignore
     /// // 60-second windows advancing every 30 seconds (50% overlap)
-    /// let strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+    /// let strategy = SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
     /// ```
     pub fn new(window_size_ms: i64, advance_interval_ms: i64, time_field: String) -> Self {
         Self::with_estimated_capacity(window_size_ms, advance_interval_ms, time_field, 1000)
@@ -167,7 +167,7 @@ impl SlidingWindowStrategy {
     /// let strategy = SlidingWindowStrategy::with_estimated_capacity(
     ///     60000,   // 60 second window
     ///     30000,   // advance every 30 seconds (50% overlap)
-    ///     "_TIMESTAMP".to_string(),
+    ///     system_columns::TIMESTAMP.to_string(),
     ///     1000     // 1000 events/sec
     /// );
     /// ```
@@ -433,7 +433,7 @@ impl WindowStrategy for SlidingWindowStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+    use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
     use std::collections::HashMap;
 
     fn create_test_record(timestamp: i64) -> SharedRecord {
@@ -449,7 +449,8 @@ mod tests {
     #[test]
     fn test_sliding_window_basic() {
         // 60-second windows advancing every 30 seconds (50% overlap)
-        let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
 
         // Add records within first window
         let r1 = create_test_record(1000);
@@ -468,7 +469,8 @@ mod tests {
     #[test]
     fn test_sliding_window_overlap() {
         // 60-second windows advancing every 30 seconds
-        let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
 
         // Add records in first window
         let r1 = create_test_record(10000);
@@ -493,7 +495,8 @@ mod tests {
     #[test]
     fn test_sliding_window_eviction() {
         // 60-second windows advancing every 30 seconds
-        let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(5000);
         let r2 = create_test_record(35000);
@@ -520,7 +523,8 @@ mod tests {
     #[test]
     fn test_sliding_window_get_records_filters() {
         // 60-second windows advancing every 20 seconds (67% overlap)
-        let mut strategy = SlidingWindowStrategy::new(60000, 20000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SlidingWindowStrategy::new(60000, 20000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(5000);
         let r2 = create_test_record(15000);
@@ -546,7 +550,8 @@ mod tests {
 
     #[test]
     fn test_sliding_window_stats() {
-        let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -567,7 +572,8 @@ mod tests {
     #[test]
     fn test_sliding_window_high_overlap() {
         // 120-second windows advancing every 30 seconds (75% overlap)
-        let mut strategy = SlidingWindowStrategy::new(120000, 30000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SlidingWindowStrategy::new(120000, 30000, system_columns::TIMESTAMP.to_string());
 
         let r1 = create_test_record(10000);
         let r2 = create_test_record(50000);
@@ -595,7 +601,8 @@ mod tests {
     #[test]
     fn test_sliding_window_alignment() {
         // Test window alignment to advance interval boundaries
-        let mut strategy = SlidingWindowStrategy::new(60000, 30000, "_TIMESTAMP".to_string());
+        let mut strategy =
+            SlidingWindowStrategy::new(60000, 30000, system_columns::TIMESTAMP.to_string());
 
         // Record at timestamp 45000 should create window [30000, 90000)
         let r1 = create_test_record(45000);

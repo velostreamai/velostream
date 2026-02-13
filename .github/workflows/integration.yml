@@ -92,13 +92,14 @@ jobs:
       run: |
         echo "🧪 Running integration test suite..."
 
-        # Run integration tests with proper error handling and timeout
+        # Run only integration:: module tests (not performance:: or unit:: tests
+        # that happen to contain "integration" in their name)
         echo "🧪 Starting integration tests at $(date)"
-        echo "Command: cargo test integration --no-default-features -- --nocapture"
+        echo "Command: cargo test --no-default-features -- integration:: --skip performance:: --nocapture"
         echo "Timeout: 15 minutes (900 seconds)"
         echo "=================="
 
-        timeout 900 cargo test integration --no-default-features -- --nocapture 2>&1 | tee integration_results.txt || {
+        timeout 900 cargo test --no-default-features -- integration:: --skip performance:: --nocapture 2>&1 | tee integration_results.txt || {
           EXIT_CODE=$?
           echo "❌ Integration tests failed with exit code: $EXIT_CODE"
 

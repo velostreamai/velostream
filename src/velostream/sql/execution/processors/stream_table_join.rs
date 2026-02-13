@@ -442,8 +442,17 @@ impl StreamTableJoinProcessor {
         fields
     }
 
+    /// Strip alias prefix from a column name (e.g., "m.symbol" → "symbol")
+    pub fn strip_alias_prefix(name: &str) -> &str {
+        if name.contains('.') {
+            name.split('.').next_back().unwrap_or(name)
+        } else {
+            name
+        }
+    }
+
     /// Extract join keys from JOIN condition
-    fn extract_join_keys(
+    pub fn extract_join_keys(
         &self,
         condition: &Expr,
         stream_record: &StreamRecord,
@@ -451,25 +460,34 @@ impl StreamTableJoinProcessor {
         let mut join_keys = HashMap::new();
 
         // Parse JOIN condition to extract key fields
-        // Common pattern: t.user_id = u.user_id
+        // Common pattern: m.symbol = r.symbol (parser produces qualified names with alias prefix)
         match condition {
             Expr::BinaryOp { op, left, right } if *op == BinaryOperator::Equal => {
                 // Check if this is a field equality
                 if let (Expr::Column(left_field), Expr::Column(right_field)) =
                     (left.as_ref(), right.as_ref())
                 {
-                    // Extract value from stream record
-                    if let Some(value) = stream_record.fields.get(left_field) {
-                        join_keys.insert(right_field.clone(), value.clone());
-                    } else if let Some(value) = stream_record.fields.get(right_field) {
-                        join_keys.insert(left_field.clone(), value.clone());
+                    // Strip alias prefixes for field lookup (e.g., "m.symbol" → "symbol")
+                    // Stream records from Kafka have bare field names, and table indexes
+                    // are also built with bare column names.
+                    let left_bare = Self::strip_alias_prefix(left_field);
+                    let right_bare = Self::strip_alias_prefix(right_field);
+
+                    // Extract value from stream record using bare field names
+                    if let Some(value) = stream_record.fields.get(left_bare) {
+                        // Use bare name for table lookup key (table indexes use bare names)
+                        join_keys.insert(right_bare.to_string(), value.clone());
+                    } else if let Some(value) = stream_record.fields.get(right_bare) {
+                        join_keys.insert(left_bare.to_string(), value.clone());
                     } else {
                         // Neither field found in stream record - this is an error for stream-table joins
                         return Err(SqlError::ExecutionError {
                             message: format!(
-                                "JOIN condition references fields '{}' and '{}' but neither is present in the stream record. Available fields: {:?}",
+                                "JOIN condition references fields '{}' and '{}' (bare: '{}', '{}') but neither is present in the stream record. Available fields: {:?}",
                                 left_field,
                                 right_field,
+                                left_bare,
+                                right_bare,
                                 stream_record.fields.keys().collect::<Vec<_>>()
                             ),
                             query: None,
@@ -1007,6 +1025,51 @@ mod tests {
         assert_eq!(
             multi_keys.get("stock_symbol"),
             Some(&FieldValue::String("AAPL".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_extract_join_keys_with_alias_qualified_columns() {
+        // This tests the real-world scenario where the parser produces
+        // "m.symbol = r.symbol" from `FROM market_data m LEFT JOIN ref r ON m.symbol = r.symbol`
+        let processor = StreamTableJoinProcessor::new();
+
+        let mut fields = HashMap::new();
+        fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+        fields.insert("price".to_string(), FieldValue::Float(150.0));
+
+        let stream_record = StreamRecord {
+            timestamp: Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            fields,
+            headers: HashMap::new(),
+            event_time: Some(Utc::now()),
+            topic: None,
+            key: None,
+        };
+
+        // Parser produces alias-qualified names: "m.symbol" = "r.symbol"
+        let condition = Expr::BinaryOp {
+            op: BinaryOperator::Equal,
+            left: Box::new(Expr::Column("m.symbol".to_string())),
+            right: Box::new(Expr::Column("r.symbol".to_string())),
+        };
+
+        let keys = processor
+            .extract_join_keys(&condition, &stream_record)
+            .unwrap();
+
+        // The table lookup key should be bare "symbol" (not "r.symbol")
+        assert_eq!(
+            keys.get("symbol"),
+            Some(&FieldValue::String("AAPL".to_string())),
+            "Should strip alias prefix and use bare column name for table lookup"
+        );
+        // Alias-qualified key should NOT be present
+        assert!(
+            keys.get("r.symbol").is_none(),
+            "Should not use alias-qualified name as table lookup key"
         );
     }
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use velostream::velostream::sql::execution::types::FieldValue;
-use velostream::velostream::table::compact_table::{CompactTable, MemoryStats};
+use velostream::velostream::table::compact_table::CompactTable;
 
 #[test]
 fn test_compact_table_wildcard_queries() {

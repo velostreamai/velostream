@@ -3,13 +3,11 @@
 //! Benchmarks for testing Velostream performance under concurrent access patterns,
 //! multi-threading scenarios, and parallel processing workloads.
 
-use super::super::common::{
-    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
-};
+use super::super::common::{MetricsCollector, TestRecordConfig, generate_test_records};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::Mutex;
 use velostream::velostream::sql::execution::{StreamRecord, types::FieldValue};
 
 /// Test concurrent processing with multiple producer/consumer pairs

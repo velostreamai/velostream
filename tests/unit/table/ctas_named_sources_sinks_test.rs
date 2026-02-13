@@ -335,7 +335,7 @@ fn test_ctas_config_pattern_validation() {
     let parser = StreamingSqlParser::new();
 
     // Test various config file patterns to ensure they parse correctly
-    let valid_patterns = vec![
+    let valid_patterns = [
         r#"WITH ('simple_sink.config_file' = 'config.yaml')"#,
         r#"WITH ("double_quoted_sink.config_file" = "config.yaml")"#,
         r#"WITH ('complex_sink_name.config_file' = '/path/to/config.yaml')"#,
@@ -370,7 +370,7 @@ async fn test_ctas_named_sources_integration_ready() {
     use velostream::velostream::table::ctas::CtasExecutor;
 
     // Verify that the CTAS executor can handle named sources and sinks
-    let executor = CtasExecutor::new("localhost:9092".to_string(), "test_group".to_string());
+    let _executor = CtasExecutor::new("localhost:9092".to_string(), "test_group".to_string());
 
     let sql = r#"
         CREATE TABLE integration_test AS

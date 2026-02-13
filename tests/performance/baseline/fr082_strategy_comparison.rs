@@ -389,7 +389,7 @@ fn fr082_v1_v2_architecture_comparison() {
 
     println!("\n🔍 KEY ADVANTAGES OF V2:");
     println!("{}", "─".repeat(80));
-    let advantages = vec![
+    let advantages = [
         "Pluggable strategies enable workload-specific optimization",
         "Smart partitioning eliminates unnecessary data movement",
         "Distributed state management scales to 8+ cores efficiently",

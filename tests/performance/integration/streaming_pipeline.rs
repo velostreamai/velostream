@@ -4,7 +4,7 @@
 //! including Kafka integration, SQL execution, and cross-format serialization.
 
 use super::super::common::{
-    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
+    BenchmarkConfig, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use std::collections::HashMap;
 use std::time::Duration;
@@ -18,7 +18,7 @@ async fn benchmark_end_to_end_pipeline() {
     println!("🚀 End-to-End Streaming Pipeline Benchmark");
     println!("===========================================");
 
-    let config = BenchmarkConfig::enhanced();
+    let _config = BenchmarkConfig::enhanced();
     let mut metrics = MetricsCollector::verbose();
 
     // Test different pipeline scales
@@ -80,7 +80,7 @@ async fn benchmark_kafka_to_sql_to_kafka_pipeline() {
     println!("🚀 Kafka → SQL → Kafka Pipeline Benchmark");
     println!("=========================================");
 
-    let config = BenchmarkConfig::production();
+    let _config = BenchmarkConfig::production();
     let mut metrics = MetricsCollector::verbose();
 
     let test_config = TestRecordConfig::complex(25_000);
@@ -143,7 +143,7 @@ async fn benchmark_cross_format_serialization_pipeline() {
     println!("🚀 Cross-Format Serialization Pipeline Benchmark");
     println!("===============================================");
 
-    let config = BenchmarkConfig::enhanced();
+    let _config = BenchmarkConfig::enhanced();
     let mut metrics = MetricsCollector::verbose();
 
     let test_config = TestRecordConfig::complex(10_000);

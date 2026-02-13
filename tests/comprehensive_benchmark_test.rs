@@ -91,7 +91,7 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
         let mut record = HashMap::new();
         record.insert("id".to_string(), FieldValue::Integer(i));
         record.insert(
-            "status".to_string(),
+            "order_status".to_string(),
             FieldValue::String("active".to_string()),
         );
         record.insert(
@@ -104,7 +104,7 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
 
     // Test 1: SELECT query parsing and validation
     println!("📊 Phase 2: SELECT query parsing");
-    let select_sql = "SELECT id FROM orders WHERE status = 'active'";
+    let select_sql = "SELECT id FROM orders WHERE order_status = 'active'";
     match parser.parse(select_sql) {
         Ok(_query) => {
             println!("   ✅ Parsed SELECT query successfully");
@@ -117,7 +117,7 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
 
     // Test 2: SELECT query execution
     println!("📊 Phase 3: SELECT query execution");
-    let values = table.sql_column_values("id", "status = 'active'")?;
+    let values = table.sql_column_values("id", "order_status = 'active'")?;
     assert_eq!(
         values.len(),
         10,
@@ -128,7 +128,7 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
 
     // Test 3: COUNT aggregation parsing and validation
     println!("📊 Phase 4: Aggregation query parsing");
-    let agg_sql = "SELECT COUNT(*) FROM orders WHERE status = 'active'";
+    let agg_sql = "SELECT COUNT(*) FROM orders WHERE order_status = 'active'";
     match parser.parse(agg_sql) {
         Ok(_query) => {
             println!("   ✅ Parsed aggregation query successfully");
@@ -142,7 +142,7 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
     // Test 4: COUNT aggregation execution
     println!("📊 Phase 5: Aggregation query execution");
     let count = table
-        .stream_aggregate("COUNT(*)", Some("status = 'active'"))
+        .stream_aggregate("COUNT(*)", Some("order_status = 'active'"))
         .await?;
     if let FieldValue::Integer(c) = count {
         assert_eq!(c, 10, "Expected count 10, got {}", c);
@@ -154,10 +154,10 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
     // Test 5: SUM aggregation
     println!("📊 Phase 6: SUM aggregation execution");
     let sum = table
-        .stream_aggregate("SUM(amount)", Some("status = 'active'"))
+        .stream_aggregate("SUM(amount)", Some("order_status = 'active'"))
         .await?;
     match sum {
-        FieldValue::ScaledInteger(val, scale) => {
+        FieldValue::ScaledInteger(val, _scale) => {
             println!(
                 "   ✅ Executed SUM aggregation - sum = {}.{:0width$}",
                 val / 100,
@@ -208,7 +208,7 @@ async fn test_baseline_performance_sanity() -> Result<(), Box<dyn std::error::Er
         let mut record = HashMap::new();
         record.insert("id".to_string(), FieldValue::Integer(i as i64));
         record.insert(
-            "status".to_string(),
+            "order_status".to_string(),
             FieldValue::String(match i % 3 {
                 0 => "active".to_string(),
                 1 => "pending".to_string(),
@@ -233,8 +233,8 @@ async fn test_baseline_performance_sanity() -> Result<(), Box<dyn std::error::Er
     // Phase 2: Query throughput benchmark
     println!("📊 Phase 2: Query throughput benchmark");
     let where_clauses = [
-        "status = 'active'",
-        "status = 'pending'",
+        "order_status = 'active'",
+        "order_status = 'pending'",
         "amount > 50000",
         "1 = 1",
     ];

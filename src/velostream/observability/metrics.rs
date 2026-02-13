@@ -1307,6 +1307,77 @@ impl MetricsProvider {
             .unwrap_or(0)
     }
 
+    /// Take buffered remote-write samples without flushing (for async queue integration)
+    ///
+    /// Returns all buffered samples and clears the remote-write buffer. This allows samples
+    /// to be sent via an async queue for non-blocking operation.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<TimestampedSample>)` - The buffered samples (empty if no remote-write client)
+    /// * `Err(SqlError)` - If the buffer lock cannot be acquired
+    pub fn take_remote_write_samples(
+        &self,
+    ) -> Result<Vec<crate::velostream::observability::remote_write::TimestampedSample>, SqlError>
+    {
+        if let Some(client_arc) = &self.remote_write_client {
+            let client = {
+                let guard = client_arc
+                    .lock()
+                    .map_err(|e| SqlError::ConfigurationError {
+                        message: format!("Failed to acquire lock on remote-write client: {}", e),
+                    })?;
+                guard.clone()
+            };
+
+            client
+                .take_samples()
+                .map_err(|e| SqlError::ConfigurationError {
+                    message: format!("Failed to take remote-write samples: {}", e),
+                })
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Send samples directly to Prometheus remote-write endpoint (for async queue integration)
+    ///
+    /// Sends provided samples directly without using the internal buffer. Used by the background
+    /// flusher to send samples received via the async queue.
+    ///
+    /// # Arguments
+    ///
+    /// * `samples` - Vector of timestamped samples to send
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(usize)` - Number of samples successfully sent (0 if no remote-write client)
+    /// * `Err(SqlError)` - If the send operation fails
+    pub async fn send_samples_directly(
+        &self,
+        samples: Vec<crate::velostream::observability::remote_write::TimestampedSample>,
+    ) -> Result<usize, SqlError> {
+        if let Some(client_arc) = &self.remote_write_client {
+            let client = {
+                let guard = client_arc
+                    .lock()
+                    .map_err(|e| SqlError::ConfigurationError {
+                        message: format!("Failed to acquire lock on remote-write client: {}", e),
+                    })?;
+                guard.clone()
+            };
+
+            client
+                .send_samples_directly(samples)
+                .await
+                .map_err(|e| SqlError::ConfigurationError {
+                    message: format!("Failed to send remote-write samples: {}", e),
+                })
+        } else {
+            Ok(0)
+        }
+    }
+
     // =========================================================================
     // Phase 5: Metrics Lifecycle Management
     // =========================================================================

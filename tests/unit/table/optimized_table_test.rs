@@ -134,7 +134,7 @@ fn test_optimized_aggregates() {
     let table = OptimizedTableImpl::new();
 
     // Insert financial data
-    let amounts = vec![100, 250, 500, 750, 1000];
+    let amounts = [100, 250, 500, 750, 1000];
     for (i, amount) in amounts.iter().enumerate() {
         let mut record = HashMap::new();
         record.insert("id".to_string(), FieldValue::Integer(i as i64));

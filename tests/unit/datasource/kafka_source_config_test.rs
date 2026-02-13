@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::io::Write as _;
 use tempfile::NamedTempFile;
 use velostream::velostream::datasource::kafka::data_source::KafkaDataSource;
+use velostream::velostream::sql::execution::types::system_columns;
 
 /// Helper to create a test Avro schema
 fn sample_avro_schema() -> &'static str {
@@ -548,13 +549,13 @@ fn test_event_time_extraction_from_event_time_field() {
     fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
     fields.insert("price".to_string(), FieldValue::Float(150.50));
     fields.insert(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         FieldValue::Integer(one_hour_ago_ms),
     );
 
     // Given: EventTimeConfig configured to read from _event_time field
     let config = EventTimeConfig::new(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         Some(TimestampFormat::EpochMillis),
     );
 
@@ -606,7 +607,7 @@ fn test_event_time_extraction_missing_field_error() {
 
     // Given: EventTimeConfig expecting _event_time field
     let config = EventTimeConfig::new(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         Some(TimestampFormat::EpochMillis),
     );
 
@@ -624,7 +625,7 @@ fn test_event_time_extraction_missing_field_error() {
             field,
             available_fields,
         } => {
-            assert_eq!(field, "_event_time");
+            assert_eq!(field, system_columns::EVENT_TIME);
             assert!(
                 available_fields.contains(&"symbol".to_string()),
                 "Error should list available fields for debugging"
@@ -647,13 +648,13 @@ fn test_event_time_extraction_type_mismatch_error() {
     // Given: Fields with _event_time as String (wrong type for epoch_millis format)
     let mut fields = HashMap::new();
     fields.insert(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         FieldValue::String("2024-01-01T00:00:00Z".to_string()),
     );
 
     // Given: EventTimeConfig expecting epoch_millis (Integer)
     let config = EventTimeConfig::new(
-        "_event_time".to_string(),
+        system_columns::EVENT_TIME.to_string(),
         Some(TimestampFormat::EpochMillis),
     );
 
@@ -672,7 +673,7 @@ fn test_event_time_extraction_type_mismatch_error() {
             expected,
             actual,
         } => {
-            assert_eq!(field, "_event_time");
+            assert_eq!(field, system_columns::EVENT_TIME);
             assert!(
                 expected.contains("epoch"),
                 "Expected type should mention epoch millis"

@@ -12,7 +12,7 @@ use velostream::velostream::kafka::serialization_format::SerializationFormat;
 #[tokio::test]
 async fn test_sink_name_used_as_topic_when_not_specified() {
     // Given: Properties with no explicit topic configuration
-    let properties: HashMap<String, String> = HashMap::new();
+    let _properties: HashMap<String, String> = HashMap::new();
 
     // When: Creating writer with from_properties
     // The implementation should use sink_name as the topic

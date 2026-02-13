@@ -156,7 +156,7 @@ async fn test_gauge_with_float_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -182,7 +182,7 @@ async fn test_gauge_with_integer_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -209,7 +209,7 @@ async fn test_gauge_with_scaled_integer_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -236,7 +236,7 @@ async fn test_gauge_with_decimal_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -262,7 +262,7 @@ async fn test_gauge_with_null_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -284,7 +284,7 @@ async fn test_gauge_with_non_numeric_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -305,7 +305,7 @@ async fn test_gauge_with_boolean_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -330,7 +330,7 @@ async fn test_gauge_with_timestamp_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -360,7 +360,7 @@ async fn test_gauge_with_date_field() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -407,7 +407,7 @@ async fn test_gauge_mixed_null_and_valid() {
 
     wrapper
         .metrics_helper()
-        .emit_gauge_metrics(&query, &records, &server_obs, &job_name)
+        .emit_gauge_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -438,7 +438,7 @@ async fn test_histogram_with_float_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -459,7 +459,7 @@ async fn test_histogram_with_integer_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -480,7 +480,7 @@ async fn test_histogram_with_scaled_integer_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -502,7 +502,7 @@ async fn test_histogram_with_decimal_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -523,7 +523,7 @@ async fn test_histogram_with_null_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -544,7 +544,7 @@ async fn test_histogram_with_non_numeric_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -565,7 +565,7 @@ async fn test_histogram_with_boolean_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -589,7 +589,7 @@ async fn test_histogram_with_timestamp_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -612,7 +612,7 @@ async fn test_histogram_with_date_field() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server
@@ -653,7 +653,7 @@ async fn test_histogram_mixed_null_and_valid() {
 
     wrapper
         .metrics_helper()
-        .emit_histogram_metrics(&query, &records, &server_obs, &job_name)
+        .emit_histogram_metrics(&query, &records, &server_obs, &None, &job_name)
         .await;
 
     let metrics = server

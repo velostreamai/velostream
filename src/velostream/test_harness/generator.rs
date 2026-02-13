@@ -254,6 +254,10 @@ pub struct SchemaDataGenerator {
     /// `generate()` and sets them as Kafka header timestamps, keeping event time
     /// separate from the `timestamp` payload field (wall-clock production time).
     event_times: Vec<i64>,
+
+    /// Last generated event time (to prevent duplicates)
+    /// Ensures strict monotonic increasing order of timestamps
+    last_event_time_ms: Option<i64>,
 }
 
 impl SchemaDataGenerator {
@@ -274,6 +278,7 @@ impl SchemaDataGenerator {
             current_record: None,
             current_schema: None,
             event_times: Vec::new(),
+            last_event_time_ms: None,
         }
     }
 
@@ -327,6 +332,7 @@ impl SchemaDataGenerator {
     pub fn clear_time_simulation(&mut self) {
         self.time_state = None;
         self.event_times.clear();
+        self.last_event_time_ms = None;
     }
 
     /// Drain the accumulated simulated event times (one per generated record).
@@ -454,7 +460,20 @@ impl SchemaDataGenerator {
         // The `timestamp` field in the payload will be wall-clock production time.
         if let Some(ref mut time_state) = self.time_state {
             let event_time = time_state.next_timestamp();
-            self.event_times.push(event_time.timestamp_millis());
+            let mut timestamp_ms = event_time.timestamp_millis();
+
+            // CRITICAL: Ensure no duplicate timestamps by tracking last generated timestamp
+            // If the new timestamp is <= last, increment to last + 1ms to maintain strict ordering
+            // This prevents duplicates from being generated in the first place
+            if let Some(last_ts) = self.last_event_time_ms {
+                if timestamp_ms <= last_ts {
+                    timestamp_ms = last_ts + 1;
+                }
+            }
+
+            // Update last timestamp tracker
+            self.last_event_time_ms = Some(timestamp_ms);
+            self.event_times.push(timestamp_ms);
         }
 
         // Set current schema for random walk state tracking
@@ -1818,7 +1837,7 @@ mod tests {
                 assert_eq!(*precision, 2);
                 let float_value = *scaled as f64 / 100.0;
                 assert!(
-                    float_value >= 10.0 && float_value <= 100.0,
+                    (10.0..=100.0).contains(&float_value),
                     "Decimal value {} not in range 10-100",
                     float_value
                 );

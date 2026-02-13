@@ -481,7 +481,7 @@ async fn test_writer_from_properties_loses_transactional_id_vs_batch_config() {
             .await;
 
     match &result1 {
-        Ok(writer) => {
+        Ok(_writer) => {
             println!("from_properties: Writer created");
             // The writer won't be transactional because it never saw transactional.id
             // We can't easily inspect the internal state, but the log output shows it
@@ -516,7 +516,7 @@ async fn test_writer_from_properties_loses_transactional_id_vs_batch_config() {
     .await;
 
     match &result2 {
-        Ok(writer) => {
+        Ok(_writer) => {
             println!("from_properties_with_batch_config: Writer created");
             // The writer WILL be transactional because it saw transactional.id
             println!(
@@ -922,7 +922,7 @@ async fn test_type_property_from_sql_causes_rdkafka_error() {
     }
 
     // At least one should fail if the bug exists
-    let both_failed = result1.is_err() && result2.is_err();
+    let _both_failed = result1.is_err() && result2.is_err();
     let type_error_in_result1 = result1.as_ref().err().map_or(false, |e| {
         let msg = format!("{}", e);
         msg.contains("type") && msg.contains("No such configuration property")

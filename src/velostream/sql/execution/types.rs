@@ -17,6 +17,32 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
+/// Controls how Kafka message headers propagate through SQL operations (FR-090).
+///
+/// Different SQL operations have different default propagation semantics:
+/// - **1:1 operations** (SELECT, WHERE, projection): `Preserve`
+/// - **N:1 aggregations** (GROUP BY, WINDOW): `Last` (last-event-wins)
+/// - **Joins**: `Preserve` (left-side headers by default)
+#[derive(Debug, Clone, PartialEq)]
+pub enum HeaderPropagationMode {
+    /// Preserve all headers from source record (default for 1:1 operations).
+    Preserve,
+    /// Drop all headers from output.
+    Drop,
+    /// Use headers from the last record in a group (default for aggregations).
+    Last,
+    /// Use headers from the first record in a group.
+    First,
+    /// Merge headers from multiple records (right-side values overwrite left for duplicate keys).
+    Merge,
+}
+
+impl Default for HeaderPropagationMode {
+    fn default() -> Self {
+        Self::Last
+    }
+}
+
 /// A value in a SQL record field
 ///
 /// This enum represents all supported SQL data types in the streaming execution engine.
@@ -471,20 +497,20 @@ pub mod system_columns {
         })
     }
 
-    /// Processing time in milliseconds since Unix epoch (UPPERCASE internal form)
+    /// Processing time in milliseconds since Unix epoch
     pub const TIMESTAMP: &str = "_TIMESTAMP";
-    /// Kafka partition offset for the record (UPPERCASE internal form)
+    /// Kafka partition offset for the record
     pub const OFFSET: &str = "_OFFSET";
-    /// Kafka partition number (UPPERCASE internal form)
+    /// Kafka partition number
     pub const PARTITION: &str = "_PARTITION";
-    /// Event time in milliseconds since Unix epoch (UPPERCASE internal form)
+    /// Event time in milliseconds since Unix epoch
     pub const EVENT_TIME: &str = "_EVENT_TIME";
-    /// Window start time in milliseconds since Unix epoch (UPPERCASE internal form)
+    /// Window start time in milliseconds since Unix epoch
     pub const WINDOW_START: &str = "_WINDOW_START";
-    /// Window end time in milliseconds since Unix epoch (UPPERCASE internal form)
+    /// Window end time in milliseconds since Unix epoch
     pub const WINDOW_END: &str = "_WINDOW_END";
 
-    /// Array of all system column names (UPPERCASE) for validation
+    /// Array of all system column names for validation
     pub const ALL: &[&str] = &[
         TIMESTAMP,
         OFFSET,
@@ -494,7 +520,7 @@ pub mod system_columns {
         WINDOW_END,
     ];
 
-    /// Lazy-initialized system columns set for O(1) lookups (uses UPPERCASE)
+    /// Lazy-initialized system columns set for O(1) lookups
     fn get_system_columns_set() -> &'static HashSet<&'static str> {
         static SYSTEM_COLUMNS_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
         SYSTEM_COLUMNS_SET.get_or_init(|| {
@@ -512,32 +538,32 @@ pub mod system_columns {
     /// Normalize column name to UPPERCASE if it's a system column
     ///
     /// This should be called ONCE at parse/validation time.
-    /// Internally, all system column references use UPPERCASE to avoid repeated allocations.
+    /// Internally, all system column references use UPPERCASE as the canonical form.
     ///
     /// # Arguments
     /// * `name` - User-provided column name (any case)
     ///
     /// # Returns
-    /// The UPPERCASE system column name if it matches, None otherwise
+    /// The canonical UPPERCASE system column name if it matches, None otherwise
     #[inline]
     pub fn normalize_if_system_column(name: &str) -> Option<&'static str> {
         let upper = name.to_uppercase();
         get_system_columns_set().get(upper.as_str()).copied()
     }
 
-    /// Check if a name (UPPERCASE) is a system column - O(1) lookup
+    /// Check if a name is a system column - O(1) lookup
     ///
     /// Use this for internal checks (after normalization).
-    /// All system column names should be in UPPERCASE form.
+    /// All system column names should be in UPPERCASE canonical form.
     ///
     /// # Arguments
-    /// * `name_upper` - Column name in UPPERCASE form
+    /// * `name` - Column name in UPPERCASE form
     ///
     /// # Returns
     /// True if it's a system column, false otherwise
     #[inline]
-    pub fn is_system_column_upper(name_upper: &str) -> bool {
-        get_system_columns_set().contains(name_upper)
+    pub fn is_system_column(name: &str) -> bool {
+        get_system_columns_set().contains(name)
     }
 }
 
@@ -1620,6 +1646,29 @@ impl StreamRecord {
         }
     }
 
+    /// Create a new record preserving headers from a source record (FR-090).
+    ///
+    /// Used for aggregation output where headers from the last input record should
+    /// propagate to the result. Strips the `_event_time` header to prevent stale
+    /// input values from blocking correct event_time injection by `KafkaDataWriter`.
+    ///
+    /// The caller is responsible for setting `event_time` on the returned record
+    /// (e.g., to `window_end_time` for windowed aggregations).
+    pub fn with_headers_from(fields: HashMap<String, FieldValue>, source: &StreamRecord) -> Self {
+        let mut headers = source.headers.clone();
+        headers.remove(system_columns::EVENT_TIME);
+        Self {
+            fields,
+            timestamp: source.timestamp,
+            offset: 0,
+            partition: 0,
+            headers,
+            event_time: None,
+            topic: None,
+            key: None,
+        }
+    }
+
     /// Create a StreamRecord from Kafka message data
     ///
     /// This constructor handles Kafka-specific metadata fields (`_topic`, `_key`) and
@@ -1657,7 +1706,10 @@ impl StreamRecord {
         let topic = Some(FieldValue::String(topic_str.to_string()));
         let key = key_bytes.map(|k| FieldValue::String(String::from_utf8_lossy(k).into_owned()));
 
-        // Extract event time: use config if provided, otherwise use Kafka timestamp
+        // Extract event time with priority:
+        //   1. event_time_config (explicit field extraction from payload)
+        //   2. _event_time Kafka header (set by test harness time simulation)
+        //   3. Kafka message timestamp (CreateTime)
         let event_time = if let Some(config) = event_time_config {
             static WARNED: std::sync::atomic::AtomicBool =
                 std::sync::atomic::AtomicBool::new(false);
@@ -1675,6 +1727,11 @@ impl StreamRecord {
                     }
                 })
                 .ok()
+        } else if let Some(et_ms) = headers
+            .get(system_columns::EVENT_TIME)
+            .and_then(|v| v.parse::<i64>().ok())
+        {
+            DateTime::from_timestamp_millis(et_ms)
         } else {
             timestamp_ms.and_then(DateTime::from_timestamp_millis)
         };
@@ -1797,7 +1854,15 @@ impl StreamRecord {
                 system_columns::PARTITION => FieldValue::Integer(self.partition as i64),
                 system_columns::EVENT_TIME => match self.event_time {
                     Some(et) => FieldValue::Integer(et.timestamp_millis()),
-                    None => FieldValue::Integer(self.timestamp),
+                    None => match system_columns::event_time_fallback() {
+                        system_columns::EventTimeFallback::Null => FieldValue::Null,
+                        system_columns::EventTimeFallback::Warn => {
+                            FieldValue::Integer(self.timestamp)
+                        }
+                        system_columns::EventTimeFallback::ProcessingTime => {
+                            FieldValue::Integer(self.timestamp)
+                        }
+                    },
                 },
                 system_columns::WINDOW_START | system_columns::WINDOW_END => self
                     .fields

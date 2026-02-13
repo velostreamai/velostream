@@ -13,7 +13,7 @@ use velostream::velostream::server::v2::{
     PartitionStateManager, WatermarkConfig, WatermarkManager, WatermarkStrategy,
     extract_window_fields, has_window_fields, inject_window_fields,
 };
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 
 /// Test that PartitionStateManager properly integrates WatermarkManager
 #[test]
@@ -234,18 +234,18 @@ fn test_window_fields_in_record() {
     inject_window_fields(&mut record, window_start, window_end);
 
     // Verify fields are accessible as FieldValue::Integer
-    match record.fields.get("_WINDOW_START") {
+    match record.fields.get(system_columns::WINDOW_START) {
         Some(FieldValue::Integer(millis)) => {
             assert_eq!(*millis, window_start.timestamp_millis());
         }
-        _ => panic!("_WINDOW_START should be FieldValue::Integer"),
+        _ => panic!("_window_start should be FieldValue::Integer"),
     }
 
-    match record.fields.get("_WINDOW_END") {
+    match record.fields.get(system_columns::WINDOW_END) {
         Some(FieldValue::Integer(millis)) => {
             assert_eq!(*millis, window_end.timestamp_millis());
         }
-        _ => panic!("_WINDOW_END should be FieldValue::Integer"),
+        _ => panic!("_window_end should be FieldValue::Integer"),
     }
 }
 

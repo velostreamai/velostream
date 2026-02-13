@@ -2,12 +2,9 @@
 //!
 //! Tests the basic progress monitoring system functionality without complex async dependencies.
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use velostream::velostream::server::progress_monitoring::{
-    LoadingSummary, ProgressMonitor, TableLoadProgress, TableLoadStatus, TableProgressTracker,
-};
+use velostream::velostream::server::progress_monitoring::ProgressMonitor;
 
 /// Test basic progress monitoring functionality
 #[test]

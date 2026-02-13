@@ -8,8 +8,7 @@
 
 use std::collections::HashMap;
 use velostream::velostream::sql::{
-    SqlError, StreamingQuery,
-    ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource},
+    SqlError,
     execution::{
         FieldValue, StreamRecord,
         processors::{ProcessorContext, SelectProcessor},

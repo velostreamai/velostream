@@ -414,7 +414,7 @@ async fn test_consumer_group_metadata() {
         "Group metadata should be available after subscription"
     );
 
-    if let Some(meta) = metadata {
+    if let Some(_meta) = metadata {
         println!("Consumer group metadata retrieved:");
         println!("  Group ID: {}", consumer.group_id());
         println!("  Metadata available: true");

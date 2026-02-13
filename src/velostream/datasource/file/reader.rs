@@ -30,6 +30,8 @@ pub struct FileReader {
     current_file_index: usize,
     eof_reached: bool,
     csv_headers: Option<Vec<String>>, // Store CSV column headers
+    // Pending lines from previous batch (unprocessed lines preserved across read() calls)
+    pending_lines: Vec<String>,
     // State for adaptive batching
     adaptive_state: FileAdaptiveBatchState,
 }
@@ -102,6 +104,7 @@ impl FileReader {
             current_file_index: 0,
             eof_reached: false,
             csv_headers: None,
+            pending_lines: Vec::new(),
             adaptive_state: FileAdaptiveBatchState::new(initial_size),
         };
 
@@ -670,6 +673,11 @@ impl DataReader for FileReader {
             return Ok(self.records_read < max);
         }
 
+        // If there are pending lines from a previous batch, we have more data
+        if !self.pending_lines.is_empty() {
+            return Ok(true);
+        }
+
         // If finished and not watching, no more data
         if self.finished && !self.config.watch_for_changes {
             return Ok(false);
@@ -737,7 +745,8 @@ impl FileReader {
         let estimated_line_length = self.adaptive_state.bytes_per_record_estimate.unwrap_or(256);
         let buffer_size = (batch_size * estimated_line_length).clamp(8192, 1024 * 1024); // 8KB to 1MB
 
-        let mut lines_buffer = Vec::with_capacity(batch_size);
+        // Start with any pending lines from the previous batch call
+        let mut lines_buffer: Vec<String> = std::mem::take(&mut self.pending_lines);
         let mut total_bytes_read = 0;
 
         // Read multiple lines in one I/O operation
@@ -784,14 +793,24 @@ impl FileReader {
                 }
             }
 
-            // Process all lines in the chunk
-            for line in lines_buffer.drain(..) {
+            // Process lines in the chunk, preserving unprocessed lines for next batch
+            let mut processed_count = 0;
+            for line in lines_buffer.iter() {
                 if records.len() >= batch_size {
                     break;
                 }
 
+                // Enforce max_records limit during batch processing
+                if let Some(max) = self.config.max_records {
+                    if self.records_read >= max {
+                        break;
+                    }
+                }
+
+                processed_count += 1;
+
                 // Parse the line based on format
-                match self.parse_line_to_record(line).await? {
+                match self.parse_line_to_record(line.clone()).await? {
                     Some(record) => {
                         records.push(record);
                         self.records_read += 1;
@@ -799,6 +818,7 @@ impl FileReader {
                     None => continue, // Skip invalid/empty lines
                 }
             }
+            lines_buffer.drain(..processed_count);
 
             // Update bytes per record estimate for adaptive batching
             if !records.is_empty() && total_bytes_read > 0 {
@@ -824,6 +844,9 @@ impl FileReader {
                 break;
             }
         }
+
+        // Preserve any unprocessed lines for the next read() call
+        self.pending_lines = lines_buffer;
 
         Ok(records)
     }
@@ -1110,8 +1133,11 @@ impl FileReader {
             return Ok(None);
         }
 
-        // Parse CSV fields (simple split for now - could be enhanced with proper CSV parsing)
-        let fields_raw: Vec<&str> = line.split(',').map(|f| f.trim()).collect();
+        // Parse CSV fields using configured delimiter
+        let fields_raw: Vec<&str> = line
+            .split(self.config.csv_delimiter)
+            .map(|f| f.trim())
+            .collect();
 
         let mut fields = HashMap::new();
 
@@ -1126,7 +1152,7 @@ impl FileReader {
         let headers = match &self.csv_headers {
             Some(h) => h.clone(),
             None => (0..fields_raw.len())
-                .map(|i| format!("field_{}", i))
+                .map(|i| format!("column_{}", i))
                 .collect(),
         };
 
@@ -1135,7 +1161,7 @@ impl FileReader {
             let field_name = headers
                 .get(i)
                 .cloned()
-                .unwrap_or_else(|| format!("field_{}", i));
+                .unwrap_or_else(|| format!("column_{}", i));
             let field_value = self.infer_field_type_simple(value);
             fields.insert(field_name, field_value);
         }

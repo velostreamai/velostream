@@ -19,6 +19,24 @@ Velostream allows you to do this **directly in SQL** by combining:
 - **Headers**: Propagate distributed tracing context
 - **Timestamps**: Record exact processing times
 
+## Automatic Header Propagation
+
+As of FR-090, Velostream **automatically propagates** Kafka message headers through SQL operations:
+
+- **Passthrough queries** (SELECT, WHERE): All headers preserved — no `SET_HEADER()` needed
+- **Aggregations** (GROUP BY, WINDOW): Headers from the last record in each group propagate automatically (last-event-wins)
+- **Joins**: Left-side headers propagate by default
+
+### W3C Trace Context (`traceparent` / `tracestate`)
+
+Velostream's observability layer automatically injects W3C Trace Context headers **after** SQL execution:
+
+1. SQL processing propagates input headers (including any existing `traceparent`)
+2. After SQL, `inject_trace_context_into_records()` **overwrites** `traceparent` and `tracestate` with a fresh span
+3. The output record carries the new span, linked to the processor's trace
+
+This means you do **not** need to manually propagate `traceparent` via `SET_HEADER()` for standard tracing. Manual `SET_HEADER()` is only needed when you want to add **custom** tracing headers (like `x-trace-id` in the examples below) that are outside the W3C standard.
+
 ## Complete Example: E-Commerce Order Processing
 
 ### Scenario
@@ -333,16 +351,25 @@ LIMIT 5;
 
 ### Headers Not Propagating
 
+Headers now propagate **automatically** through SQL operations (FR-090). If headers are missing in output:
+
+1. **Check input headers exist**: Use `HEADER_KEYS()` to inspect input
+2. **Aggregation output**: Headers come from the last record in the group (last-event-wins). If the last record had no headers, output won't either.
+3. **Joins**: Only left-side headers propagate by default
+4. **`_event_time` header**: Automatically stripped from aggregation output (the Kafka writer injects the correct one)
+5. **`traceparent`/`tracestate`**: Overwritten by trace injection after SQL — this is expected behavior
+
 ```sql
--- Ensure queries use EMIT CHANGES
--- and downstream topics are configured correctly
-SELECT SET_HEADER('test', 'value') as test
+-- Debug: Check if headers are present on input
+SELECT HEADER_KEYS() as all_keys, HEADER('x-trace-id') as trace_id
 FROM orders
-EMIT CHANGES;  -- CRITICAL: Don't forget EMIT CHANGES
+LIMIT 10;
 ```
 
 ## See Also
 
 - [System Columns Guide](../system-columns.md)
-- [Header Access Guide](../header-access.md)
+- [Header Access Guide](../header-access.md) — Includes automatic header propagation reference
 - [Advanced Query Features](../advanced-query-features.md)
+- [FR-090 Header Propagation Analysis](../../feature/FR-090-header-prop/README.md) — Full design rationale
+- [Event Time Guide](../../user-guides/event-time-guide.md) — `_event_time` header behavior in aggregations

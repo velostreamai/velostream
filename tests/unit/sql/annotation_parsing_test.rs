@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use velostream::velostream::sql::StreamingSqlParser;
 use velostream::velostream::sql::annotation_parser::SqlAnnotationParser;
 /// Comprehensive tests for SQL-level job annotation parsing
 ///

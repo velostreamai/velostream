@@ -11,9 +11,7 @@ Tests verify:
 */
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use velostream::velostream::server::processors::JobProcessingConfig;
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 
@@ -128,7 +126,7 @@ fn test_retry_with_max_retries() {
 fn test_partition_receiver_recoverable_flag() {
     // Verify recoverable flag is set correctly for different error types
     let record_error_context = HashMap::new();
-    let record = StreamRecord::new(record_error_context);
+    let _record = StreamRecord::new(record_error_context);
 
     // Record-level errors are typically recoverable
     // (can be retried in a future batch run)

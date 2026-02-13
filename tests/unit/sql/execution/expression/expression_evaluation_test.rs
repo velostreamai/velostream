@@ -13,6 +13,7 @@ use velostream::velostream::sql::ast::{
 use velostream::velostream::sql::execution::expression::evaluator::{
     ExpressionEvaluator, SelectAliasContext,
 };
+use velostream::velostream::sql::execution::types::system_columns;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 
 fn create_test_record(
@@ -347,8 +348,8 @@ fn test_event_time_fallback_to_timestamp() {
         }
     };
 
-    // _EVENT_TIME should return the processing timestamp when event_time is None
-    let event_time_expr = Expr::Column("_EVENT_TIME".to_string());
+    // _event_time should return the processing timestamp when event_time is None
+    let event_time_expr = Expr::Column(system_columns::EVENT_TIME.to_string());
     let result = ExpressionEvaluator::evaluate_expression_value(
         &event_time_expr,
         &record_without_event_time,
@@ -408,8 +409,8 @@ fn test_system_timestamp_columns_always_available() {
         }
     };
 
-    // _TIMESTAMP should always be available
-    let timestamp_expr = Expr::Column("_TIMESTAMP".to_string());
+    // _timestamp should always be available
+    let timestamp_expr = Expr::Column(system_columns::TIMESTAMP.to_string());
     let timestamp_result = ExpressionEvaluator::evaluate_expression_value(&timestamp_expr, &record);
     assert!(timestamp_result.is_ok());
     assert_eq!(
@@ -417,8 +418,8 @@ fn test_system_timestamp_columns_always_available() {
         FieldValue::Integer(1640995200000)
     );
 
-    // _EVENT_TIME should always be available (falls back to _TIMESTAMP)
-    let event_time_expr = Expr::Column("_EVENT_TIME".to_string());
+    // _event_time should always be available (falls back to _timestamp)
+    let event_time_expr = Expr::Column(system_columns::EVENT_TIME.to_string());
     let event_time_result =
         ExpressionEvaluator::evaluate_expression_value(&event_time_expr, &record);
     assert!(event_time_result.is_ok());
@@ -427,14 +428,14 @@ fn test_system_timestamp_columns_always_available() {
         FieldValue::Integer(1640995200000)
     );
 
-    // _OFFSET should always be available
-    let offset_expr = Expr::Column("_OFFSET".to_string());
+    // _offset should always be available
+    let offset_expr = Expr::Column(system_columns::OFFSET.to_string());
     let offset_result = ExpressionEvaluator::evaluate_expression_value(&offset_expr, &record);
     assert!(offset_result.is_ok());
     assert_eq!(offset_result.unwrap(), FieldValue::Integer(42));
 
-    // _PARTITION should always be available
-    let partition_expr = Expr::Column("_PARTITION".to_string());
+    // _partition should always be available
+    let partition_expr = Expr::Column(system_columns::PARTITION.to_string());
     let partition_result = ExpressionEvaluator::evaluate_expression_value(&partition_expr, &record);
     assert!(partition_result.is_ok());
     assert_eq!(partition_result.unwrap(), FieldValue::Integer(3));
@@ -462,7 +463,7 @@ async fn test_event_time_aliasing_in_select() {
         fields: vec![
             SelectField::AliasedColumn {
                 column: "trade_timestamp".to_string(),
-                alias: "_EVENT_TIME".to_string(),
+                alias: system_columns::EVENT_TIME.to_string(),
             },
             SelectField::Column("symbol".to_string()),
             SelectField::Column("price".to_string()),
@@ -513,11 +514,11 @@ async fn test_event_time_aliasing_in_select() {
 
     let output = rx.try_recv().unwrap();
 
-    // _EVENT_TIME is a system column — it should NOT be in output fields.
+    // _event_time is a system column — it should NOT be in output fields.
     // It is stripped from the HashMap and only stored as record.event_time metadata.
     assert!(
-        !output.fields.contains_key("_EVENT_TIME"),
-        "_EVENT_TIME is a system column and should be stripped from output fields"
+        !output.fields.contains_key(system_columns::EVENT_TIME),
+        "_event_time is a system column and should be stripped from output fields"
     );
 
     // Verify the event_time struct field was set from the alias

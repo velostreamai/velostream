@@ -16,9 +16,9 @@ use tokio::sync::Mutex;
 use velostream::velostream::datasource::DataWriter;
 use velostream::velostream::server::processors::common::JobProcessingConfig;
 use velostream::velostream::server::v2::{PartitionMetrics, PartitionReceiver};
+use velostream::velostream::sql::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 
 use async_trait::async_trait;
 
@@ -109,7 +109,7 @@ async fn partition_receiver_latency_benchmark() {
 
     // Setup
     let records = generate_test_records(10000);
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let query = Arc::new(
         parser
             .parse("SELECT id, value FROM test WHERE value > 50")
@@ -260,7 +260,7 @@ async fn spinlock_cpu_efficiency() {
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
     // Simulate slow batch arrival (1ms between batches)
-    let queue = Arc::new(SegQueue::<Vec<StreamRecord>>::new());
+    let _queue = Arc::new(SegQueue::<Vec<StreamRecord>>::new());
     let eof_flag = Arc::new(AtomicBool::new(false));
 
     println!("Test scenario: 1000µs (1ms) delay between batch arrivals\n");

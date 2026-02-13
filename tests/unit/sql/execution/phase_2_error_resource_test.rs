@@ -11,7 +11,6 @@ These tests validate all Phase 2 functionality including edge cases,
 error scenarios, and integration with existing Phase 1A/1B components.
 */
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio;

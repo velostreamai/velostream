@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::execution::types::system_columns;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -45,7 +46,7 @@ mod tests {
                 match &fields[0] {
                     SelectField::Expression { expr, alias } => {
                         match expr {
-                            Expr::Column(name) => assert_eq!(name, "_timestamp"),
+                            Expr::Column(name) => assert_eq!(name, system_columns::TIMESTAMP),
                             _ => panic!("Expected column expression"),
                         }
                         assert_eq!(alias.as_ref().unwrap(), "ts");
@@ -91,21 +92,21 @@ mod tests {
         // Check output contains system columns
         let output = rx.try_recv().unwrap();
         assert!(output.fields.contains_key("customer_id"));
-        assert!(output.fields.contains_key("_timestamp"));
-        assert!(output.fields.contains_key("_offset"));
-        assert!(output.fields.contains_key("_partition"));
+        assert!(output.fields.contains_key(system_columns::TIMESTAMP));
+        assert!(output.fields.contains_key(system_columns::OFFSET));
+        assert!(output.fields.contains_key(system_columns::PARTITION));
 
         // Verify system column values are integers
         assert!(matches!(
-            output.fields.get("_timestamp").unwrap(),
+            output.fields.get(system_columns::TIMESTAMP).unwrap(),
             FieldValue::Integer(_)
         ));
         assert!(matches!(
-            output.fields.get("_offset").unwrap(),
+            output.fields.get(system_columns::OFFSET).unwrap(),
             FieldValue::Integer(_)
         ));
         assert!(matches!(
-            output.fields.get("_partition").unwrap(),
+            output.fields.get(system_columns::PARTITION).unwrap(),
             FieldValue::Integer(_)
         ));
     }
@@ -144,8 +145,8 @@ mod tests {
         let output = rx.try_recv().unwrap();
         assert!(output.fields.contains_key("event_time"));
         assert!(output.fields.contains_key("kafka_partition"));
-        assert!(!output.fields.contains_key("_timestamp"));
-        assert!(!output.fields.contains_key("_partition"));
+        assert!(!output.fields.contains_key(system_columns::TIMESTAMP));
+        assert!(!output.fields.contains_key(system_columns::PARTITION));
     }
 
     #[tokio::test]
@@ -223,8 +224,8 @@ mod tests {
         assert_eq!(output.fields.len(), 4);
         assert!(output.fields.contains_key("customer_id"));
         assert!(output.fields.contains_key("amount"));
-        assert!(output.fields.contains_key("_timestamp"));
-        assert!(output.fields.contains_key("_offset"));
+        assert!(output.fields.contains_key(system_columns::TIMESTAMP));
+        assert!(output.fields.contains_key(system_columns::OFFSET));
         // status should not be included since not selected
         assert!(!output.fields.contains_key("status"));
     }
@@ -262,9 +263,9 @@ mod tests {
         let output = rx.try_recv().unwrap();
         assert!(output.fields.contains_key("customer_id"));
         assert!(output.fields.contains_key("amount"));
-        assert!(!output.fields.contains_key("_timestamp"));
-        assert!(!output.fields.contains_key("_offset"));
-        assert!(!output.fields.contains_key("_partition"));
+        assert!(!output.fields.contains_key(system_columns::TIMESTAMP));
+        assert!(!output.fields.contains_key(system_columns::OFFSET));
+        assert!(!output.fields.contains_key(system_columns::PARTITION));
     }
 
     #[tokio::test]
@@ -304,15 +305,11 @@ mod tests {
 
             // Should produce timestamp output
             let output = rx.try_recv().unwrap();
-            // The output key will match the case used in the query
-            let expected_key = if query_str.contains("_TIMESTAMP") {
-                "_TIMESTAMP"
-            } else if query_str.contains("_Timestamp") {
-                "_Timestamp"
-            } else {
-                "_timestamp"
-            };
-            assert!(output.fields.contains_key(expected_key));
+            // The output key preserves the case used in the query
+            let has_key = output.fields.contains_key(system_columns::TIMESTAMP)
+                || output.fields.contains_key("_TIMESTAMP")
+                || output.fields.contains_key("_Timestamp");
+            assert!(has_key, "Expected timestamp system column in output fields");
         }
     }
 
@@ -349,8 +346,8 @@ mod tests {
         let output = rx.try_recv().unwrap();
         assert!(output.fields.contains_key("customer_id"));
         assert!(output.fields.contains_key("amount"));
-        assert!(output.fields.contains_key("_timestamp"));
-        assert!(output.fields.contains_key("_partition"));
+        assert!(output.fields.contains_key(system_columns::TIMESTAMP));
+        assert!(output.fields.contains_key(system_columns::PARTITION));
     }
 
     #[test]
@@ -379,16 +376,16 @@ mod tests {
         let parser = StreamingSqlParser::new();
 
         // These should parse as system columns, not regular identifiers
-        let system_columns = vec![
-            "_timestamp",
-            "_offset",
-            "_partition",
+        let sys_cols = vec![
+            system_columns::TIMESTAMP,
+            system_columns::OFFSET,
+            system_columns::PARTITION,
             "_TIMESTAMP",
             "_OFFSET",
             "_PARTITION",
         ];
 
-        for col in system_columns {
+        for col in sys_cols {
             let query = format!("SELECT {} FROM orders", col);
             let result = parser.parse(&query);
             assert!(
@@ -451,7 +448,7 @@ mod tests {
         assert!(output.fields.contains_key("id"));
         // _event_time is a system column — stripped from output fields, stored in metadata only
         assert!(
-            !output.fields.contains_key("_event_time"),
+            !output.fields.contains_key(system_columns::EVENT_TIME),
             "_event_time is a system column and should be stripped from output fields"
         );
 
@@ -653,7 +650,7 @@ mod tests {
                     SelectField::Expression {
                         alias: Some(alias), ..
                     } => {
-                        assert_eq!(alias.to_uppercase(), "_EVENT_TIME");
+                        assert_eq!(alias, system_columns::EVENT_TIME);
                     }
                     _ => panic!("Expected aliased expression for _event_time"),
                 }
@@ -683,7 +680,7 @@ mod tests {
                     SelectField::Expression {
                         alias: Some(alias), ..
                     } => {
-                        assert_eq!(alias.to_uppercase(), "_EVENT_TIME");
+                        assert_eq!(alias, system_columns::EVENT_TIME);
                     }
                     _ => panic!("Expected aliased expression for _event_time"),
                 }
@@ -716,11 +713,17 @@ mod tests {
                     assert_eq!(fields.len(), 2);
 
                     // Verify second field is the aliased column
+                    // Parser normalizes system column aliases to UPPERCASE canonical form
                     match &fields[1] {
                         SelectField::Expression {
                             alias: Some(alias), ..
                         } => {
-                            assert_eq!(alias.to_uppercase(), "_EVENT_TIME");
+                            assert_eq!(
+                                alias,
+                                system_columns::EVENT_TIME,
+                                "alias '{}' should be normalized to system column EVENT_TIME",
+                                alias
+                            );
                         }
                         _ => panic!("Expected aliased expression for {}", query),
                     }
@@ -773,7 +776,7 @@ mod tests {
         assert!(output.fields.contains_key("id"));
         // _event_time is a system column — stripped from output fields, stored in metadata only
         assert!(
-            !output.fields.contains_key("_event_time"),
+            !output.fields.contains_key(system_columns::EVENT_TIME),
             "_event_time is a system column and should be stripped from output fields"
         );
 

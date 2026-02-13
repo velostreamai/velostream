@@ -13,9 +13,9 @@ Benchmarks the performance improvements from optimized WHERE clause parsing:
 */
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use velostream::velostream::sql::execution::types::FieldValue;
-use velostream::velostream::table::unified_table::{CachedPredicate, parse_where_clause_cached};
+use velostream::velostream::table::unified_table::parse_where_clause_cached;
 
 const ITERATIONS: usize = 100_000;
 

@@ -71,6 +71,6 @@ pub mod window_v2;
 
 // Re-export public API only
 pub use engine::StreamExecutionEngine;
-pub use types::{FieldValue, StreamRecord};
+pub use types::{FieldValue, HeaderPropagationMode, StreamRecord};
 
 // Re-export internal types for testing

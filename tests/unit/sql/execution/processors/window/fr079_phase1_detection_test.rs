@@ -113,7 +113,7 @@ fn test_window_processor_detects_group_by_emit_changes_windowed() {
     // This test documents whether the query can be parsed
     if let Ok(query) = query_result {
         let group_by = WindowProcessor::get_group_by_columns(&query);
-        let is_changes = WindowProcessor::is_emit_changes(&query);
+        let _is_changes = WindowProcessor::is_emit_changes(&query);
 
         // Verify detection if query parsed successfully
         if group_by.is_some() {
@@ -178,7 +178,7 @@ fn test_window_processor_complex_windowed_group_by() {
     // Note: Test documents parser support for complex windowed queries
     if let Ok(query) = query_result {
         let group_by = WindowProcessor::get_group_by_columns(&query);
-        let is_changes = WindowProcessor::is_emit_changes(&query);
+        let _is_changes = WindowProcessor::is_emit_changes(&query);
 
         // If GROUP BY is detected, verify it's correct
         if let Some(cols) = group_by {

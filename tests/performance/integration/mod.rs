@@ -9,6 +9,4 @@ pub mod streaming_pipeline;
 pub mod transaction_processing;
 
 // Re-export commonly used integration benchmarks
-pub use resource_management::*;
-pub use streaming_pipeline::*;
 pub use transaction_processing::*;

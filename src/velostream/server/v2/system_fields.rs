@@ -1,8 +1,8 @@
 //! System field injection helpers for Phase 4
 //!
 //! Provides utilities to inject system fields into StreamRecords:
-//! - _WINDOW_START: Window start timestamp
-//! - _WINDOW_END: Window end timestamp
+//! - _window_start: Window start timestamp
+//! - _window_end: Window end timestamp
 //!
 //! These fields are injected by window processors and consumed by the SQL engine
 //! for SELECT, WHERE, GROUP BY, and ORDER BY clauses.
@@ -10,9 +10,8 @@
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use chrono::{DateTime, Utc};
 
-/// System field names (uppercase, with leading underscore)
-pub const WINDOW_START: &str = "_WINDOW_START";
-pub const WINDOW_END: &str = "_WINDOW_END";
+// Re-export from the single source of truth
+pub use crate::velostream::sql::execution::types::system_columns::{WINDOW_END, WINDOW_START};
 
 /// Inject window boundary fields into a StreamRecord
 ///
@@ -133,7 +132,7 @@ pub fn extract_window_fields(
 ///
 /// ## Returns
 ///
-/// - `true` if both _WINDOW_START and _WINDOW_END are present
+/// - `true` if both _window_start and _window_end are present
 /// - `false` otherwise
 pub fn has_window_fields(record: &StreamRecord) -> bool {
     record.fields.contains_key(WINDOW_START) && record.fields.contains_key(WINDOW_END)

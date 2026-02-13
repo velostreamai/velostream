@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
-use velostream::velostream::datasource::{BatchConfig, DataReader, DataWriter};
+use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorFactory,
 };
@@ -173,8 +173,8 @@ impl DataWriter for Scenario4MockWriter {
 #[tokio::test]
 async fn test_scenario_4_simple_jp_small_dataset() {
     let record_count = 1000;
-    let mut reader = Scenario4MockReader::new(record_count);
-    let mut writer = Scenario4MockWriter::new();
+    let reader = Scenario4MockReader::new(record_count);
+    let writer = Scenario4MockWriter::new();
 
     let query = r#"
         SELECT trader_id, symbol,
@@ -187,7 +187,7 @@ async fn test_scenario_4_simple_jp_small_dataset() {
         WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
     "#;
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -257,8 +257,8 @@ async fn test_scenario_4_simple_jp_small_dataset() {
 #[tokio::test]
 async fn test_scenario_4_simple_jp_medium_dataset() {
     let record_count = 10000;
-    let mut reader = Scenario4MockReader::new(record_count);
-    let mut writer = Scenario4MockWriter::new();
+    let reader = Scenario4MockReader::new(record_count);
+    let writer = Scenario4MockWriter::new();
 
     let query = r#"
         SELECT trader_id, symbol,
@@ -271,7 +271,7 @@ async fn test_scenario_4_simple_jp_medium_dataset() {
         WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
     "#;
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -342,8 +342,8 @@ async fn test_scenario_4_simple_jp_medium_dataset() {
 #[tokio::test]
 async fn test_scenario_4_simple_jp_large_dataset() {
     let record_count = 50000;
-    let mut reader = Scenario4MockReader::new(record_count);
-    let mut writer = Scenario4MockWriter::new();
+    let reader = Scenario4MockReader::new(record_count);
+    let writer = Scenario4MockWriter::new();
 
     let query = r#"
         SELECT trader_id, symbol,
@@ -356,7 +356,7 @@ async fn test_scenario_4_simple_jp_large_dataset() {
         WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
     "#;
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -427,8 +427,8 @@ async fn test_scenario_4_simple_jp_large_dataset() {
 #[tokio::test]
 async fn test_scenario_4_simple_jp_1m_dataset() {
     let record_count = 1000000;
-    let mut reader = Scenario4MockReader::new(record_count);
-    let mut writer = Scenario4MockWriter::new();
+    let reader = Scenario4MockReader::new(record_count);
+    let writer = Scenario4MockWriter::new();
 
     let query = r#"
         SELECT trader_id, symbol,
@@ -441,7 +441,7 @@ async fn test_scenario_4_simple_jp_1m_dataset() {
         WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
     "#;
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 
@@ -614,11 +614,11 @@ async fn test_scenario_4_with_partition_batching() {
         }
     }
 
-    let mut reader = PartitionBatchedReader {
+    let reader = PartitionBatchedReader {
         batches: all_batches,
         current_batch_idx: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let mut writer = Scenario4MockWriter::new();
+    let writer = Scenario4MockWriter::new();
 
     let query = r#"
         SELECT trader_id, symbol,
@@ -631,7 +631,7 @@ async fn test_scenario_4_with_partition_batching() {
         WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
     "#;
 
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
 

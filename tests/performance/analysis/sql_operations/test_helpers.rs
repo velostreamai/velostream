@@ -267,7 +267,7 @@ pub async fn measure_sql_engine_sync_impl(
     records: Vec<StreamRecord>,
     query: &str,
 ) -> (f64, usize, usize) {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (_tx, mut _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(_tx);
@@ -313,7 +313,7 @@ pub async fn measure_sql_engine_async_impl(
     records: Vec<StreamRecord>,
     query: &str,
 ) -> (f64, usize, usize) {
-    let mut parser = StreamingSqlParser::new();
+    let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (_tx, mut _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(_tx);
