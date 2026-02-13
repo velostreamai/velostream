@@ -16,6 +16,9 @@ use velostream::velostream::observability::async_queue::{
 use velostream::velostream::observability::queue_config::ObservabilityQueueConfig;
 use velostream::velostream::observability::remote_write::TimestampedSample;
 
+// Import shared test helper
+use crate::unit::observability_test_helpers::create_test_span;
+
 /// Helper to create a test metrics event
 fn create_test_metrics_event() -> MetricsEvent {
     let sample = TimestampedSample {
@@ -394,39 +397,4 @@ async fn test_traces_queue_depth() {
 
     // Should show depth of 2
     assert_eq!(queue.traces_queue_depth(), 2);
-}
-
-// Helper function to create test span data
-fn create_test_span() -> opentelemetry_sdk::export::trace::SpanData {
-    use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
-    use opentelemetry_sdk::InstrumentationLibrary;
-    use opentelemetry_sdk::Resource;
-    use opentelemetry_sdk::export::trace::SpanData;
-    use std::borrow::Cow;
-
-    let trace_id_bytes = [0u8; 16];
-    let span_id_bytes = [1u8; 8];
-    let parent_span_id_bytes = [0u8; 8];
-
-    SpanData {
-        span_context: SpanContext::new(
-            TraceId::from_bytes(trace_id_bytes),
-            SpanId::from_bytes(span_id_bytes),
-            TraceFlags::default(),
-            false,
-            TraceState::default(),
-        ),
-        parent_span_id: SpanId::from_bytes(parent_span_id_bytes),
-        span_kind: opentelemetry::trace::SpanKind::Internal,
-        name: Cow::Borrowed("test_span"),
-        start_time: std::time::SystemTime::now(),
-        end_time: std::time::SystemTime::now(),
-        attributes: vec![],
-        dropped_attributes_count: 0,
-        events: opentelemetry_sdk::trace::EvictedQueue::new(128),
-        links: opentelemetry_sdk::trace::EvictedQueue::new(128),
-        status: opentelemetry::trace::Status::Unset,
-        resource: Cow::Owned(Resource::empty()),
-        instrumentation_lib: InstrumentationLibrary::default(),
-    }
 }

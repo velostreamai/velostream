@@ -56,8 +56,11 @@ use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::observability::async_queue::ObservabilityQueue;
 use crate::velostream::observability::background_flusher::BackgroundFlusher;
 use crate::velostream::server::processors::common::DeadLetterQueue;
+use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
+use crate::velostream::sql::execution::StreamRecord;
+use crate::velostream::sql::StreamingQuery;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -476,6 +479,126 @@ impl ObservabilityWrapper {
             has_observability: self.has_observability(),
             has_dlq: self.has_dlq(),
         }
+    }
+
+    // ===== SQL Metrics Convenience Methods =====
+
+    /// Register all SQL-annotated metrics (counter, gauge, histogram) in a single call
+    ///
+    /// This consolidates the three separate registration calls into one method,
+    /// reducing boilerplate in processor implementations.
+    ///
+    /// # Arguments
+    /// * `query` - Streaming query containing @metric annotations
+    /// * `job_name` - Job name for metric labeling
+    ///
+    /// # Returns
+    /// * `Ok(())` if all metrics registered successfully
+    /// * `Err(...)` if any registration fails
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Before: 15+ lines
+    /// let obs = self.observability_wrapper.observability().cloned();
+    /// self.observability_wrapper.metrics_helper()
+    ///     .register_counter_metrics(&query, &obs, job_name).await?;
+    /// self.observability_wrapper.metrics_helper()
+    ///     .register_gauge_metrics(&query, &obs, job_name).await?;
+    /// self.observability_wrapper.metrics_helper()
+    ///     .register_histogram_metrics(&query, &obs, job_name).await?;
+    ///
+    /// // After: 1 line
+    /// self.observability_wrapper.register_all_metrics(&query, job_name).await?;
+    /// ```
+    pub async fn register_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Register all metric types (counter, gauge, histogram)
+        self.metrics_helper
+            .register_counter_metrics(query, &self.observability, job_name)
+            .await?;
+
+        self.metrics_helper
+            .register_gauge_metrics(query, &self.observability, job_name)
+            .await?;
+
+        self.metrics_helper
+            .register_histogram_metrics(query, &self.observability, job_name)
+            .await
+    }
+
+    /// Emit all SQL-annotated metrics (counter, gauge, histogram) in a single call
+    ///
+    /// This consolidates the three separate emission calls into one method,
+    /// reducing boilerplate and avoiding multiple observability clones.
+    ///
+    /// # Arguments
+    /// * `query` - Streaming query containing @metric annotations
+    /// * `output_records` - Records to extract metric values from
+    /// * `job_name` - Job name for metric labeling
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Before: 12+ lines
+    /// let obs = self.observability_wrapper.observability().cloned();
+    /// let queue = self.observability_wrapper.observability_queue().cloned();
+    /// self.observability_wrapper.metrics_helper()
+    ///     .emit_counter_metrics(&query, output_records, &obs, &queue, job_name).await;
+    /// self.observability_wrapper.metrics_helper()
+    ///     .emit_gauge_metrics(&query, output_records, &obs, &queue, job_name).await;
+    /// self.observability_wrapper.metrics_helper()
+    ///     .emit_histogram_metrics(&query, output_records, &obs, &queue, job_name).await;
+    ///
+    /// // After: 1 line
+    /// self.observability_wrapper.emit_all_metrics(&query, output_records, job_name).await;
+    /// ```
+    pub async fn emit_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[Arc<StreamRecord>],
+        job_name: &str,
+    ) {
+        // Emit all metric types (counter, gauge, histogram)
+        self.metrics_helper
+            .emit_counter_metrics(query, output_records, &self.observability, &self.observability_queue, job_name)
+            .await;
+
+        self.metrics_helper
+            .emit_gauge_metrics(query, output_records, &self.observability, &self.observability_queue, job_name)
+            .await;
+
+        self.metrics_helper
+            .emit_histogram_metrics(query, output_records, &self.observability, &self.observability_queue, job_name)
+            .await;
+    }
+
+    // ===== Error Tracking Convenience Methods =====
+
+    /// Record an error to the error tracker
+    ///
+    /// This consolidates the ErrorTracker::record_error call pattern,
+    /// eliminating repetitive observability cloning in error paths.
+    ///
+    /// # Arguments
+    /// * `job_name` - Job name for error context
+    /// * `error_msg` - Error message to record
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Before: 3 lines per error
+    /// ErrorTracker::record_error(
+    ///     &self.observability_wrapper.observability().cloned(),
+    ///     job_name,
+    ///     error_msg,
+    /// );
+    ///
+    /// // After: 1 line
+    /// self.observability_wrapper.record_error(job_name, error_msg);
+    /// ```
+    pub fn record_error(&self, job_name: &str, error_msg: String) {
+        ErrorTracker::record_error(&self.observability, job_name, error_msg);
     }
 
     /// Shutdown async observability queue and background flusher (Phase 4)

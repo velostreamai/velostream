@@ -59,42 +59,15 @@ use velostream::velostream::observability::queue_config::ObservabilityQueueConfi
 use velostream::velostream::observability::telemetry::TelemetryProvider;
 use velostream::velostream::sql::execution::config::TracingConfig;
 
+// Import shared test helpers
+use crate::unit::observability_test_helpers::{
+    CountingExporter, NoOpExporter, create_test_tracing_config, create_test_span_with_ids,
+};
+
 #[tokio::test]
 async fn test_queue_based_telemetry_integration() {
-    use opentelemetry_sdk::export::trace::{SpanData, SpanExporter};
-
-    // Mock exporter that counts exported spans
-    #[derive(Debug)]
-    struct CountingExporter {
-        count: Arc<AtomicUsize>,
-    }
-
-    impl SpanExporter for CountingExporter {
-        fn export(
-            &mut self,
-            batch: Vec<SpanData>,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = opentelemetry::trace::TraceResult<()>> + Send>,
-        > {
-            let count = batch.len();
-            let counter = self.count.clone();
-            Box::pin(async move {
-                counter.fetch_add(count, Ordering::Relaxed);
-                Ok(())
-            })
-        }
-    }
-
     // Create tracing config without OTLP endpoint (test mode)
-    let tracing_config = TracingConfig {
-        service_name: "test_service".to_string(),
-        service_version: "1.0.0".to_string(),
-        otlp_endpoint: None, // Test mode
-        sampling_ratio: 1.0,
-        enable_console_output: false,
-        max_span_duration_seconds: 300,
-        batch_export_timeout_ms: 30000,
-    };
+    let tracing_config = create_test_tracing_config();
 
     // Create observability queue
     let queue_config =
@@ -122,80 +95,24 @@ async fn test_queue_based_telemetry_integration() {
 
 #[tokio::test]
 async fn test_queue_based_span_export_workflow() {
-    use opentelemetry::KeyValue;
-    use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
-    use opentelemetry_sdk::InstrumentationLibrary;
-    use opentelemetry_sdk::Resource;
-    use opentelemetry_sdk::export::trace::{SpanData, SpanExporter};
-    use std::borrow::Cow;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use velostream::velostream::observability::async_queue::TraceEvent;
     use velostream::velostream::observability::background_flusher::BackgroundFlusher;
-
-    // Mock exporter that counts exported spans
-    #[derive(Debug)]
-    struct CountingExporter {
-        count: Arc<AtomicUsize>,
-    }
-
-    impl SpanExporter for CountingExporter {
-        fn export(
-            &mut self,
-            batch: Vec<SpanData>,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = opentelemetry::trace::TraceResult<()>> + Send>,
-        > {
-            let count = batch.len();
-            let counter = self.count.clone();
-            Box::pin(async move {
-                counter.fetch_add(count, Ordering::Relaxed);
-                Ok(())
-            })
-        }
-    }
 
     // Create queue
     let queue_config =
         ObservabilityQueueConfig::default().with_traces_flush_interval(Duration::from_millis(100));
     let (queue, receivers) = ObservabilityQueue::new(queue_config.clone());
 
-    // Create counting exporter
+    // Create counting exporter (from shared test helpers)
     let export_count = Arc::new(AtomicUsize::new(0));
-    let exporter = Box::new(CountingExporter {
-        count: export_count.clone(),
-    });
+    let exporter = Box::new(CountingExporter::new(export_count.clone()));
 
     // Start background flusher with exporter
     let flusher = BackgroundFlusher::start(receivers, None, Some(exporter), queue_config).await;
 
-    // Create and queue test spans
+    // Create and queue test spans (using shared helper)
     for i in 0..10 {
-        let trace_id_bytes = [i as u8; 16];
-        let span_id_bytes = [i as u8; 8];
-        let parent_span_id_bytes = [0u8; 8];
-
-        let span_data = SpanData {
-            span_context: SpanContext::new(
-                TraceId::from_bytes(trace_id_bytes),
-                SpanId::from_bytes(span_id_bytes),
-                TraceFlags::default(),
-                false,
-                TraceState::default(),
-            ),
-            parent_span_id: SpanId::from_bytes(parent_span_id_bytes),
-            span_kind: opentelemetry::trace::SpanKind::Internal,
-            name: Cow::Borrowed("test_span"),
-            start_time: std::time::SystemTime::now(),
-            end_time: std::time::SystemTime::now(),
-            attributes: vec![KeyValue::new("test_id", i as i64)],
-            dropped_attributes_count: 0,
-            events: opentelemetry_sdk::trace::EvictedQueue::new(128),
-            links: opentelemetry_sdk::trace::EvictedQueue::new(128),
-            status: opentelemetry::trace::Status::Unset,
-            resource: Cow::Owned(Resource::empty()),
-            instrumentation_lib: InstrumentationLibrary::default(),
-        };
-
+        let span_data = create_test_span_with_ids(i as u8, i as u8);
         let event = TraceEvent::Span {
             span_data,
             timestamp: std::time::Instant::now(),
@@ -221,32 +138,17 @@ async fn test_queue_based_span_export_workflow() {
 
 #[tokio::test]
 async fn test_non_blocking_span_submission() {
-    use opentelemetry_sdk::export::trace::{SpanData, SpanExporter};
+    use opentelemetry_sdk::export::trace::SpanData;
     use opentelemetry_sdk::trace::SpanProcessor;
     use velostream::velostream::observability::background_flusher::BackgroundFlusher;
     use velostream::velostream::observability::queued_span_processor::QueuedSpanProcessor;
-
-    // Mock exporter
-    #[derive(Debug)]
-    struct NoOpExporter;
-
-    impl SpanExporter for NoOpExporter {
-        fn export(
-            &mut self,
-            _batch: Vec<SpanData>,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = opentelemetry::trace::TraceResult<()>> + Send>,
-        > {
-            Box::pin(async { Ok(()) })
-        }
-    }
 
     // Create queue with very small capacity
     let queue_config = ObservabilityQueueConfig::default().with_traces_queue_size(2);
     let (queue, receivers) = ObservabilityQueue::new(queue_config.clone());
     let queue = Arc::new(queue);
 
-    // Create processor
+    // Create processor (using shared NoOpExporter)
     let processor = QueuedSpanProcessor::new(queue.clone(), Box::new(NoOpExporter));
 
     // Fill queue to capacity
@@ -338,18 +240,9 @@ async fn test_non_blocking_span_submission() {
 async fn test_fully_wired_observability_wrapper() {
     use velostream::velostream::observability::queue_config::ObservabilityQueueConfig;
     use velostream::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
-    use velostream::velostream::sql::execution::config::TracingConfig;
 
-    // Configure tracing
-    let tracing_config = TracingConfig {
-        service_name: "test_service".to_string(),
-        service_version: "1.0.0".to_string(),
-        otlp_endpoint: None, // Test mode - no actual export
-        sampling_ratio: 1.0,
-        enable_console_output: false,
-        max_span_duration_seconds: 300,
-        batch_export_timeout_ms: 30000,
-    };
+    // Configure tracing (using shared helper)
+    let tracing_config = create_test_tracing_config();
 
     // Create wrapper with queue-based tracing fully wired
     let wrapper = ObservabilityWrapper::with_observability_and_async_queue(

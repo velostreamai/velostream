@@ -434,7 +434,7 @@ impl SimpleJobProcessor {
         );
 
         // Register all metrics (counter, gauge, histogram) from SQL annotations in a single pass
-        if let Err(e) = self.register_all_metrics(&query, &job_name).await {
+        if let Err(e) = self.observability_wrapper.register_all_metrics(&query, &job_name).await {
             warn!("Job '{}': Failed to register metrics: {:?}", job_name, e);
         }
 
@@ -589,11 +589,7 @@ impl SimpleJobProcessor {
                     );
                 } else {
                     warn!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        &job_name,
-                        error_msg,
-                    );
+                    self.observability_wrapper.record_error(&job_name, error_msg);
                 }
             } else {
                 info!(
@@ -606,11 +602,7 @@ impl SimpleJobProcessor {
         if let Err(e) = context.flush_all().await {
             let error_msg = format!("Failed to flush all sinks: {:?}", e);
             warn!("Job '{}': {}", job_name, error_msg);
-            ErrorTracker::record_error(
-                &self.observability_wrapper.observability().cloned(),
-                &job_name,
-                error_msg,
-            );
+            self.observability_wrapper.record_error(&job_name, error_msg);
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
@@ -661,11 +653,7 @@ impl SimpleJobProcessor {
             Err(e) => {
                 let error_msg = format!("Source commit failed: {:?}", e);
                 error!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    &self.observability_wrapper.observability().cloned(),
-                    job_name,
-                    error_msg,
-                );
+                self.observability_wrapper.record_error(job_name, error_msg);
                 return Err(format!("Source commit failed: {:?}", e).into());
             }
         }
@@ -829,7 +817,7 @@ impl SimpleJobProcessor {
             // FR-073: Emit SQL-native metrics for processed records from this source
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
             // Consolidation: Emit all metrics in a single pass with one observability clone
-            self.emit_all_metrics(query, &batch_result.output_records, job_name)
+            self.observability_wrapper.emit_all_metrics(query, &batch_result.output_records, job_name)
                 .await;
 
             // Handle failures according to strategy
@@ -838,10 +826,8 @@ impl SimpleJobProcessor {
                 self.job_metrics.record_failed(batch_result.records_failed);
 
                 // Record individual error messages to error tracker
-                let obs_manager = self.observability_wrapper.observability().cloned();
                 for error in &batch_result.error_details {
-                    ErrorTracker::record_error(
-                        &obs_manager,
+                    self.observability_wrapper.record_error(
                         job_name,
                         format!("[{}] {}", source_name, error.error_message),
                     );
@@ -1040,11 +1026,7 @@ impl SimpleJobProcessor {
                                 record_count, &sink_names[0], e
                             );
                             warn!("Job '{}': {}", job_name, error_msg);
-                            ErrorTracker::record_error(
-                                &self.observability_wrapper.observability().cloned(),
-                                job_name,
-                                error_msg,
-                            );
+                            self.observability_wrapper.record_error(job_name, error_msg);
                             if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                                 return Err(format!(
                                     "Failed to write to sink '{}': {:?}",
@@ -1179,11 +1161,7 @@ impl SimpleJobProcessor {
             if let Err(e) = context.flush_all().await {
                 let error_msg = format!("Failed to flush sinks: {:?}", e);
                 warn!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    &self.observability_wrapper.observability().cloned(),
-                    job_name,
-                    error_msg,
-                );
+                self.observability_wrapper.record_error(job_name, error_msg);
                 if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                     return Err(format!("Failed to flush sinks: {:?}", e).into());
                 }

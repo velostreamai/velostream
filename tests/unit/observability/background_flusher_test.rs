@@ -7,9 +7,14 @@
 //! - Multiple flush triggers (batch size, time interval)
 
 use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use velostream::velostream::observability::async_queue::ObservabilityQueue;
 use velostream::velostream::observability::background_flusher::BackgroundFlusher;
 use velostream::velostream::observability::queue_config::ObservabilityQueueConfig;
+
+// Import shared test helpers from parent unit module
+use crate::unit::observability_test_helpers::{CountingExporter, create_test_span};
 
 #[tokio::test]
 async fn test_flusher_lifecycle() {
@@ -278,42 +283,15 @@ async fn test_rapid_shutdown() {
 
 #[tokio::test]
 async fn test_span_export_with_exporter() {
-    use opentelemetry_sdk::export::trace::{SpanData, SpanExporter};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use velostream::velostream::observability::async_queue::TraceEvent;
-
-    // Mock exporter that counts exported spans
-    #[derive(Debug)]
-    struct CountingExporter {
-        count: Arc<AtomicUsize>,
-    }
-
-    impl SpanExporter for CountingExporter {
-        fn export(
-            &mut self,
-            batch: Vec<SpanData>,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = opentelemetry::trace::TraceResult<()>> + Send>,
-        > {
-            let count = batch.len();
-            let counter = self.count.clone();
-            Box::pin(async move {
-                counter.fetch_add(count, Ordering::Relaxed);
-                Ok(())
-            })
-        }
-    }
 
     let config =
         ObservabilityQueueConfig::default().with_traces_flush_interval(Duration::from_millis(100));
     let (queue, receivers) = ObservabilityQueue::new(config.clone());
 
-    // Create counting exporter
+    // Create counting exporter (from shared test helpers)
     let export_count = Arc::new(AtomicUsize::new(0));
-    let exporter = Box::new(CountingExporter {
-        count: export_count.clone(),
-    });
+    let exporter = Box::new(CountingExporter::new(export_count.clone()));
 
     // Start flusher with exporter
     let flusher = BackgroundFlusher::start(receivers, None, Some(exporter), config).await;
@@ -338,38 +316,4 @@ async fn test_span_export_with_exporter() {
     // Verify spans were exported
     let exported = export_count.load(Ordering::Relaxed);
     assert_eq!(exported, 5, "All 5 spans should be exported");
-}
-
-// Helper to create test span
-fn create_test_span() -> opentelemetry_sdk::export::trace::SpanData {
-    use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
-    use opentelemetry_sdk::InstrumentationLibrary;
-    use opentelemetry_sdk::Resource;
-    use std::borrow::Cow;
-
-    let trace_id_bytes = [0u8; 16];
-    let span_id_bytes = [1u8; 8];
-    let parent_span_id_bytes = [0u8; 8];
-
-    opentelemetry_sdk::export::trace::SpanData {
-        span_context: SpanContext::new(
-            TraceId::from_bytes(trace_id_bytes),
-            SpanId::from_bytes(span_id_bytes),
-            TraceFlags::default(),
-            false,
-            TraceState::default(),
-        ),
-        parent_span_id: SpanId::from_bytes(parent_span_id_bytes),
-        span_kind: opentelemetry::trace::SpanKind::Internal,
-        name: Cow::Borrowed("test_span"),
-        start_time: std::time::SystemTime::now(),
-        end_time: std::time::SystemTime::now(),
-        attributes: vec![],
-        dropped_attributes_count: 0,
-        events: opentelemetry_sdk::trace::EvictedQueue::new(128),
-        links: opentelemetry_sdk::trace::EvictedQueue::new(128),
-        status: opentelemetry::trace::Status::Unset,
-        resource: Cow::Owned(Resource::empty()),
-        instrumentation_lib: InstrumentationLibrary::default(),
-    }
 }

@@ -272,43 +272,10 @@ impl PartitionReceiver {
     /// with the Prometheus metrics registry. Follows the same pattern as
     /// SimpleJobProcessor and TransactionalJobProcessor for consistency.
     async fn register_sql_metrics(&self) {
-        let obs = self.observability_wrapper.observability_ref();
-
-        // Register counter metrics
-        if let Err(e) = self
-            .observability_wrapper
-            .metrics_helper()
-            .register_counter_metrics(&self.query, obs, &self.job_name)
-            .await
-        {
+        // Register all SQL-annotated metrics (counter, gauge, histogram) in a single pass
+        if let Err(e) = self.observability_wrapper.register_all_metrics(&self.query, &self.job_name).await {
             warn!(
-                "PartitionReceiver {}: Failed to register counter metrics: {}",
-                self.partition_id, e
-            );
-        }
-
-        // Register gauge metrics
-        if let Err(e) = self
-            .observability_wrapper
-            .metrics_helper()
-            .register_gauge_metrics(&self.query, obs, &self.job_name)
-            .await
-        {
-            warn!(
-                "PartitionReceiver {}: Failed to register gauge metrics: {}",
-                self.partition_id, e
-            );
-        }
-
-        // Register histogram metrics
-        if let Err(e) = self
-            .observability_wrapper
-            .metrics_helper()
-            .register_histogram_metrics(&self.query, obs, &self.job_name)
-            .await
-        {
-            warn!(
-                "PartitionReceiver {}: Failed to register histogram metrics: {}",
+                "PartitionReceiver {}: Failed to register metrics: {}",
                 self.partition_id, e
             );
         }
@@ -322,27 +289,8 @@ impl PartitionReceiver {
     ///
     /// NOTE: register_sql_metrics() must be called first to register metrics with Prometheus.
     async fn emit_sql_metrics(&self, output_records: &[Arc<StreamRecord>]) {
-        // Get observability reference for metric emission
-        let obs = self.observability_wrapper.observability_ref();
-        let queue = self.observability_wrapper.observability_queue().cloned();
-
-        // Emit counter metrics
-        self.observability_wrapper
-            .metrics_helper()
-            .emit_counter_metrics(&self.query, output_records, obs, &queue, &self.job_name)
-            .await;
-
-        // Emit gauge metrics
-        self.observability_wrapper
-            .metrics_helper()
-            .emit_gauge_metrics(&self.query, output_records, obs, &queue, &self.job_name)
-            .await;
-
-        // Emit histogram metrics
-        self.observability_wrapper
-            .metrics_helper()
-            .emit_histogram_metrics(&self.query, output_records, obs, &queue, &self.job_name)
-            .await;
+        // Emit all SQL-annotated metrics (counter, gauge, histogram) in a single pass
+        self.observability_wrapper.emit_all_metrics(&self.query, output_records, &self.job_name).await;
     }
 
     /// Partition ID accessor
