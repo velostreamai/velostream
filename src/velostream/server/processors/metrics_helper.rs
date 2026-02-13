@@ -29,7 +29,7 @@ use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::RwLock;
 
@@ -39,11 +39,25 @@ pub struct LabelHandlingConfig {
     /// If true, emit metrics even if label extraction fails (use defaults)
     /// If false, skip metric if label extraction produces fewer labels than expected
     pub strict_mode: bool,
+    /// Maximum unique label combinations per metric (prevents OOM from high cardinality)
+    /// Default: 100 unique combinations (Prometheus best practice)
+    /// Set to 0 for unlimited (not recommended - risk of OOM)
+    /// Increase cautiously based on available memory (each histogram entry ≈ 200-500 bytes)
+    pub max_cardinality: usize,
+    /// Maximum age of event timestamps (in milliseconds) before rejection
+    /// Default: 48 hours (172,800,000 ms)
+    /// Prometheus remote-write typically has a 2-hour window, but we're more permissive
+    /// Set to 0 to disable age validation
+    pub max_timestamp_age_ms: i64,
 }
 
 impl Default for LabelHandlingConfig {
     fn default() -> Self {
-        Self { strict_mode: false } // Default: permissive (emit with defaults)
+        Self {
+            strict_mode: false,   // Default: permissive (emit with defaults)
+            max_cardinality: 100, // Conservative limit to prevent OOM (Prometheus best practice)
+            max_timestamp_age_ms: 48 * 60 * 60 * 1000, // 48 hours in milliseconds
+        }
     }
 }
 
@@ -217,6 +231,15 @@ pub struct ProcessorMetricsHelper {
     /// Application name for injecting `job` label into remote-write metrics.
     /// Set from `@application` annotation or derived from source filename.
     app_name: Option<String>,
+    /// Cumulative counter state across batches (Prometheus counters must be monotonically increasing)
+    /// Key: (metric_name, label_values), Value: cumulative_count
+    counter_state: Arc<RwLock<HashMap<(String, Vec<String>), f64>>>,
+    /// Cumulative histogram state across batches (Prometheus histograms are cumulative)
+    /// Key: (metric_name, label_values), Value: (sum, count, buckets: Vec<(le, count)>)
+    histogram_state: Arc<RwLock<HashMap<(String, Vec<String>), (f64, f64, Vec<(f64, f64)>)>>>,
+    /// Watermark: last emitted timestamp per metric+labels (discard late arrivals)
+    /// Key: (metric_name, label_values), Value: last_timestamp_ms
+    last_timestamp: Arc<RwLock<HashMap<(String, Vec<String>), i64>>>,
 }
 
 impl ProcessorMetricsHelper {
@@ -234,6 +257,9 @@ impl ProcessorMetricsHelper {
             label_extraction_config: LabelExtractionConfig::default(),
             telemetry: AtomicMetricsPerformanceTelemetry::new(),
             app_name: None,
+            counter_state: Arc::new(RwLock::new(HashMap::new())),
+            histogram_state: Arc::new(RwLock::new(HashMap::new())),
+            last_timestamp: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -251,6 +277,22 @@ impl ProcessorMetricsHelper {
     pub fn with_strict_mode(mut self) -> Self {
         self.label_config.strict_mode = true;
         self
+    }
+
+    /// Sanitize label values for Prometheus compatibility
+    ///
+    /// Escapes special characters that can break Prometheus:
+    /// - Newlines → "\\n"
+    /// - Tabs → "\\t"
+    /// - Backslashes → "\\\\"
+    /// - Quotes → "\\\""
+    fn sanitize_label_value(value: &str) -> String {
+        value
+            .replace('\\', "\\\\") // Backslash must be first
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\t', "\\t")
+            .replace('"', "\\\"")
     }
 
     /// Get current performance telemetry
@@ -669,13 +711,11 @@ impl ProcessorMetricsHelper {
                 let batch_capacity = output_records.len() * annotations.len();
                 let mut batch = MetricBatch::with_capacity(batch_capacity);
 
-                // Gauge deduplication for remote-write: Prometheus rejects
-                // duplicate samples with different values for the same
-                // (metric_name, labels, timestamp).  Keep the LAST value per
-                // unique key so that only one sample is sent per timestamp.
-                type GaugeDedupMap =
-                    std::collections::HashMap<(String, Vec<String>, i64), (Vec<String>, f64)>;
-                let mut gauge_dedup: GaugeDedupMap = GaugeDedupMap::new();
+                // Watermark-based emission: Track last timestamp per (metric, labels)
+                // Discard any records with timestamp <= last_timestamp (late arrivals)
+                let mut watermarks = self.last_timestamp.write().await;
+                let mut counter_state = self.counter_state.write().await;
+                let mut histogram_state = self.histogram_state.write().await;
 
                 for record_arc in output_records {
                     // Dereference Arc for field access
@@ -694,12 +734,18 @@ impl ProcessorMetricsHelper {
 
                         // Extract label values using enhanced extraction with nested field support
                         let extract_start = Instant::now();
-                        let label_values = extract_label_values(
+                        let mut label_values = extract_label_values(
                             record,
                             &annotation.labels,
                             &self.label_extraction_config,
                         );
                         self.record_label_extract_time(extract_start.elapsed().as_micros() as u64);
+
+                        // Sanitize label values for Prometheus compatibility
+                        label_values = label_values
+                            .iter()
+                            .map(|v| Self::sanitize_label_value(v))
+                            .collect();
 
                         // Validate labels based on configuration
                         if !self.validate_labels(annotation, label_values.len()) {
@@ -748,10 +794,16 @@ impl ProcessorMetricsHelper {
                                     }
                                 }
                             } else {
-                                debug!(
-                                    "Job '{}': Metric '{}' field '{}' not found in record",
-                                    job_name, annotation.name, field_name
-                                );
+                                // Missing field: warn with throttled logging
+                                static MISSING_FIELD_COUNT: AtomicU64 = AtomicU64::new(0);
+                                let count = MISSING_FIELD_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                                if count == 1 || count.is_multiple_of(1000) {
+                                    warn!(
+                                        "Job '{}': Metric '{}' field '{}' not found in record. \
+                                         Check that @metric_field references a valid field name. Total missing: {}",
+                                        job_name, annotation.name, field_name, count
+                                    );
+                                }
                                 None
                             }
                         } else {
@@ -787,7 +839,6 @@ impl ProcessorMetricsHelper {
                                 match system_columns::event_time_fallback() {
                                     system_columns::EventTimeFallback::Null => None,
                                     system_columns::EventTimeFallback::Warn => {
-                                        use std::sync::atomic::{AtomicBool, Ordering};
                                         static WARNED: AtomicBool = AtomicBool::new(false);
                                         if !WARNED.swap(true, Ordering::Relaxed) {
                                             warn!(
@@ -819,32 +870,148 @@ impl ProcessorMetricsHelper {
                                 label_values.clone()
                             };
 
+                            // Timestamp age validation: reject events that are too old
+                            if self.label_config.max_timestamp_age_ms > 0 {
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis()
+                                    as i64;
+                                let age_ms = now_ms - timestamp_ms;
+
+                                if age_ms > self.label_config.max_timestamp_age_ms {
+                                    static TOO_OLD_COUNT: AtomicU64 = AtomicU64::new(0);
+                                    let count = TOO_OLD_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+
+                                    if count == 1 || count.is_multiple_of(1000) {
+                                        warn!(
+                                            "Metric '{}' timestamp too old: age={}ms (max={}ms), discarded. \
+                                             Total discarded: {}",
+                                            annotation.name,
+                                            age_ms,
+                                            self.label_config.max_timestamp_age_ms,
+                                            count
+                                        );
+                                    }
+
+                                    debug!(
+                                        "Metric '{}' timestamp too old: ts={}, now={}, age={}ms",
+                                        annotation.name, timestamp_ms, now_ms, age_ms
+                                    );
+
+                                    continue;
+                                }
+                            }
+
+                            // Watermark check: discard records older than last emitted timestamp
+                            let watermark_key =
+                                (annotation.name.clone(), effective_label_values.clone());
+                            let last_ts =
+                                watermarks.get(&watermark_key).copied().unwrap_or(i64::MIN);
+
+                            if timestamp_ms <= last_ts {
+                                // Late arrival: discard and log
+                                static LATE_ARRIVAL_COUNT: AtomicU64 = AtomicU64::new(0);
+                                static LAST_WARNING: std::sync::atomic::AtomicI64 =
+                                    std::sync::atomic::AtomicI64::new(0);
+
+                                let count = LATE_ARRIVAL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+
+                                // Warn every 1000 late arrivals or first occurrence
+                                if count == 1 || count.is_multiple_of(1000) {
+                                    warn!(
+                                        "Late arrival discarded for metric '{}' (labels: {:?}): \
+                                         timestamp={}, last_timestamp={}, lag={}ms. \
+                                         Total discarded: {}",
+                                        annotation.name,
+                                        effective_label_values,
+                                        timestamp_ms,
+                                        last_ts,
+                                        last_ts - timestamp_ms,
+                                        count
+                                    );
+                                }
+
+                                // Debug log every late arrival for troubleshooting
+                                debug!(
+                                    "Metric '{}' late arrival: ts={} <= last={}, discarded",
+                                    annotation.name, timestamp_ms, last_ts
+                                );
+
+                                continue;
+                            }
+
+                            // Update watermark
+                            watermarks.insert(watermark_key.clone(), timestamp_ms);
+
                             if let Some(value) = numeric_value {
                                 match annotation.metric_type {
                                     MetricType::Counter => {
+                                        // Validate counter values are non-negative
+                                        if value < 0.0 {
+                                            static NEGATIVE_COUNTER: AtomicU64 = AtomicU64::new(0);
+                                            let count = NEGATIVE_COUNTER
+                                                .fetch_add(1, Ordering::Relaxed)
+                                                + 1;
+                                            if count == 1 || count.is_multiple_of(1000) {
+                                                warn!(
+                                                    "Counter metric '{}' has negative value: {}. Counters must be non-negative. \
+                                                     Labels: {:?}. Total rejected: {}",
+                                                    annotation.name,
+                                                    value,
+                                                    effective_label_values,
+                                                    count
+                                                );
+                                            }
+                                            continue;
+                                        }
+
+                                        // Cardinality check: prevent OOM from unbounded label combinations
+                                        let is_new_entry =
+                                            !counter_state.contains_key(&watermark_key);
+                                        if is_new_entry
+                                            && self.label_config.max_cardinality > 0
+                                            && counter_state.len()
+                                                >= self.label_config.max_cardinality
+                                        {
+                                            static CARDINALITY_EXCEEDED_COUNT: AtomicU64 =
+                                                AtomicU64::new(0);
+                                            let count = CARDINALITY_EXCEEDED_COUNT
+                                                .fetch_add(1, Ordering::Relaxed)
+                                                + 1;
+
+                                            if count == 1 || count.is_multiple_of(1000) {
+                                                warn!(
+                                                    "Counter metric '{}' cardinality limit reached ({} unique label combinations). \
+                                                     Discarding new label combination: {:?}. Total discarded: {}",
+                                                    annotation.name,
+                                                    self.label_config.max_cardinality,
+                                                    effective_label_values,
+                                                    count
+                                                );
+                                            }
+                                            continue;
+                                        }
+
+                                        // Update cumulative counter
+                                        // Counter with @metric_field: increment by the field value
+                                        let cumulative = counter_state
+                                            .entry(watermark_key.clone())
+                                            .and_modify(|total| *total += value)
+                                            .or_insert(value);
+
+                                        // Emit immediately
                                         metrics.push_counter_with_timestamp(
                                             &annotation.name,
                                             effective_label_names,
                                             &effective_label_values,
-                                            1.0,
+                                            *cumulative,
                                             timestamp_ms,
                                         );
                                     }
                                     MetricType::Gauge => {
-                                        // Defer gauge emission for deduplication.
-                                        // Multiple records with same labels+timestamp
-                                        // would produce duplicate samples that
-                                        // Prometheus rejects.  Last value wins.
-                                        let key = (
-                                            annotation.name.clone(),
-                                            effective_label_values.clone(),
-                                            timestamp_ms,
-                                        );
-                                        gauge_dedup
-                                            .insert(key, (effective_label_names.clone(), value));
-                                    }
-                                    MetricType::Histogram => {
-                                        metrics.push_histogram_with_timestamp(
+                                        // Emit gauge value
+                                        metrics.push_gauge_with_timestamp(
                                             &annotation.name,
                                             effective_label_names,
                                             &effective_label_values,
@@ -852,31 +1019,173 @@ impl ProcessorMetricsHelper {
                                             timestamp_ms,
                                         );
                                     }
+                                    MetricType::Histogram => {
+                                        let buckets =
+                                            annotation.buckets.clone().unwrap_or_else(|| {
+                                                vec![
+                                                    0.001, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1,
+                                                    0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
+                                                ]
+                                            });
+
+                                        // Cardinality check: prevent OOM from unbounded label combinations
+                                        let is_new_histogram =
+                                            !histogram_state.contains_key(&watermark_key);
+                                        if is_new_histogram
+                                            && self.label_config.max_cardinality > 0
+                                            && histogram_state.len()
+                                                >= self.label_config.max_cardinality
+                                        {
+                                            static HIST_CARDINALITY_EXCEEDED: AtomicU64 =
+                                                AtomicU64::new(0);
+                                            let count = HIST_CARDINALITY_EXCEEDED
+                                                .fetch_add(1, Ordering::Relaxed)
+                                                + 1;
+
+                                            if count == 1 || count.is_multiple_of(1000) {
+                                                warn!(
+                                                    "Histogram metric '{}' cardinality limit reached ({} unique label combinations). \
+                                                     Discarding new label combination: {:?}. Total discarded: {}",
+                                                    annotation.name,
+                                                    self.label_config.max_cardinality,
+                                                    effective_label_values,
+                                                    count
+                                                );
+                                            }
+                                            continue;
+                                        }
+
+                                        // Update cumulative histogram state
+                                        let (sum, count, bucket_counts) = histogram_state
+                                            .entry(watermark_key.clone())
+                                            .or_insert_with(|| {
+                                                let initial_buckets =
+                                                    buckets.iter().map(|le| (*le, 0.0)).collect();
+                                                (0.0, 0.0, initial_buckets)
+                                            });
+
+                                        // Warn if bucket configuration changed (would be silently ignored)
+                                        if !is_new_histogram {
+                                            let current_bucket_les: Vec<f64> =
+                                                bucket_counts.iter().map(|(le, _)| *le).collect();
+                                            if current_bucket_les != buckets {
+                                                static WARNED_BUCKET_CHANGE: AtomicBool =
+                                                    AtomicBool::new(false);
+                                                if !WARNED_BUCKET_CHANGE
+                                                    .swap(true, Ordering::Relaxed)
+                                                {
+                                                    warn!(
+                                                        "Histogram '{}' bucket configuration changed but will be ignored. \
+                                                         Buckets are fixed at first initialization. \
+                                                         Current: {:?}, New: {:?}",
+                                                        annotation.name,
+                                                        current_bucket_les,
+                                                        buckets
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        *sum += value;
+                                        *count += 1.0;
+
+                                        // Increment buckets
+                                        for (le, bucket_count) in bucket_counts.iter_mut() {
+                                            if value <= *le {
+                                                *bucket_count += 1.0;
+                                            }
+                                        }
+
+                                        // Emit histogram buckets
+                                        for (le, bucket_count) in bucket_counts.iter() {
+                                            let mut bucket_label_names =
+                                                effective_label_names.to_vec();
+                                            bucket_label_names.push("le".to_string());
+                                            let mut bucket_label_values =
+                                                effective_label_values.clone();
+                                            bucket_label_values.push(le.to_string());
+
+                                            metrics.push_counter_with_timestamp(
+                                                &format!("{}_bucket", annotation.name),
+                                                &bucket_label_names,
+                                                &bucket_label_values,
+                                                *bucket_count,
+                                                timestamp_ms,
+                                            );
+                                        }
+
+                                        // Emit +Inf bucket
+                                        let mut inf_label_names = effective_label_names.to_vec();
+                                        inf_label_names.push("le".to_string());
+                                        let mut inf_label_values = effective_label_values.clone();
+                                        inf_label_values.push("+Inf".to_string());
+                                        metrics.push_counter_with_timestamp(
+                                            &format!("{}_bucket", annotation.name),
+                                            &inf_label_names,
+                                            &inf_label_values,
+                                            *count,
+                                            timestamp_ms,
+                                        );
+
+                                        // Emit _sum and _count
+                                        metrics.push_counter_with_timestamp(
+                                            &format!("{}_sum", annotation.name),
+                                            effective_label_names,
+                                            &effective_label_values,
+                                            *sum,
+                                            timestamp_ms,
+                                        );
+                                        metrics.push_counter_with_timestamp(
+                                            &format!("{}_count", annotation.name),
+                                            effective_label_names,
+                                            &effective_label_values,
+                                            *count,
+                                            timestamp_ms,
+                                        );
+                                    }
                                 }
                             } else if annotation.metric_type == MetricType::Counter {
+                                // Cardinality check for counter without field
+                                let is_new_entry = !counter_state.contains_key(&watermark_key);
+                                if is_new_entry
+                                    && self.label_config.max_cardinality > 0
+                                    && counter_state.len() >= self.label_config.max_cardinality
+                                {
+                                    static COUNTER_NO_FIELD_EXCEEDED: AtomicU64 = AtomicU64::new(0);
+                                    let count = COUNTER_NO_FIELD_EXCEEDED
+                                        .fetch_add(1, Ordering::Relaxed)
+                                        + 1;
+
+                                    if count == 1 || count.is_multiple_of(1000) {
+                                        warn!(
+                                            "Counter metric '{}' (no field) cardinality limit reached ({} unique label combinations). \
+                                             Discarding new label combination: {:?}. Total discarded: {}",
+                                            annotation.name,
+                                            self.label_config.max_cardinality,
+                                            effective_label_values,
+                                            count
+                                        );
+                                    }
+                                    continue;
+                                }
+
+                                // Counter without field: just increment
+                                let cumulative = counter_state
+                                    .entry(watermark_key)
+                                    .and_modify(|total| *total += 1.0)
+                                    .or_insert(1.0);
+
                                 metrics.push_counter_with_timestamp(
                                     &annotation.name,
                                     effective_label_names,
                                     &effective_label_values,
-                                    1.0,
+                                    *cumulative,
                                     timestamp_ms,
                                 );
                             }
                         }
                     }
                     self.record_emission_overhead(record_start.elapsed().as_micros() as u64);
-                }
-
-                // Flush deduplicated gauge samples to remote-write.
-                // Each unique (name, labels, timestamp) gets exactly one sample.
-                for ((name, label_values, ts), (label_names, value)) in gauge_dedup {
-                    metrics.push_gauge_with_timestamp(
-                        &name,
-                        &label_names,
-                        &label_values,
-                        value,
-                        ts,
-                    );
                 }
 
                 // Phase 4: Emit metrics via the appropriate path

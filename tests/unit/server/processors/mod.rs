@@ -6,6 +6,7 @@ pub mod error_tracking_test;
 pub mod factory_config_wiring_test;
 pub mod job_processor_factory_test;
 pub mod metrics_context_labels_test;
+pub mod metrics_emission_test;
 pub mod metrics_gauge_field_value_test;
 pub mod multi_source_sink_write_test;
 pub mod multi_source_test;

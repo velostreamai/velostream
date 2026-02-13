@@ -465,13 +465,34 @@ fn parse_buckets(value: &str) -> Result<Vec<f64>, SqlError> {
         .map(|s| s.trim().parse::<f64>())
         .collect();
 
-    buckets.map_err(|_| SqlError::ParseError {
+    let buckets = buckets.map_err(|_| SqlError::ParseError {
         message: format!(
             "Invalid bucket values: {}. Expected comma-separated numbers",
             value
         ),
         position: None,
-    })
+    })?;
+
+    // Validate buckets are in ascending order (required for Prometheus histograms)
+    if buckets.windows(2).any(|w| w[0] >= w[1]) {
+        return Err(SqlError::ParseError {
+            message: format!(
+                "Histogram buckets must be in strictly ascending order: {:?}",
+                buckets
+            ),
+            position: None,
+        });
+    }
+
+    // Validate no negative or zero buckets
+    if buckets.iter().any(|&b| b <= 0.0) {
+        return Err(SqlError::ParseError {
+            message: format!("Histogram buckets must be positive: {:?}", buckets),
+            position: None,
+        });
+    }
+
+    Ok(buckets)
 }
 
 /// Validate that a metric annotation has all required fields
