@@ -12,8 +12,11 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Setup Rust Environment  
+
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
+    - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
     
     - name: Generate current schemas

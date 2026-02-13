@@ -55,6 +55,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
