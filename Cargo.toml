@@ -37,7 +37,6 @@ pretty_env_logger = "0.5.0"
 log = "0.4.27"
 env_logger = "0.11.8"
 rdkafka = "0.38.0"
-openssl-sys = { version = "0.9", features = ["vendored"] }  # Compile OpenSSL from source for musl
 num_cpus = "1.16"
 tokio = { version = "1.49.0", features = [
     "rt-multi-thread",  # Multi-threaded async runtime with task management

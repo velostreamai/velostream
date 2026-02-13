@@ -19,17 +19,17 @@ jobs:
       fail-fast: false  # Continue building other platforms if one fails
       matrix:
         include:
-          # Linux x86_64 (static musl binary)
-          - target: x86_64-unknown-linux-musl
+          # Linux x86_64 (glibc 2.17+ compatible)
+          - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             use_cross: true
-            archive_name: velostream-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz
+            archive_name: velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
 
-          # Linux ARM64 (static musl binary)
-          - target: aarch64-unknown-linux-musl
+          # Linux ARM64 (glibc 2.17+ compatible)
+          - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             use_cross: true
-            archive_name: velostream-${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz
+            archive_name: velostream-${{ github.ref_name }}-aarch64-unknown-linux-gnu.tar.gz
 
           # macOS Intel (x86_64)
           - target: x86_64-apple-darwin
