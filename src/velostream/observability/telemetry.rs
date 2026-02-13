@@ -277,6 +277,200 @@ impl TelemetryProvider {
         })
     }
 
+    /// Create a new telemetry provider with async queue-based span processing
+    ///
+    /// This variant uses `QueuedSpanProcessor` instead of `BatchSpanProcessor`,
+    /// ensuring tracing never blocks the processing loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Tracing configuration
+    /// * `queue` - Async observability queue for non-blocking span submission
+    ///
+    /// # Returns
+    ///
+    /// Returns (TelemetryProvider, Option<SpanExporter>) where the exporter
+    /// should be passed to BackgroundFlusher for actual OTLP export.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use velostream::observability::telemetry::TelemetryProvider;
+    /// use velostream::observability::async_queue::ObservabilityQueue;
+    ///
+    /// let (queue, receivers) = ObservabilityQueue::new(config.clone());
+    /// let (provider, exporter) = TelemetryProvider::new_with_queue(
+    ///     tracing_config,
+    ///     Arc::new(queue),
+    /// ).await?;
+    ///
+    /// // Pass exporter to BackgroundFlusher
+    /// let flusher = BackgroundFlusher::start(receivers, metrics, exporter, config).await;
+    /// ```
+    pub async fn new_with_queue(
+        config: TracingConfig,
+        queue: std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
+    ) -> Result<
+        (
+            Self,
+            Option<Box<dyn opentelemetry_sdk::export::trace::SpanExporter>>,
+        ),
+        SqlError,
+    > {
+        use crate::velostream::observability::queued_span_processor::QueuedSpanProcessor;
+
+        let otlp_endpoint = config.otlp_endpoint.clone();
+
+        log::info!(
+            "🔍 Initializing OpenTelemetry distributed tracing (queue-based) for service '{}'",
+            config.service_name
+        );
+
+        if let Some(ref endpoint) = otlp_endpoint {
+            log::info!(
+                "📊 Queue-based tracing configuration: endpoint={}, sampling_ratio={}",
+                endpoint,
+                config.sampling_ratio
+            );
+        } else {
+            log::info!(
+                "📊 Queue-based tracing configuration: no-op mode (no OTLP endpoint), sampling_ratio={}",
+                config.sampling_ratio
+            );
+        }
+
+        // Create resource with service information
+        let resource = opentelemetry_sdk::Resource::new(vec![
+            opentelemetry::KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                config.service_name.clone(),
+            ),
+            opentelemetry::KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
+                "0.1.0",
+            ),
+        ]);
+
+        // Configure sampler
+        let sampler = if otlp_endpoint.is_none() {
+            opentelemetry_sdk::trace::Sampler::AlwaysOn
+        } else if config.sampling_ratio >= 0.99 {
+            opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(
+                opentelemetry_sdk::trace::Sampler::AlwaysOn,
+            ))
+        } else if config.sampling_ratio <= 0.01 {
+            opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(
+                opentelemetry_sdk::trace::Sampler::AlwaysOff,
+            ))
+        } else {
+            opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(
+                opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(config.sampling_ratio),
+            ))
+        };
+
+        let mut span_collector_ref: Option<CollectingSpanProcessor> = None;
+        let mut exporter_ref: Option<Box<dyn opentelemetry_sdk::export::trace::SpanExporter>> =
+            None;
+
+        let provider = if let Some(endpoint) = otlp_endpoint {
+            // Create OTLP exporter for queue-based processing
+            match opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(&endpoint)
+                .build_span_exporter()
+            {
+                Ok(exporter) => {
+                    log::info!(
+                        "✅ OTLP exporter created successfully for {} (queue-based)",
+                        endpoint
+                    );
+
+                    // Store exporter for return (BackgroundFlusher will use it)
+                    exporter_ref = Some(Box::new(exporter));
+
+                    // Create QueuedSpanProcessor (non-blocking)
+                    let queued_processor = QueuedSpanProcessor::new(
+                        queue.clone(),
+                        // Create a second exporter for the processor
+                        // (BackgroundFlusher will use the one we stored)
+                        Box::new(
+                            opentelemetry_otlp::new_exporter()
+                                .tonic()
+                                .with_endpoint(&endpoint)
+                                .build_span_exporter()
+                                .map_err(|e| SqlError::ConfigurationError {
+                                    message: format!(
+                                        "Failed to create second OTLP exporter: {}",
+                                        e
+                                    ),
+                                })?,
+                        ),
+                    );
+
+                    log::info!("🚀 Using QueuedSpanProcessor for non-blocking trace submission");
+
+                    opentelemetry_sdk::trace::TracerProvider::builder()
+                        .with_span_processor(queued_processor)
+                        .with_config(
+                            opentelemetry_sdk::trace::config()
+                                .with_sampler(sampler)
+                                .with_id_generator(
+                                    opentelemetry_sdk::trace::RandomIdGenerator::default(),
+                                )
+                                .with_resource(resource),
+                        )
+                        .build()
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to create OTLP exporter: {}", e);
+                    return Err(SqlError::ConfigurationError {
+                        message: format!("Failed to create OTLP exporter: {}", e),
+                    });
+                }
+            }
+        } else {
+            // No OTLP endpoint: use in-memory span collection for testing
+            let collector = CollectingSpanProcessor::new();
+            span_collector_ref = Some(collector.clone());
+
+            log::info!("ℹ️  Using test mode with in-memory span collection (no OTLP endpoint)");
+            opentelemetry_sdk::trace::TracerProvider::builder()
+                .with_span_processor(collector)
+                .with_config(
+                    opentelemetry_sdk::trace::config()
+                        .with_sampler(sampler)
+                        .with_id_generator(opentelemetry_sdk::trace::RandomIdGenerator::default())
+                        .with_resource(resource),
+                )
+                .build()
+        };
+
+        // Set as global tracer provider
+        opentelemetry::global::set_tracer_provider(provider);
+
+        if config.otlp_endpoint.is_some() {
+            log::info!(
+                "✅ OpenTelemetry tracer initialized (queue-based) - spans will be exported via async queue"
+            );
+        } else {
+            log::info!("✅ OpenTelemetry tracer initialized in no-op mode (no spans exported)");
+        }
+        log::info!(
+            "🔍 Trace sampling: {:.1}% (using config sampling_ratio)",
+            config.sampling_ratio * 100.0
+        );
+
+        let provider_instance = Self {
+            config,
+            active: true,
+            deployment_node_id: None,
+            deployment_node_name: None,
+            deployment_region: None,
+            span_collector: span_collector_ref,
+        };
+
+        Ok((provider_instance, exporter_ref))
+    }
+
     /// Set deployment context (node ID, name, and region) for all traces
     ///
     /// This adds OpenTelemetry semantic convention attributes to traces:

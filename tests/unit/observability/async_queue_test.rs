@@ -62,11 +62,21 @@ async fn test_queue_overflow_drops_events() {
 
     assert_eq!(queue.metrics_queued_count(), 2);
     assert_eq!(queue.metrics_dropped_count(), 0);
+    assert_eq!(
+        queue.metrics_queue_depth(),
+        2,
+        "Queue should be at capacity"
+    );
 
     // Third send should fail (queue full)
     let event = create_test_metrics_event();
     assert!(queue.try_send_metrics(event).is_err());
     assert_eq!(queue.metrics_dropped_count(), 1);
+    assert_eq!(
+        queue.metrics_queue_depth(),
+        2,
+        "Queue depth should remain at capacity after drop"
+    );
 }
 
 #[tokio::test]
@@ -287,6 +297,103 @@ async fn test_traces_overflow_drops() {
     };
     assert!(queue.try_send_trace(event).is_err());
     assert_eq!(queue.traces_dropped_count(), 1);
+}
+
+#[tokio::test]
+async fn test_queue_depth_tracking() {
+    // Create queue with small capacity
+    let config = ObservabilityQueueConfig::default().with_metrics_queue_size(10);
+    let (queue, mut receivers) = ObservabilityQueue::new(config);
+
+    // Initially empty
+    assert_eq!(queue.metrics_queue_depth(), 0);
+
+    // Send 5 events
+    for _ in 0..5 {
+        let event = create_test_metrics_event();
+        queue.try_send_metrics(event).unwrap();
+    }
+
+    // Should show depth of 5
+    assert_eq!(queue.metrics_queue_depth(), 5);
+
+    // Receive 2 events
+    receivers.metrics_rx.recv().await;
+    receivers.metrics_rx.recv().await;
+
+    // Should show depth of 3
+    assert_eq!(queue.metrics_queue_depth(), 3);
+
+    // Drain remaining
+    while receivers.metrics_rx.try_recv().is_ok() {}
+
+    // Should be empty again
+    assert_eq!(queue.metrics_queue_depth(), 0);
+}
+
+#[tokio::test]
+async fn test_queue_depth_gauges_registration() {
+    let config = ObservabilityQueueConfig::default();
+    let (queue, _receivers) = ObservabilityQueue::new(config);
+
+    // Register metrics
+    let registry = prometheus::Registry::new();
+    queue.register_queue_metrics(&registry).unwrap();
+
+    // Send some events
+    for _ in 0..5 {
+        let event = create_test_metrics_event();
+        let _ = queue.try_send_metrics(event);
+    }
+
+    // Verify queue depth is correctly tracked
+    assert_eq!(queue.metrics_queue_depth(), 5);
+
+    // Update gauges
+    queue.update_queue_depth_gauges();
+
+    // Verify metrics are exported
+    let metric_families = registry.gather();
+    let depth_metric = metric_families
+        .iter()
+        .find(|m| m.name() == "velostream_observability_metrics_queue_depth");
+
+    assert!(
+        depth_metric.is_some(),
+        "Queue depth gauge should be registered"
+    );
+
+    // Verify gauge has metrics (actual value verification requires private API access)
+    let metric = depth_metric.unwrap();
+    assert!(!metric.get_metric().is_empty(), "Gauge should have values");
+}
+
+#[tokio::test]
+async fn test_traces_queue_depth() {
+    let config = ObservabilityQueueConfig::default().with_traces_queue_size(10);
+    let (queue, mut receivers) = ObservabilityQueue::new(config);
+
+    // Initially empty
+    assert_eq!(queue.traces_queue_depth(), 0);
+
+    // Send 3 trace events
+    for _ in 0..3 {
+        let span_data = create_test_span();
+        let event = TraceEvent::Span {
+            span_data,
+            timestamp: std::time::Instant::now(),
+        };
+        queue.try_send_trace(event).unwrap();
+    }
+
+    // Should show depth of 3
+    assert_eq!(queue.traces_queue_depth(), 3);
+
+    // Receive one
+    receivers.traces_rx.recv().await;
+
+    // Should show depth of 2
+    assert_eq!(queue.traces_queue_depth(), 2);
 }
 
 // Helper function to create test span data

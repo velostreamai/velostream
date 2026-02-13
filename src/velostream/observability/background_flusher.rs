@@ -48,8 +48,10 @@ use crate::velostream::observability::queue_config::ObservabilityQueueConfig;
 use crate::velostream::observability::telemetry::TelemetryProvider;
 use crate::velostream::sql::error::SqlError;
 use log::{debug, error, info, warn};
+use opentelemetry_sdk::export::trace::SpanExporter;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
@@ -76,11 +78,18 @@ impl BackgroundFlusher {
     /// - Metrics flush loop (batch size OR time interval trigger)
     /// - Traces flush loop (time interval trigger)
     ///
+    /// # Arguments
+    ///
+    /// * `receivers` - Queue receivers for metrics and traces
+    /// * `metrics_provider` - Optional metrics provider for remote-write
+    /// * `span_exporter` - Optional span exporter for OTLP export
+    /// * `config` - Queue configuration
+    ///
     /// Returns BackgroundFlusher for shutdown coordination.
     pub async fn start(
         receivers: QueueReceivers,
         metrics_provider: Option<Arc<MetricsProvider>>,
-        _telemetry_provider: Option<Arc<TelemetryProvider>>,
+        span_exporter: Option<Box<dyn SpanExporter>>,
         config: ObservabilityQueueConfig,
     ) -> Self {
         let (shutdown_tx, _) = broadcast::channel(16);
@@ -100,13 +109,18 @@ impl BackgroundFlusher {
         };
 
         // Spawn traces flush task
-        let traces_handle = {
+        let traces_handle = if let Some(exporter) = span_exporter {
             let shutdown_rx = shutdown_tx.subscribe();
+            let exporter = Arc::new(Mutex::new(exporter));
             tokio::spawn(traces_flush_loop(
                 receivers.traces_rx,
+                exporter,
                 config.traces_flush_config.clone(),
                 shutdown_rx,
             ))
+        } else {
+            // No-op task if traces exporter not enabled
+            tokio::spawn(async {})
         };
 
         Self {
@@ -269,6 +283,7 @@ async fn flush_remote_write_samples(
 /// Traces flush loop with time-based triggering
 async fn traces_flush_loop(
     mut rx: tokio::sync::mpsc::Receiver<TraceEvent>,
+    exporter: Arc<Mutex<Box<dyn SpanExporter>>>,
     config: crate::velostream::observability::queue_config::TracesFlushConfig,
     mut shutdown: broadcast::Receiver<()>,
 ) {
@@ -291,7 +306,7 @@ async fn traces_flush_loop(
                         // Flush if batch size reached
                         if span_batch.len() >= config.max_batch_size {
                             debug!("📤 Flushing traces (batch size trigger: {} spans)", span_batch.len());
-                            flush_trace_batch(&mut span_batch).await;
+                            flush_trace_batch(&mut span_batch, &exporter).await;
                         }
                     }
                 }
@@ -301,7 +316,7 @@ async fn traces_flush_loop(
             _ = interval.tick() => {
                 if !span_batch.is_empty() {
                     debug!("📤 Flushing traces (time trigger: {} spans)", span_batch.len());
-                    flush_trace_batch(&mut span_batch).await;
+                    flush_trace_batch(&mut span_batch, &exporter).await;
                 }
             }
 
@@ -312,7 +327,7 @@ async fn traces_flush_loop(
                 // Final flush before shutdown
                 if !span_batch.is_empty() {
                     info!("📤 Final trace flush ({} spans)", span_batch.len());
-                    flush_trace_batch(&mut span_batch).await;
+                    flush_trace_batch(&mut span_batch, &exporter).await;
                 }
 
                 break;
@@ -323,22 +338,38 @@ async fn traces_flush_loop(
     info!("✨ Traces flush loop terminated");
 }
 
-/// Flush accumulated trace spans
-async fn flush_trace_batch(span_batch: &mut Vec<opentelemetry_sdk::export::trace::SpanData>) {
+/// Flush accumulated trace spans to OTLP exporter
+async fn flush_trace_batch(
+    span_batch: &mut Vec<opentelemetry_sdk::export::trace::SpanData>,
+    exporter: &Arc<Mutex<Box<dyn SpanExporter>>>,
+) {
     if span_batch.is_empty() {
         return;
     }
 
-    debug!("Flushing {} trace spans", span_batch.len());
+    debug!("Flushing {} trace spans to OTLP exporter", span_batch.len());
 
-    // TODO: Implement actual span export to OpenTelemetry collector
-    // For now, just clear the batch
-    // In full implementation:
-    // - Convert SpanData to OTLP format
-    // - Send to configured OTLP endpoint
-    // - Handle export errors
+    // Export spans via OTLP exporter
+    let spans = span_batch.drain(..).collect::<Vec<_>>();
+    let span_count = spans.len();
 
-    span_batch.clear();
+    let mut exporter_guard = exporter.lock().await;
+    match exporter_guard.export(spans).await {
+        Ok(()) => {
+            debug!(
+                "✅ Successfully exported {} spans to OTLP collector",
+                span_count
+            );
+        }
+        Err(e) => {
+            error!(
+                "❌ Failed to export {} spans to OTLP collector: {:?}",
+                span_count, e
+            );
+            // Note: spans are dropped on export failure
+            // In production, consider DLQ or retry logic
+        }
+    }
 }
 
 #[cfg(test)]

@@ -178,38 +178,132 @@ impl ObservabilityWrapper {
     ///
     /// # Returns
     ///
-    /// ObservabilityWrapper with async queue enabled
+    /// ObservabilityWrapper with async queue enabled and optional queue-based tracing
+    ///
+    /// # Arguments
+    ///
+    /// * `observability` - Optional observability manager (for existing metrics/telemetry)
+    /// * `tracing_config` - Optional tracing config for queue-based span export (recommended)
+    /// * `config` - Queue configuration
+    ///
+    /// # Queue-Based Tracing
+    ///
+    /// If `tracing_config` is provided, a new queue-based TelemetryProvider will be created
+    /// that exports spans asynchronously without blocking the processing loop.
     ///
     /// # Example
     /// ```ignore
     /// use velostream::observability::queue_config::ObservabilityQueueConfig;
+    /// use velostream::sql::execution::config::TracingConfig;
     ///
-    /// let config = ObservabilityQueueConfig::default();
+    /// // With queue-based tracing (recommended)
+    /// let tracing_config = TracingConfig {
+    ///     service_name: "my_service".to_string(),
+    ///     otlp_endpoint: Some("http://tempo:4317".to_string()),
+    ///     sampling_ratio: 1.0,
+    ///     ..Default::default()
+    /// };
+    ///
+    /// let queue_config = ObservabilityQueueConfig::default();
     /// let wrapper = ObservabilityWrapper::with_observability_and_async_queue(
     ///     Some(obs_manager),
-    ///     config,
+    ///     Some(tracing_config),
+    ///     queue_config,
     /// ).await;
     /// ```
     pub async fn with_observability_and_async_queue(
         observability: Option<SharedObservabilityManager>,
+        tracing_config: Option<crate::velostream::sql::execution::config::TracingConfig>,
         config: crate::velostream::observability::queue_config::ObservabilityQueueConfig,
     ) -> Self {
         use crate::velostream::observability::async_queue::ObservabilityQueue;
         use crate::velostream::observability::background_flusher::BackgroundFlusher;
 
-        // Extract metrics and telemetry providers from observability
-        // Note: Providers are not cloneable, so we skip queue initialization
-        // if observability is present. This is a temporary solution until
-        // providers can be shared across the queue.
-        let (metrics_provider, telemetry_provider) = (None, None);
+        // Create async queue
+        let (queue, receivers) = ObservabilityQueue::new(config.clone());
+        let queue = Arc::new(queue);
+
+        // Create queue-based telemetry if tracing config is provided
+        let span_exporter = if let Some(tracing_cfg) = tracing_config {
+            match crate::velostream::observability::telemetry::TelemetryProvider::new_with_queue(
+                tracing_cfg,
+                queue.clone(),
+            )
+            .await
+            {
+                Ok((_telemetry, exporter)) => {
+                    log::info!("✅ Queue-based telemetry initialized for async span export");
+                    exporter
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to create queue-based telemetry: {:?}", e);
+                    None
+                }
+            }
+        } else {
+            log::info!("ℹ️  No tracing config provided, span export disabled");
+            None
+        };
+
+        // Extract metrics provider from observability if available
+        // Note: MetricsProvider is not cloneable, so we cannot extract it from ObservabilityManager
+        // For full queue integration with metrics, use with_custom_providers() instead
+        let metrics_provider: Option<
+            Arc<crate::velostream::observability::metrics::MetricsProvider>,
+        > = None;
+
+        // Start background flush tasks with span exporter
+        let flusher =
+            BackgroundFlusher::start(receivers, metrics_provider, span_exporter, config).await;
+
+        Self {
+            observability,
+            metrics_helper: Arc::new(ProcessorMetricsHelper::new()),
+            metrics_collector: Arc::new(MetricsCollector::new()),
+            dlq: None,
+            observability_queue: Some(queue),
+            background_flusher: Some(Arc::new(Mutex::new(Some(flusher)))),
+        }
+    }
+
+    /// Create wrapper with async queue and custom providers (advanced usage)
+    ///
+    /// This variant allows passing pre-configured providers including span exporter
+    /// for full queue-based observability integration.
+    ///
+    /// # Example with Queue-Based Telemetry
+    /// ```ignore
+    /// // Create queue-based telemetry
+    /// let (queue, receivers) = ObservabilityQueue::new(config.clone());
+    /// let (telemetry, exporter) = TelemetryProvider::new_with_queue(
+    ///     tracing_config,
+    ///     Arc::new(queue.clone()),
+    /// ).await?;
+    ///
+    /// // Create wrapper with exporter
+    /// let wrapper = ObservabilityWrapper::with_custom_providers(
+    ///     observability,
+    ///     Some(metrics_provider),
+    ///     exporter,
+    ///     config,
+    /// ).await;
+    /// ```
+    pub async fn with_custom_providers(
+        observability: Option<SharedObservabilityManager>,
+        metrics_provider: Option<Arc<crate::velostream::observability::metrics::MetricsProvider>>,
+        span_exporter: Option<Box<dyn opentelemetry_sdk::export::trace::SpanExporter>>,
+        config: crate::velostream::observability::queue_config::ObservabilityQueueConfig,
+    ) -> Self {
+        use crate::velostream::observability::async_queue::ObservabilityQueue;
+        use crate::velostream::observability::background_flusher::BackgroundFlusher;
 
         // Create async queue
         let (queue, receivers) = ObservabilityQueue::new(config.clone());
         let queue = Arc::new(queue);
 
-        // Start background flush tasks
+        // Start background flush tasks with custom providers
         let flusher =
-            BackgroundFlusher::start(receivers, metrics_provider, telemetry_provider, config).await;
+            BackgroundFlusher::start(receivers, metrics_provider, span_exporter, config).await;
 
         Self {
             observability,

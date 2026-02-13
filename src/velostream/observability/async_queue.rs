@@ -49,6 +49,7 @@ use crate::velostream::observability::queue_config::ObservabilityQueueConfig;
 use crate::velostream::observability::remote_write::TimestampedSample;
 use opentelemetry_sdk::export::trace::SpanData;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -93,6 +94,10 @@ pub struct ObservabilityQueue {
     traces_dropped: Arc<AtomicU64>,
     metrics_queued: Arc<AtomicU64>,
     traces_queued: Arc<AtomicU64>,
+
+    // Prometheus gauges for queue depth (set via register_queue_metrics)
+    metrics_depth_gauge: Arc<Mutex<Option<prometheus::IntGauge>>>,
+    traces_depth_gauge: Arc<Mutex<Option<prometheus::IntGauge>>>,
 }
 
 impl ObservabilityQueue {
@@ -110,6 +115,8 @@ impl ObservabilityQueue {
             traces_dropped: Arc::new(AtomicU64::new(0)),
             metrics_queued: Arc::new(AtomicU64::new(0)),
             traces_queued: Arc::new(AtomicU64::new(0)),
+            metrics_depth_gauge: Arc::new(Mutex::new(None)),
+            traces_depth_gauge: Arc::new(Mutex::new(None)),
         };
 
         let receivers = QueueReceivers {
@@ -177,21 +184,21 @@ impl ObservabilityQueue {
     /// Get current metrics queue depth (approximate)
     ///
     /// Note: This is a snapshot and may change immediately after reading.
+    /// Uses max_capacity - available_capacity to estimate current depth.
     pub fn metrics_queue_depth(&self) -> usize {
-        // Note: tokio mpsc doesn't expose len() directly in stable API
-        // We track via counters instead (queued - processed)
-        // For now, return 0 as placeholder (will be implemented via gauge in metrics)
-        0
+        let max = self.metrics_tx.max_capacity();
+        let available = self.metrics_tx.capacity();
+        max.saturating_sub(available)
     }
 
     /// Get current traces queue depth (approximate)
     ///
     /// Note: This is a snapshot and may change immediately after reading.
+    /// Uses max_capacity - available_capacity to estimate current depth.
     pub fn traces_queue_depth(&self) -> usize {
-        // Note: tokio mpsc doesn't expose len() directly in stable API
-        // We track via counters instead (queued - processed)
-        // For now, return 0 as placeholder (will be implemented via gauge in metrics)
-        0
+        let max = self.traces_tx.max_capacity();
+        let available = self.traces_tx.capacity();
+        max.saturating_sub(available)
     }
 
     /// Record additional metrics drops (for batch operations)
@@ -246,6 +253,8 @@ impl ObservabilityQueue {
     /// - velostream_observability_traces_queued_total - Total traces events queued
     /// - velostream_observability_metrics_dropped_total - Total metrics events dropped
     /// - velostream_observability_traces_dropped_total - Total traces events dropped
+    /// - velostream_observability_metrics_queue_depth - Current metrics queue depth (gauge)
+    /// - velostream_observability_traces_queue_depth - Current traces queue depth (gauge)
     ///
     /// # Example
     /// ```ignore
@@ -253,12 +262,13 @@ impl ObservabilityQueue {
     ///
     /// let registry = Registry::new();
     /// queue.register_queue_metrics(&registry)?;
+    /// queue.update_queue_depth_gauges(); // Update gauges with current depth
     /// ```
     pub fn register_queue_metrics(
         &self,
         registry: &prometheus::Registry,
     ) -> Result<(), prometheus::Error> {
-        use prometheus::{IntCounter, Opts};
+        use prometheus::{IntCounter, IntGauge, Opts};
 
         // Metrics queued total
         let metrics_queued = IntCounter::with_opts(Opts::new(
@@ -288,7 +298,41 @@ impl ObservabilityQueue {
         ))?;
         registry.register(Box::new(traces_dropped))?;
 
+        // Metrics queue depth (gauge)
+        let metrics_depth = IntGauge::with_opts(Opts::new(
+            "velostream_observability_metrics_queue_depth",
+            "Current number of metrics events in queue",
+        ))?;
+        registry.register(Box::new(metrics_depth.clone()))?;
+
+        // Traces queue depth (gauge)
+        let traces_depth = IntGauge::with_opts(Opts::new(
+            "velostream_observability_traces_queue_depth",
+            "Current number of trace events in queue",
+        ))?;
+        registry.register(Box::new(traces_depth.clone()))?;
+
+        // Store gauges for updates
+        *self.metrics_depth_gauge.lock().unwrap() = Some(metrics_depth);
+        *self.traces_depth_gauge.lock().unwrap() = Some(traces_depth);
+
+        // Initial gauge update
+        self.update_queue_depth_gauges();
+
         Ok(())
+    }
+
+    /// Update queue depth gauges with current values
+    ///
+    /// Should be called periodically or before Prometheus scrapes to keep gauges up-to-date.
+    /// Automatically called after `register_queue_metrics()`.
+    pub fn update_queue_depth_gauges(&self) {
+        if let Some(gauge) = self.metrics_depth_gauge.lock().unwrap().as_ref() {
+            gauge.set(self.metrics_queue_depth() as i64);
+        }
+        if let Some(gauge) = self.traces_depth_gauge.lock().unwrap().as_ref() {
+            gauge.set(self.traces_queue_depth() as i64);
+        }
     }
 
     /// Log current queue statistics
