@@ -43,8 +43,12 @@ runs:
         Write-Host "Protobuf compiler installed successfully"
       shell: pwsh
 
-    - name: Verify protobuf installation
-      run: |
-        which protoc || where protoc
-        protoc --version
+    - name: Verify protobuf installation (Unix)
+      if: runner.os != 'Windows'
+      run: protoc --version
       shell: bash
+
+    - name: Verify protobuf installation (Windows)
+      if: runner.os == 'Windows'
+      run: protoc --version
+      shell: pwsh
