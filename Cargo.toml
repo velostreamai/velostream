@@ -1,6 +1,6 @@
 [package]
 name = "velostream"
-version = "0.0.1-test.5"
+version = "0.0.1-test.6"
 edition = "2024"
 rust-version = "1.93.0"
 license = "Apache-2.0"
@@ -109,7 +109,11 @@ memmap2 = "0.9"  # Memory-mapped file I/O for 1BRC demo
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }
-protobuf-src = "2.1"  # Vendor protoc compiler for cross-compilation
+
+# Linux-only: Vendor protoc compiler for cross-compilation (cross-rs Docker containers)
+# macOS/Windows use system protoc from setup-protobuf GitHub Action
+[target.'cfg(target_os = "linux")'.build-dependencies]
+protobuf-src = "2.1"
 
 [dev-dependencies]
 serial_test = "2.0.0"

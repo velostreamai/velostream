@@ -57,7 +57,7 @@ jobs:
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         components: rustfmt,clippy
         cache-suffix: test-harness-unit
 
@@ -107,7 +107,7 @@ jobs:
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         components: rustfmt,clippy
         cache-suffix: test-harness-binary
 
@@ -155,7 +155,7 @@ jobs:
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         components: rustfmt,clippy
         cache-suffix: test-harness-integration
 
