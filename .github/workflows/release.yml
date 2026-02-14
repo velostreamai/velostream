@@ -114,6 +114,15 @@ jobs:
           cross build --release --target ${{ matrix.target }} --locked --no-default-features --verbose
         shell: bash
 
+      - name: Install OpenSSL via vcpkg (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install openssl:x64-windows-static-md
+          echo "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
+        shell: pwsh
+
       - name: Build natively (macOS/Windows)
         if: ${{ !matrix.use_cross }}
         run: |
@@ -341,17 +350,9 @@ jobs:
 
           ### Linux x86_64
           ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz
-          tar xzf velostream-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz
-          cd velostream-${{ github.ref_name }}-x86_64-unknown-linux-musl
-          ./velo-sql --version
-          ```
-
-          ### Linux ARM64
-          ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz
-          tar xzf velostream-${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz
-          cd velostream-${{ github.ref_name }}-aarch64-unknown-linux-musl
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          tar xzf velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          cd velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu
           ./velo-sql --version
           ```
 
@@ -484,7 +485,7 @@ jobs:
 
           ## System Requirements
 
-          - **Linux**: Kernel 3.2+ (static binaries, no dependencies)
+          - **Linux**: x86_64, glibc 2.17+ (RHEL 7+, Ubuntu 14.04+, Debian 8+)
           - **macOS**: macOS 10.15+ (Catalina or later)
           - **Windows**: Windows 10 or later
 
