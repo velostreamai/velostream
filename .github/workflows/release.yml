@@ -110,9 +110,14 @@ jobs:
       - name: Build with cross-rs (Linux ARM64/x86_64 gnu)
         if: matrix.use_cross
         run: |
-          # Clean to avoid cross-target contamination
-          cargo clean --target ${{ matrix.target }}
-          cross build --release --target ${{ matrix.target }} --locked --no-default-features
+          # Verify cross is installed
+          cross --version
+
+          # Full clean to avoid any caching issues
+          cargo clean
+
+          # Build with cross-rs in Docker container
+          cross build --release --target ${{ matrix.target }} --locked --no-default-features --verbose
         shell: bash
 
       - name: Build natively (macOS/Windows)
