@@ -25,12 +25,6 @@ jobs:
             use_cross: true
             archive_name: velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
 
-          # Linux ARM64 (glibc 2.17+ compatible)
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            use_cross: true
-            archive_name: velostream-${{ github.ref_name }}-aarch64-unknown-linux-gnu.tar.gz
-
           # macOS Intel (x86_64)
           - target: x86_64-apple-darwin
             os: macos-13
