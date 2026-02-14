@@ -25,12 +25,6 @@ jobs:
             use_cross: true
             archive_name: velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
 
-          # macOS Intel (x86_64)
-          - target: x86_64-apple-darwin
-            os: macos-12
-            use_cross: false
-            archive_name: velostream-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz
-
           # macOS Apple Silicon (ARM64)
           - target: aarch64-apple-darwin
             os: macos-14
@@ -353,14 +347,6 @@ jobs:
           wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
           tar xzf velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
           cd velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu
-          ./velo-sql --version
-          ```
-
-          ### macOS (Intel)
-          ```bash
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz
-          tar xzf velostream-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz
-          cd velostream-${{ github.ref_name }}-x86_64-apple-darwin
           ./velo-sql --version
           ```
 
