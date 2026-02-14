@@ -1,6 +1,6 @@
 [package]
 name = "velostream"
-version = "0.0.1-test.7"
+version = "0.0.1-test.8"
 edition = "2024"
 rust-version = "1.93.0"
 license = "Apache-2.0"
@@ -106,6 +106,10 @@ testcontainers-modules = { version = "0.13", features = ["kafka"] }
 testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup)
 url = "2.5.8"
 memmap2 = "0.9"  # Memory-mapped file I/O for 1BRC demo
+
+# Windows-only: Use cmake to build librdkafka (Unix uses ./configure script)
+[target.'cfg(target_os = "windows")'.dependencies]
+rdkafka = { version = "0.38.0", features = ["cmake-build"] }
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }
