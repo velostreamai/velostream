@@ -2,7 +2,7 @@
 name = "velostream"
 version = "0.0.1-test.4"
 edition = "2024"
-rust-version = "1.93.1"
+rust-version = "1.93.0"
 license = "Apache-2.0"
 authors = ["Velostream Contributors"]
 description = "High-performance stream processing engine with SQL support"
