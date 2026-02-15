@@ -203,7 +203,7 @@ FROM page_load_events;
 -- @metric_help: "Distribution of search result counts"
 -- @metric_field: result_count
 -- @metric_labels: result_status, device_type
--- @metric_buckets: 0, 1, 5, 10, 25, 50, 100, 250, 500
+-- @metric_buckets: 1, 5, 10, 25, 50, 100, 250, 500
 CREATE STREAM product_search AS
 SELECT
     search_id,

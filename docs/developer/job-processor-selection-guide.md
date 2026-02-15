@@ -500,10 +500,10 @@ GROUP BY event_type, user_id
 WINDOW TUMBLING(1m);
 ```
 
-**Example 3: Combined with @job_name and @partitioning_strategy**
+**Example 3: Combined with @name and @partitioning_strategy**
 
 ```sql
--- @job_name: order-processing-pipeline
+-- @name: order-processing-pipeline
 -- @processor_mode: transactional
 -- @partitioning_strategy: always_hash
 CREATE STREAM order_processing AS

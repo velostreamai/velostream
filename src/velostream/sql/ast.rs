@@ -270,8 +270,6 @@ pub enum StreamingQuery {
         emit_mode: Option<EmitMode>,
         /// Metric annotations from SQL comments
         metric_annotations: Vec<crate::velostream::sql::parser::annotations::MetricAnnotation>,
-        /// Custom job name from @job_name annotation (overrides auto-generated name)
-        job_name: Option<String>,
     },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
@@ -2121,7 +2119,6 @@ impl fmt::Display for StreamingQuery {
                 properties: _,
                 emit_mode,
                 metric_annotations: _,
-                job_name: _,
             } => {
                 write!(f, "CREATE STREAM {} AS {}", name, as_select)?;
                 if let Some(mode) = emit_mode {

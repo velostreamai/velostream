@@ -21,6 +21,7 @@ pub mod remote_write;
 pub mod resource_monitor;
 pub mod span_collector;
 pub mod telemetry;
+pub mod tokio_span_processor;
 pub mod trace_propagation;
 
 use crate::velostream::sql::error::SqlError;

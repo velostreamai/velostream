@@ -466,7 +466,103 @@ async fn test_multi_hop_trace_chain_through_kafka() {
         hop3_parent, hop2_sid
     );
 
-    println!("✅ All 3 hops collected with correct parent-child chain:");
+    // ========================================================================
+    // VALIDATE NEW OPENTELEMETRY ATTRIBUTES (messaging, application, performance)
+    // ========================================================================
+
+    // Helper to get attribute value
+    let get_attr =
+        |span: &opentelemetry_sdk::export::trace::SpanData, key: &str| -> Option<String> {
+            span.attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == key)
+                .map(|kv| format!("{:?}", kv.value))
+        };
+
+    // Validate Hop 1 (market_data_ts) attributes
+    println!("\n🔍 Validating Hop 1 (market_data_ts) attributes:");
+
+    // Messaging attributes (OTel semantic conventions)
+    assert_eq!(
+        get_attr(hop1_collected, "messaging.system"),
+        Some("String(\"kafka\")".to_string()),
+        "Hop 1 should have messaging.system=kafka"
+    );
+    assert_eq!(
+        get_attr(hop1_collected, "messaging.operation"),
+        Some("String(\"process\")".to_string()),
+        "Hop 1 should have messaging.operation=process"
+    );
+    assert!(
+        get_attr(hop1_collected, "messaging.destination.name").is_some(),
+        "Hop 1 should have messaging.destination.name (topic)"
+    );
+
+    // Application attributes
+    assert!(
+        get_attr(hop1_collected, "velostream.job_name").is_some(),
+        "Hop 1 should have velostream.job_name"
+    );
+    assert!(
+        get_attr(hop1_collected, "velostream.job_mode").is_some(),
+        "Hop 1 should have velostream.job_mode"
+    );
+
+    // Performance timing attributes
+    assert!(
+        get_attr(hop1_collected, "velostream.timing.deserialization_ms").is_some(),
+        "Hop 1 should have deserialization timing"
+    );
+    assert!(
+        get_attr(hop1_collected, "velostream.timing.execution_ms").is_some(),
+        "Hop 1 should have execution timing"
+    );
+    assert!(
+        get_attr(hop1_collected, "velostream.timing.serialization_ms").is_some(),
+        "Hop 1 should have serialization timing"
+    );
+
+    println!("✅ Hop 1 has all required OTel attributes");
+
+    // Validate Hop 2 (price_stats) attributes
+    println!("\n🔍 Validating Hop 2 (price_stats) attributes:");
+
+    assert_eq!(
+        get_attr(hop2_collected, "messaging.system"),
+        Some("String(\"kafka\")".to_string()),
+        "Hop 2 should have messaging.system=kafka"
+    );
+    assert!(
+        get_attr(hop2_collected, "velostream.job_name").is_some(),
+        "Hop 2 should have velostream.job_name"
+    );
+    assert!(
+        get_attr(hop2_collected, "velostream.timing.execution_ms").is_some(),
+        "Hop 2 should have execution timing"
+    );
+
+    println!("✅ Hop 2 has all required OTel attributes");
+
+    // Validate Hop 3 (volume_spike_analysis) attributes
+    println!("\n🔍 Validating Hop 3 (volume_spike_analysis) attributes:");
+
+    assert_eq!(
+        get_attr(hop3_collected, "messaging.system"),
+        Some("String(\"kafka\")".to_string()),
+        "Hop 3 should have messaging.system=kafka"
+    );
+    assert!(
+        get_attr(hop3_collected, "velostream.job_name").is_some(),
+        "Hop 3 should have velostream.job_name"
+    );
+    assert!(
+        get_attr(hop3_collected, "velostream.timing.execution_ms").is_some(),
+        "Hop 3 should have execution timing"
+    );
+
+    println!("✅ Hop 3 has all required OTel attributes");
+
+    println!("\n✅ All 3 hops collected with correct parent-child chain:");
     println!(
         "   Hop 1 (market_data_ts):        span={} parent=ROOT",
         hop1_sid

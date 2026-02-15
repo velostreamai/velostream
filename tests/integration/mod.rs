@@ -39,6 +39,7 @@ pub mod observability_queue_integration_test;
 pub mod observability_trace_propagation_test;
 pub mod processor_trace_patterns_test;
 pub mod span_structure_functional_test;
+pub mod trace_attributes_comprehensive_test;
 pub mod trace_chain_kafka_test;
 
 // Event-time Kafka round-trip tests

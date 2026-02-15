@@ -210,7 +210,6 @@ fn test_create_stream_analysis() {
         properties,
         emit_mode: None,
         metric_annotations: Vec::new(),
-        job_name: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();

@@ -37,7 +37,7 @@ Deploy these queries as a complete trading analytics application with comprehens
 
 Example per-job override for high-frequency analysis:
 ```sql
--- @job_name: hft-execution-analysis-1
+-- @name: hft-execution-analysis-1
 -- Name: High-Frequency Trade Execution
 -- WITH (observability.profiling.enabled = off)
 CREATE STREAM hft_execution AS

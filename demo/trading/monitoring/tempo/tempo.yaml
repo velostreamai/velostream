@@ -54,6 +54,8 @@ storage:
 
 overrides:
   defaults:
+    ingestion:
+      max_traces_per_user: 100000
     metrics_generator:
       processors:
         - service-graphs

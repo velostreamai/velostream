@@ -67,7 +67,14 @@ where
 
 /// Try-lock version for non-async contexts
 ///
-/// Used when we can't await and need try_read() instead of read()
+/// Used when we can't await and need try_read() instead of read().
+/// Retries with brief sleeps as a defensive measure against transient
+/// lock contention (e.g., during initialization or shutdown).
+///
+/// Note: During normal runtime, `SharedObservabilityManager` only acquires
+/// read locks (metrics emission, span creation), so `try_read()` should
+/// virtually always succeed on the first attempt. The retry exists as a
+/// safety net for edge cases.
 pub fn with_observability_try_lock<F, T>(
     observability: &Option<SharedObservabilityManager>,
     f: F,
@@ -76,11 +83,24 @@ where
     F: FnOnce(&crate::velostream::observability::ObservabilityManager) -> Option<T>,
 {
     if let Some(obs) = observability {
-        if let Ok(obs_lock) = obs.try_read() {
-            f(&obs_lock)
-        } else {
-            None
+        // Try up to 5 times with brief sleeps between attempts as a defensive measure.
+        // In practice, only read locks are held at runtime so contention is rare.
+        for attempt in 0..5 {
+            match obs.try_read() {
+                Ok(obs_lock) => return f(&obs_lock),
+                Err(_) => {
+                    if attempt < 4 {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+            }
         }
+
+        log::warn!(
+            "with_observability_try_lock: could not acquire read lock after 5 attempts, \
+             child span will be dropped"
+        );
+        None
     } else {
         None
     }

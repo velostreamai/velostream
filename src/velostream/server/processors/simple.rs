@@ -702,6 +702,11 @@ impl SimpleJobProcessor {
         // Start batch timing
         let batch_start = Instant::now();
 
+        // Track timing breakdown for performance analysis
+        let mut total_deser_ms: u64 = 0;
+        let mut total_exec_ms: u64 = 0;
+        let mut total_ser_ms: u64 = 0;
+
         // Collect batches from all sources first
         let mut source_batches = Vec::new();
         for source_name in &source_names {
@@ -716,6 +721,9 @@ impl SimpleJobProcessor {
             // Accumulate read time for final stats breakdown
             stats.add_read_time(deser_elapsed);
 
+            // Accumulate deserialization time for performance breakdown
+            total_deser_ms += deser_duration;
+
             source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
@@ -725,6 +733,31 @@ impl SimpleJobProcessor {
             .find(|(_, batch, _)| !batch.is_empty())
             .map(|(_, batch, _)| batch.as_slice())
             .unwrap_or(&[]);
+
+        // Extract Kafka metadata from first record for messaging attributes (before consuming source_batches)
+        let kafka_metadata = first_batch.first().map(|record| {
+            let topic = record
+                .topic
+                .as_ref()
+                .and_then(|v| {
+                    if let crate::velostream::sql::execution::types::FieldValue::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let message_key = record.key.as_ref().and_then(|v| {
+                if let crate::velostream::sql::execution::types::FieldValue::String(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            });
+
+            (topic, record.partition, record.offset, message_key)
+        });
 
         let mut parent_batch_span_guard = ObservabilityHelper::start_batch_span(
             self.observability_wrapper.observability_ref(),
@@ -789,6 +822,9 @@ impl SimpleJobProcessor {
 
             // Accumulate SQL time for final stats breakdown
             stats.add_sql_time(sql_elapsed);
+
+            // Accumulate execution time for performance breakdown
+            total_exec_ms += sql_duration;
 
             // Record SQL processing telemetry and metrics on per-source span
             ObservabilityHelper::record_sql_processing(
@@ -972,6 +1008,9 @@ impl SimpleJobProcessor {
                             // Accumulate write time for final stats breakdown
                             stats.add_write_time(ser_elapsed);
 
+                            // Accumulate serialization time for performance breakdown
+                            total_ser_ms += ser_duration;
+
                             // Record serialization telemetry and metrics
                             ObservabilityHelper::record_serialization_success(
                                 self.observability_wrapper.observability_ref(),
@@ -1015,6 +1054,9 @@ impl SimpleJobProcessor {
                             Ok(()) => {
                                 let ser_elapsed = ser_start.elapsed();
                                 let ser_duration = ser_elapsed.as_millis() as u64;
+
+                                // Accumulate serialization time for performance breakdown
+                                total_ser_ms += ser_duration;
 
                                 // Accumulate write time for final stats breakdown
                                 stats.add_write_time(ser_elapsed);
@@ -1144,9 +1186,62 @@ impl SimpleJobProcessor {
                 job_name, total_records_processed, total_records_failed, output_record_count
             );
 
-            // Complete batch span with success
+            // Complete batch span with success and enrich with performance attributes
+            let batch_duration = batch_start.elapsed().as_millis() as u64;
+
+            // Set OpenTelemetry messaging attributes from Kafka metadata
+            if let Some((topic, partition, offset, message_key)) = kafka_metadata {
+                let consumer_group: Option<&str> = None; // Not available in StreamRecord
+                ObservabilityHelper::set_messaging_attributes(
+                    &mut parent_batch_span_guard,
+                    &topic,
+                    partition,
+                    offset,
+                    consumer_group,
+                    message_key.as_deref(),
+                );
+            }
+
+            // Set application attributes (job_name, mode)
+            let job_mode = Some("simple"); // SimpleJobProcessor
+            ObservabilityHelper::set_application_attributes(
+                &mut parent_batch_span_guard,
+                job_name,
+                None, // app_name - would need to extract from query annotations
+                None, // app_version - would need to extract from query annotations
+                job_mode,
+            );
+
+            // Set performance timing breakdown
+            ObservabilityHelper::set_performance_timings(
+                &mut parent_batch_span_guard,
+                total_deser_ms,
+                total_exec_ms,
+                total_ser_ms,
+            );
+
+            // Set throughput metrics
+            if batch_duration > 0 {
+                let throughput_rps =
+                    (total_records_processed as f64) / (batch_duration as f64 / 1000.0);
+                ObservabilityHelper::set_throughput_metrics(
+                    &mut parent_batch_span_guard,
+                    throughput_rps,
+                    None, // bytes_per_second - not tracked currently
+                );
+            }
+
+            // Set error rate
+            if total_records_failed > 0 || total_records_processed > 0 {
+                ObservabilityHelper::set_error_rate(
+                    &mut parent_batch_span_guard,
+                    total_records_failed as u64,
+                    total_records_processed as u64,
+                );
+            }
+
+            // Complete batch span
             if let Some(mut batch_span) = parent_batch_span_guard {
-                let batch_duration = batch_start.elapsed().as_millis() as u64;
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);
                 batch_span.set_success();

@@ -292,13 +292,13 @@ Enables performance profiling and bottleneck detection:
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: prod
 
--- @job_name: market-data-event-time-1
+-- @name: market-data-event-time-1
 -- Name: Market Data Stream
 CREATE STREAM market_data_ts AS
 SELECT * FROM market_data
 EMIT CHANGES;
 
--- @job_name: trading-positions-with-event-time-1
+-- @name: trading-positions-with-event-time-1
 -- Name: Trading Positions Monitor
 CREATE STREAM trading_positions_with_event_time AS
 SELECT * FROM positions
@@ -318,14 +318,14 @@ EMIT CHANGES;
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: prod
 
--- @job_name: standard-job-1
+-- @name: standard-job-1
 -- Name: Standard Job (inherits app-level settings)
 -- Inherits: metrics=true, tracing=true, profiling=prod
 CREATE STREAM standard_job AS
 SELECT * FROM stream1
 EMIT CHANGES;
 
--- @job_name: low-overhead-job-1
+-- @name: low-overhead-job-1
 -- Name: Low-Overhead Job (overrides tracing and profiling)
 -- WITH (observability.tracing.enabled = false, observability.profiling.enabled = off)
 -- Result: metrics=true, tracing=false, profiling=off
@@ -333,7 +333,7 @@ CREATE STREAM low_overhead_job AS
 SELECT * FROM stream2
 EMIT CHANGES;
 
--- @job_name: high-observability-job-1
+-- @name: high-observability-job-1
 -- Name: High-Observability Job (upgrades profiling to dev)
 -- WITH (observability.profiling.enabled = dev)
 -- Result: metrics=true, tracing=true, profiling=dev
@@ -357,7 +357,7 @@ EMIT CHANGES;
 -- @observability.profiling.enabled: prod
 -- @observability.error_reporting.enabled: true
 
--- @job_name: high-value-orders-1
+-- @name: high-value-orders-1
 -- Name: High-Value Orders (critical job - inherits full observability)
 CREATE STREAM high_value_orders AS
 SELECT
@@ -369,7 +369,7 @@ FROM orders
 WHERE total_amount > 1000
 EMIT CHANGES;
 
--- @job_name: fraud-detection-1
+-- @name: fraud-detection-1
 -- Name: Real-Time Fraud Detection (high-sensitivity - keeps full observability)
 CREATE STREAM fraud_detection AS
 SELECT
@@ -381,7 +381,7 @@ FROM orders
 WHERE risk_score > 0.8
 EMIT CHANGES;
 
--- @job_name: product-analytics-rollup-1
+-- @name: product-analytics-rollup-1
 -- Name: Product Analytics Rollup (lower-priority - reduce overhead)
 -- WITH (observability.tracing.enabled = false, observability.profiling.enabled = off)
 CREATE STREAM product_analytics AS
@@ -399,7 +399,7 @@ EMIT CHANGES;
 **Without App-Level Configuration:**
 ```sql
 -- Repetitive: Each job needs identical configuration
--- @job_name: job-1
+-- @name: job-1
 CREATE STREAM job1 AS
 SELECT * FROM stream1
 WITH (
@@ -409,7 +409,7 @@ WITH (
 )
 EMIT CHANGES;
 
--- @job_name: job-2
+-- @name: job-2
 CREATE STREAM job2 AS
 SELECT * FROM stream2
 WITH (
@@ -419,7 +419,7 @@ WITH (
 )
 EMIT CHANGES;
 
--- @job_name: job-3
+-- @name: job-3
 CREATE STREAM job3 AS
 SELECT * FROM stream3
 WITH (
@@ -438,13 +438,13 @@ EMIT CHANGES;
 -- @observability.profiling.enabled: prod
 
 -- Clean and concise: Settings inherited from app-level
--- @job_name: job-1
+-- @name: job-1
 CREATE STREAM job1 AS SELECT * FROM stream1 EMIT CHANGES;
 
--- @job_name: job-2
+-- @name: job-2
 CREATE STREAM job2 AS SELECT * FROM stream2 EMIT CHANGES;
 
--- @job_name: job-3
+-- @name: job-3
 CREATE STREAM job3 AS SELECT * FROM stream3 EMIT CHANGES;
 ```
 
@@ -501,7 +501,7 @@ When an application is deployed with observability enabled, you'll see:
 ### 2. Resource Management
 
 ```sql
--- @job_name: critical-alert-processor-1
+-- @name: critical-alert-processor-1
 -- Name: Critical Alert Processor
 -- Property: priority=critical
 -- Property: replicas=5

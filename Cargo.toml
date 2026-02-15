@@ -84,7 +84,7 @@ prometheus_remote_write = { version = "0.2.1", features = ["http"] }  # Remote-w
 snap = "1.1"  # Snappy compression for Prometheus remote-write
 opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio", "trace"] }
-opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace"] }
+opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace", "http-proto", "reqwest-client"] }
 opentelemetry-semantic-conventions = "0.13"
 sysinfo = "0.32"
 

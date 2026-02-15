@@ -2,6 +2,9 @@
 
 use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::observability::span_collector::CollectingSpanProcessor;
+use crate::velostream::observability::tokio_span_processor::{
+    TokioSpanProcessor, TokioSpanProcessorConfig,
+};
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::TracingConfig;
 use opentelemetry::{
@@ -12,7 +15,6 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     Resource,
     export::trace::SpanData,
-    runtime,
     trace::{RandomIdGenerator, Sampler, SpanProcessor, TracerProvider},
 };
 use std::sync::Arc;
@@ -196,31 +198,41 @@ impl TelemetryProvider {
         let mut span_collector_ref: Option<CollectingSpanProcessor> = None;
 
         let provider = if let Some(endpoint) = otlp_endpoint {
-            // Create OTLP exporter and tracer provider
+            // Derive HTTP endpoint from gRPC endpoint for OTLP/HTTP export
+            // gRPC default: localhost:4317 → HTTP: http://localhost:4318/v1/traces
+            let http_endpoint = if endpoint.contains(":4317") {
+                endpoint.replace(":4317", ":4318")
+            } else {
+                endpoint.clone()
+            };
+
+            // Create OTLP HTTP exporter (more reliable than gRPC for local deployments)
             match opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(&endpoint)
+                .http()
+                .with_endpoint(&http_endpoint)
                 .build_span_exporter()
             {
                 Ok(exporter) => {
-                    log::info!("✅ OTLP exporter created successfully for {}", endpoint);
+                    log::info!(
+                        "✅ OTLP HTTP exporter created successfully for {}",
+                        http_endpoint
+                    );
 
-                    // Configure batch processor with larger queue for high-throughput streaming
-                    // NOTE: QueuedSpanProcessor is available for non-blocking trace submission
-                    // (see src/velostream/observability/queued_span_processor.rs).
-                    // To activate: pass ObservabilityQueue to TelemetryProvider during init
-                    // and use QueuedSpanProcessor::new(queue, exporter) instead.
-                    let batch_processor = opentelemetry_sdk::trace::BatchSpanProcessor::builder(
+                    // Use TokioSpanProcessor instead of BatchSpanProcessor to avoid
+                    // the SDK 0.21.2 FusedStream bug where the background export loop
+                    // stops after the first cycle.
+                    let processor = TokioSpanProcessor::new(
                         exporter,
-                        runtime::Tokio,
-                    )
-                    .with_max_queue_size(16384) // Increased from default 2048
-                    .with_max_export_batch_size(512) // Default is 512
-                    .with_scheduled_delay(std::time::Duration::from_millis(5000)) // Default is 5s
-                    .build();
+                        TokioSpanProcessorConfig {
+                            max_queue_size: 65536,
+                            max_export_batch_size: 1024,
+                            scheduled_delay: std::time::Duration::from_millis(2000),
+                            export_timeout: std::time::Duration::from_secs(10),
+                        },
+                    );
 
                     TracerProvider::builder()
-                        .with_span_processor(batch_processor)
+                        .with_span_processor(processor)
                         .with_config(
                             opentelemetry_sdk::trace::config()
                                 .with_sampler(sampler)
@@ -372,16 +384,23 @@ impl TelemetryProvider {
             None;
 
         let provider = if let Some(endpoint) = otlp_endpoint {
-            // Create OTLP exporter for queue-based processing
+            // Derive HTTP endpoint from gRPC endpoint for OTLP/HTTP export
+            let http_endpoint = if endpoint.contains(":4317") {
+                endpoint.replace(":4317", ":4318")
+            } else {
+                endpoint.clone()
+            };
+
+            // Create OTLP HTTP exporter for queue-based processing
             match opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(&endpoint)
+                .http()
+                .with_endpoint(&http_endpoint)
                 .build_span_exporter()
             {
                 Ok(exporter) => {
                     log::info!(
-                        "✅ OTLP exporter created successfully for {} (queue-based)",
-                        endpoint
+                        "✅ OTLP HTTP exporter created successfully for {} (queue-based)",
+                        http_endpoint
                     );
 
                     // Store exporter for return (BackgroundFlusher will use it)
@@ -394,8 +413,8 @@ impl TelemetryProvider {
                         // (BackgroundFlusher will use the one we stored)
                         Box::new(
                             opentelemetry_otlp::new_exporter()
-                                .tonic()
-                                .with_endpoint(&endpoint)
+                                .http()
+                                .with_endpoint(&http_endpoint)
                                 .build_span_exporter()
                                 .map_err(|e| SqlError::ConfigurationError {
                                     message: format!(
@@ -553,18 +572,42 @@ impl TelemetryProvider {
         let mut span = if let Some(parent_ctx) = upstream_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
 
-            log::info!(
-                "🔗 Starting batch span as child of upstream trace: {}",
-                parent_ctx.trace_id()
+            log::debug!(
+                "🔗 Starting batch span as child of upstream trace: {} (parent_span={})",
+                parent_ctx.trace_id(),
+                parent_ctx.span_id()
             );
 
-            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
+            // Use Context::new() instead of Context::current() to avoid interference
+            // from any existing spans in the thread-local context. This ensures the
+            // remote span context is the sole parent for the new child span.
+            let parent_cx =
+                opentelemetry::Context::new().with_remote_span_context(parent_ctx.clone());
 
-            tracer
+            let child_span = tracer
                 .span_builder(format!("batch:{}", job_name))
                 .with_kind(SpanKind::Consumer) // Consumer span for Kafka message processing
                 .with_attributes(attributes)
-                .start_with_context(&tracer, &parent_cx)
+                .start_with_context(&tracer, &parent_cx);
+
+            // Verify child span was properly linked to parent
+            let child_ctx = child_span.span_context();
+            if child_ctx.trace_id() != parent_ctx.trace_id() {
+                log::warn!(
+                    "⚠️  Child span NOT linked to parent: child_trace={} != parent_trace={}",
+                    child_ctx.trace_id(),
+                    parent_ctx.trace_id()
+                );
+            } else {
+                log::debug!(
+                    "Child span linked: trace_id={}, child_span_id={}, parent_span_id={}",
+                    child_ctx.trace_id(),
+                    child_ctx.span_id(),
+                    parent_ctx.span_id(),
+                );
+            }
+
+            child_span
         } else {
             log::debug!("🆕 Starting new trace for batch (no upstream context)");
 
@@ -577,13 +620,81 @@ impl TelemetryProvider {
 
         span.set_status(Status::Ok);
 
-        log::debug!(
-            "🔍 Started batch span: {} (batch #{}) (exporting to Tempo)",
-            job_name,
-            batch_id
-        );
+        log::debug!("Batch span created: {} (batch #{})", job_name, batch_id,);
 
         BatchSpan::new_active(span)
+    }
+
+    /// Create a child span for tracking a specific pipeline processing stage
+    ///
+    /// This method creates a child span with proper parent-child relationships for tracking
+    /// individual stages of the processing pipeline (e.g., deserialization, execution, serialization).
+    ///
+    /// # Arguments
+    /// * `stage_name` - Name of the pipeline stage (e.g., "deserialization", "sql_execution", "serialization")
+    /// * `parent_context` - Optional parent span context (typically from a BatchSpan)
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let mut batch_span = telemetry.start_batch_span("job", 123, None);
+    /// let mut deser_span = telemetry.start_pipeline_stage_span(
+    ///     "deserialization",
+    ///     batch_span.span_context()
+    /// );
+    /// // ... perform deserialization
+    /// deser_span.set_stage_attributes("deserialization", 1000, 15);
+    /// deser_span.set_success();
+    /// ```
+    pub fn start_pipeline_stage_span(
+        &self,
+        stage_name: &str,
+        parent_context: Option<opentelemetry::trace::SpanContext>,
+    ) -> PipelineStageSpan {
+        if !self.active {
+            return PipelineStageSpan::new_inactive();
+        }
+
+        let tracer = global::tracer(self.config.service_name.clone());
+
+        // Build attributes for the pipeline stage
+        let attributes = vec![KeyValue::new(
+            "velostream.pipeline.stage",
+            stage_name.to_string(),
+        )];
+
+        // Create span as child of parent if parent_context provided
+        let span = if let Some(parent_ctx) = parent_context {
+            use opentelemetry::trace::{TraceContextExt, Tracer as _};
+
+            log::debug!(
+                "🔗 Starting pipeline stage '{}' as child of parent trace: {}",
+                stage_name,
+                parent_ctx.trace_id()
+            );
+
+            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
+
+            tracer
+                .span_builder(format!("pipeline:{}", stage_name))
+                .with_kind(SpanKind::Internal) // Internal span for processing stages
+                .with_attributes(attributes)
+                .start_with_context(&tracer, &parent_cx)
+        } else {
+            log::debug!(
+                "🆕 Starting pipeline stage '{}' (no parent context)",
+                stage_name
+            );
+
+            tracer
+                .span_builder(format!("pipeline:{}", stage_name))
+                .with_kind(SpanKind::Internal)
+                .with_attributes(attributes)
+                .start(&tracer)
+        };
+
+        log::debug!("🔍 Started pipeline stage span: {}", stage_name);
+
+        PipelineStageSpan::new_active(span)
     }
 
     /// Create a new trace span for SQL query execution
@@ -1103,7 +1214,297 @@ impl BatchSpan {
         }
     }
 
+    /// Set OpenTelemetry messaging semantic conventions for Kafka operations
+    pub fn set_messaging_attributes(
+        &mut self,
+        topic: &str,
+        partition: i32,
+        offset: i64,
+        consumer_group: Option<&str>,
+        message_key: Option<&str>,
+    ) {
+        if let Some(span) = self.base.span_mut() {
+            // OpenTelemetry messaging semantic conventions
+            span.set_attribute(KeyValue::new("messaging.system", "kafka"));
+            span.set_attribute(KeyValue::new("messaging.operation", "process"));
+            span.set_attribute(KeyValue::new(
+                "messaging.destination.name",
+                topic.to_string(),
+            ));
+            span.set_attribute(KeyValue::new("messaging.kafka.partition", partition as i64));
+            span.set_attribute(KeyValue::new("messaging.kafka.offset", offset));
+
+            if let Some(group) = consumer_group {
+                span.set_attribute(KeyValue::new(
+                    "messaging.kafka.consumer.group",
+                    group.to_string(),
+                ));
+            }
+
+            if let Some(key) = message_key {
+                span.set_attribute(KeyValue::new(
+                    "messaging.kafka.message.key",
+                    key.to_string(),
+                ));
+            }
+        }
+    }
+
+    /// Set application-specific attributes (velostream namespace)
+    pub fn set_application_attributes(
+        &mut self,
+        job_name: &str,
+        app_name: Option<&str>,
+        app_version: Option<&str>,
+        job_mode: Option<&str>,
+    ) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new("velostream.job_name", job_name.to_string()));
+
+            if let Some(name) = app_name {
+                span.set_attribute(KeyValue::new("velostream.app_name", name.to_string()));
+            }
+
+            if let Some(version) = app_version {
+                span.set_attribute(KeyValue::new("velostream.app_version", version.to_string()));
+            }
+
+            if let Some(mode) = job_mode {
+                span.set_attribute(KeyValue::new("velostream.job_mode", mode.to_string()));
+            }
+        }
+    }
+
+    /// Set performance timing breakdown (in milliseconds)
+    pub fn set_performance_timings(
+        &mut self,
+        deserialization_ms: u64,
+        execution_ms: u64,
+        serialization_ms: u64,
+    ) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new(
+                "velostream.timing.deserialization_ms",
+                deserialization_ms as i64,
+            ));
+            span.set_attribute(KeyValue::new(
+                "velostream.timing.execution_ms",
+                execution_ms as i64,
+            ));
+            span.set_attribute(KeyValue::new(
+                "velostream.timing.serialization_ms",
+                serialization_ms as i64,
+            ));
+
+            // Calculate percentage breakdown
+            let total = deserialization_ms + execution_ms + serialization_ms;
+            if total > 0 {
+                let deser_pct = (deserialization_ms as f64 / total as f64) * 100.0;
+                let exec_pct = (execution_ms as f64 / total as f64) * 100.0;
+                let ser_pct = (serialization_ms as f64 / total as f64) * 100.0;
+
+                span.set_attribute(KeyValue::new(
+                    "velostream.timing.deserialization_pct",
+                    deser_pct,
+                ));
+                span.set_attribute(KeyValue::new("velostream.timing.execution_pct", exec_pct));
+                span.set_attribute(KeyValue::new(
+                    "velostream.timing.serialization_pct",
+                    ser_pct,
+                ));
+            }
+        }
+    }
+
+    /// Set throughput metrics
+    pub fn set_throughput_metrics(
+        &mut self,
+        records_per_second: f64,
+        bytes_per_second: Option<f64>,
+    ) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new(
+                "velostream.throughput.records_per_sec",
+                records_per_second,
+            ));
+
+            if let Some(bps) = bytes_per_second {
+                span.set_attribute(KeyValue::new("velostream.throughput.bytes_per_sec", bps));
+            }
+        }
+    }
+
+    /// Set error rate metrics
+    pub fn set_error_rate(&mut self, errors: u64, total: u64) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new("velostream.errors.count", errors as i64));
+
+            if total > 0 {
+                let error_rate = (errors as f64 / total as f64) * 100.0;
+                span.set_attribute(KeyValue::new("velostream.errors.rate_pct", error_rate));
+            }
+        }
+    }
+
+    /// Set window-specific metrics (for windowed queries)
+    pub fn set_window_metrics(
+        &mut self,
+        window_start_ms: i64,
+        window_end_ms: i64,
+        records_in_window: u64,
+        windows_emitted: u64,
+    ) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new("velostream.window.start_ms", window_start_ms));
+            span.set_attribute(KeyValue::new("velostream.window.end_ms", window_end_ms));
+            span.set_attribute(KeyValue::new(
+                "velostream.window.records_in_window",
+                records_in_window as i64,
+            ));
+            span.set_attribute(KeyValue::new(
+                "velostream.window.windows_emitted",
+                windows_emitted as i64,
+            ));
+        }
+    }
+
+    /// Set join-specific metrics
+    pub fn set_join_metrics(
+        &mut self,
+        left_records: u64,
+        right_records: u64,
+        joined_records: u64,
+        join_hit_rate: f64,
+    ) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new(
+                "velostream.join.left_records",
+                left_records as i64,
+            ));
+            span.set_attribute(KeyValue::new(
+                "velostream.join.right_records",
+                right_records as i64,
+            ));
+            span.set_attribute(KeyValue::new(
+                "velostream.join.joined_records",
+                joined_records as i64,
+            ));
+            span.set_attribute(KeyValue::new("velostream.join.hit_rate", join_hit_rate));
+        }
+    }
+
     /// Get the span context for creating child spans with parent relationship
+    pub fn span_context(&self) -> Option<opentelemetry::trace::SpanContext> {
+        self.base.span().map(|span| span.span_context().clone())
+    }
+}
+
+/// Pipeline stage span for tracking individual processing stages with parent-child relationships
+///
+/// This span type is used to create child spans that track specific stages of the processing
+/// pipeline (e.g., deserialization, execution, serialization, kafka produce).
+///
+/// # Example
+/// ```rust,ignore
+/// // Create parent batch span
+/// let mut batch_span = telemetry.start_batch_span("job_name", 123, None);
+///
+/// // Create child span for deserialization stage
+/// let mut deser_span = telemetry.start_pipeline_stage_span(
+///     "deserialization",
+///     batch_span.span_context()
+/// );
+/// // ... perform deserialization
+/// deser_span.set_stage_attributes("deserialization", 1000, 15);
+/// deser_span.set_success();
+/// ```
+pub struct PipelineStageSpan {
+    base: BaseSpan,
+}
+
+impl PipelineStageSpan {
+    fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
+        Self {
+            base: BaseSpan::new_active(span),
+        }
+    }
+
+    fn new_inactive() -> Self {
+        Self {
+            base: BaseSpan::new_inactive(),
+        }
+    }
+
+    /// Set attributes specific to a pipeline processing stage
+    ///
+    /// # Arguments
+    /// * `stage_name` - Name of the pipeline stage (e.g., "deserialization", "execution", "serialization")
+    /// * `record_count` - Number of records processed in this stage
+    /// * `duration_ms` - Duration of this stage in milliseconds
+    pub fn set_stage_attributes(
+        &mut self,
+        stage_name: &str,
+        record_count: usize,
+        duration_ms: u64,
+    ) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new(
+                "velostream.pipeline.stage",
+                stage_name.to_string(),
+            ));
+            span.set_attribute(KeyValue::new(
+                "velostream.pipeline.records",
+                record_count as i64,
+            ));
+            span.set_attribute(KeyValue::new(
+                "velostream.pipeline.duration_ms",
+                duration_ms as i64,
+            ));
+
+            // Calculate throughput for this stage
+            if duration_ms > 0 {
+                let throughput = (record_count as f64) / (duration_ms as f64 / 1000.0);
+                span.set_attribute(KeyValue::new(
+                    "velostream.pipeline.throughput_records_per_sec",
+                    throughput,
+                ));
+            }
+        }
+    }
+
+    /// Set additional timing breakdown for the stage
+    ///
+    /// # Arguments
+    /// * `cpu_ms` - CPU time spent in this stage
+    /// * `wait_ms` - Wait/idle time in this stage
+    pub fn set_timing_breakdown(&mut self, cpu_ms: u64, wait_ms: u64) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new("velostream.pipeline.cpu_ms", cpu_ms as i64));
+            span.set_attribute(KeyValue::new("velostream.pipeline.wait_ms", wait_ms as i64));
+        }
+    }
+
+    /// Set bytes processed in this stage (for serialization/deserialization stages)
+    pub fn set_bytes_processed(&mut self, bytes: u64) {
+        if let Some(span) = self.base.span_mut() {
+            span.set_attribute(KeyValue::new(
+                "velostream.pipeline.bytes_processed",
+                bytes as i64,
+            ));
+        }
+    }
+
+    /// Mark the stage as successfully completed
+    pub fn set_success(&mut self) {
+        self.base.set_success();
+    }
+
+    /// Mark the stage as failed with an error message
+    pub fn set_error(&mut self, error: &str) {
+        self.base.set_error(error);
+    }
+
+    /// Get the span context for creating nested child spans
     pub fn span_context(&self) -> Option<opentelemetry::trace::SpanContext> {
         self.base.span().map(|span| span.span_context().clone())
     }

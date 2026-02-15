@@ -214,6 +214,7 @@ impl JoinJobProcessor {
 
         let record_count = output_buffer.len();
         let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
+        let mut ser_ms: u64 = 0;
 
         if let Some(writer) = writer {
             let ser_start = Instant::now();
@@ -233,6 +234,7 @@ impl JoinJobProcessor {
                 })?;
             }
             let ser_elapsed = ser_start.elapsed();
+            ser_ms = ser_elapsed.as_millis() as u64;
             // Record serialization span as child of batch span
             if record_count > 0 {
                 ObservabilityHelper::record_serialization_success(
@@ -249,7 +251,24 @@ impl JoinJobProcessor {
             output_buffer.clear();
         }
 
-        // Complete batch span after all phases (including serialization)
+        // Enrich and complete batch span after all phases (including serialization)
+        // Set application attributes for join processor
+        ObservabilityHelper::set_application_attributes(
+            &mut batch_span,
+            job_name,
+            None, // app_name
+            None, // app_version
+            Some("join"),
+        );
+
+        // Set performance timings (join doesn't track separate deser/exec/ser phases)
+        ObservabilityHelper::set_performance_timings(
+            &mut batch_span,
+            0, // deser_ms - not separately tracked
+            0, // exec_ms - not separately tracked
+            ser_ms,
+        );
+
         if let Some(ref mut span) = batch_span {
             span.set_total_records(record_count as u64);
             span.set_success();

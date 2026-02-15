@@ -5,7 +5,7 @@
 
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::observability::query_metadata::QuerySpanMetadata;
-use crate::velostream::observability::telemetry::BatchSpan;
+use crate::velostream::observability::telemetry::{BatchSpan, PipelineStageSpan};
 use crate::velostream::observability::trace_propagation;
 use crate::velostream::server::processors::common::BatchProcessingResultWithOutput;
 use crate::velostream::server::processors::observability_utils::{
@@ -13,7 +13,7 @@ use crate::velostream::server::processors::observability_utils::{
 };
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::types::FieldValue;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::time::Instant;
 
 /// Helper for recording batch processing observability data
@@ -41,22 +41,31 @@ impl ObservabilityHelper {
         batch_records: &[StreamRecord],
     ) -> Option<BatchSpan> {
         if let Some(obs) = observability {
-            // Retry try_read() briefly to avoid dropping trace spans when a concurrent
-            // write lock is held during startup (e.g., metrics registration).
-            let obs_lock = match obs.try_read() {
-                Ok(lock) => lock,
-                Err(_) => {
-                    // Brief retry: yield and try once more before giving up
-                    std::thread::yield_now();
+            // Retry try_read() with brief sleeps as a defensive measure against
+            // transient lock contention (e.g., during initialization or shutdown).
+            let obs_lock = {
+                let mut lock = None;
+                for attempt in 0..5 {
                     match obs.try_read() {
-                        Ok(lock) => lock,
-                        Err(_) => {
-                            warn!(
-                                "Job '{}': ⚠️  Could not acquire observability read lock for batch span (write lock held), skipping trace for batch #{}",
-                                job_name, batch_number
-                            );
-                            return None;
+                        Ok(l) => {
+                            lock = Some(l);
+                            break;
                         }
+                        Err(_) => {
+                            if attempt < 4 {
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            }
+                        }
+                    }
+                }
+                match lock {
+                    Some(l) => l,
+                    None => {
+                        warn!(
+                            "Job '{}': Could not acquire observability read lock for batch span after 5 attempts, skipping trace for batch #{}",
+                            job_name, batch_number
+                        );
+                        return None;
                     }
                 }
             };
@@ -102,7 +111,7 @@ impl ObservabilityHelper {
             if let Some(span_ctx) = span.span_context() {
                 if span_ctx.is_valid() {
                     debug!(
-                        "Job '{}': 📤 Injecting trace context into {} output records",
+                        "Job '{}': Injecting trace context into {} output records",
                         job_name,
                         output_records.len()
                     );
@@ -175,7 +184,7 @@ impl ObservabilityHelper {
         duration_ms: u64,
         metadata: Option<(&str, i32, i64)>, // (topic, partition, offset)
     ) {
-        if let Some(obs) = observability {
+        if observability.is_some() {
             debug!(
                 "Job '{}': Recording deserialization metrics (batch_size={}, duration={}ms)",
                 job_name, record_count, duration_ms
@@ -250,51 +259,50 @@ impl ObservabilityHelper {
         duration_ms: u64,
         query_metadata: Option<&QuerySpanMetadata>,
     ) {
-        if let Some(obs) = observability {
-            if let Ok(obs_lock) = obs.try_read() {
-                // Record telemetry span
-                if let Some(telemetry) = obs_lock.telemetry() {
-                    let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
-                    let mut span = telemetry.start_sql_query_span(
-                        job_name,
-                        "sql_processing",
-                        "stream_processor",
-                        parent_ctx,
-                    );
-                    if let Some(metadata) = query_metadata {
-                        span.set_query_metadata(metadata);
-                    }
-                    span.set_execution_time(duration_ms);
-                    span.set_record_count(batch_result.records_processed as u64);
-                    if batch_result.records_failed > 0 {
-                        span.set_error(&format!("{} records failed", batch_result.records_failed));
-                    } else {
-                        span.set_success();
-                    }
+        with_observability_try_lock(observability, |obs_lock| {
+            // Record telemetry span
+            if let Some(telemetry) = obs_lock.telemetry() {
+                let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
+                let mut span = telemetry.start_sql_query_span(
+                    job_name,
+                    "sql_processing",
+                    "stream_processor",
+                    parent_ctx,
+                );
+                if let Some(metadata) = query_metadata {
+                    span.set_query_metadata(metadata);
                 }
-
-                // Record Prometheus metrics
-                if let Some(metrics) = obs_lock.metrics() {
-                    let success = batch_result.records_failed == 0;
-
-                    // Phase 2.1: Global SQL query metrics
-                    metrics.record_sql_query(
-                        "stream_processing",
-                        std::time::Duration::from_millis(duration_ms),
-                        success,
-                        batch_result.records_processed as u64,
-                    );
-
-                    // Phase 2.3: Job-aware pipeline operation metrics
-                    metrics.record_pipeline_operation(
-                        job_name,
-                        "sql_processing",
-                        std::time::Duration::from_millis(duration_ms),
-                        batch_result.records_processed as u64,
-                    );
+                span.set_execution_time(duration_ms);
+                span.set_record_count(batch_result.records_processed as u64);
+                if batch_result.records_failed > 0 {
+                    span.set_error(&format!("{} records failed", batch_result.records_failed));
+                } else {
+                    span.set_success();
                 }
             }
-        }
+
+            // Record Prometheus metrics
+            if let Some(metrics) = obs_lock.metrics() {
+                let success = batch_result.records_failed == 0;
+
+                // Phase 2.1: Global SQL query metrics
+                metrics.record_sql_query(
+                    "stream_processing",
+                    std::time::Duration::from_millis(duration_ms),
+                    success,
+                    batch_result.records_processed as u64,
+                );
+
+                // Phase 2.3: Job-aware pipeline operation metrics
+                metrics.record_pipeline_operation(
+                    job_name,
+                    "sql_processing",
+                    std::time::Duration::from_millis(duration_ms),
+                    batch_result.records_processed as u64,
+                );
+            }
+            None::<()>
+        });
     }
 
     /// Record serialization success telemetry and metrics
@@ -433,7 +441,7 @@ impl ObservabilityHelper {
         batch_duration_ms: u64,
         records_processed: u64,
     ) {
-        if let Some(obs) = observability {
+        if observability.is_some() {
             with_observability_try_lock(observability, |obs_lock| {
                 if let Some(metrics) = obs_lock.metrics() {
                     let throughput_rps =
@@ -464,6 +472,160 @@ impl ObservabilityHelper {
             span.set_total_records(records_processed);
             span.set_batch_duration(batch_duration);
             span.set_error(&format!("{} records failed", records_failed));
+        }
+    }
+
+    /// Enrich batch span with OpenTelemetry messaging semantic conventions
+    ///
+    /// Sets standard messaging.* attributes for Kafka processing spans to ensure
+    /// compatibility with standard OTel dashboards and trace analysis tools.
+    ///
+    /// # Arguments
+    /// * `batch_span` - Batch span to enrich
+    /// * `topic` - Kafka topic name
+    /// * `partition` - Kafka partition number
+    /// * `offset` - Kafka message offset
+    /// * `consumer_group` - Optional consumer group ID
+    /// * `message_key` - Optional Kafka message key
+    pub fn set_messaging_attributes(
+        batch_span: &mut Option<BatchSpan>,
+        topic: &str,
+        partition: i32,
+        offset: i64,
+        consumer_group: Option<&str>,
+        message_key: Option<&str>,
+    ) {
+        if let Some(span) = batch_span {
+            span.set_messaging_attributes(topic, partition, offset, consumer_group, message_key);
+        }
+    }
+
+    /// Enrich batch span with application-specific attributes
+    ///
+    /// Sets velostream.* namespace attributes for filtering and grouping traces
+    /// by job name, application, version, and processing mode.
+    ///
+    /// # Arguments
+    /// * `batch_span` - Batch span to enrich
+    /// * `job_name` - Name of the streaming job/query
+    /// * `app_name` - Optional application name (from @app annotation)
+    /// * `app_version` - Optional application version (from @version annotation)
+    /// * `job_mode` - Optional job mode (e.g., "simple", "adaptive", "transactional")
+    pub fn set_application_attributes(
+        batch_span: &mut Option<BatchSpan>,
+        job_name: &str,
+        app_name: Option<&str>,
+        app_version: Option<&str>,
+        job_mode: Option<&str>,
+    ) {
+        if let Some(span) = batch_span {
+            span.set_application_attributes(job_name, app_name, app_version, job_mode);
+        }
+    }
+
+    /// Enrich batch span with performance timing breakdown
+    ///
+    /// Sets timing attributes for each stage of the processing pipeline to identify
+    /// performance bottlenecks (e.g., is it deserialization? execution? serialization?).
+    ///
+    /// # Arguments
+    /// * `batch_span` - Batch span to enrich
+    /// * `deserialization_ms` - Time spent deserializing input records
+    /// * `execution_ms` - Time spent executing SQL query
+    /// * `serialization_ms` - Time spent serializing output records
+    pub fn set_performance_timings(
+        batch_span: &mut Option<BatchSpan>,
+        deserialization_ms: u64,
+        execution_ms: u64,
+        serialization_ms: u64,
+    ) {
+        if let Some(span) = batch_span {
+            span.set_performance_timings(deserialization_ms, execution_ms, serialization_ms);
+        }
+    }
+
+    /// Enrich batch span with throughput metrics
+    ///
+    /// Sets throughput attributes for monitoring processing rate and identifying
+    /// performance degradation.
+    ///
+    /// # Arguments
+    /// * `batch_span` - Batch span to enrich
+    /// * `records_per_second` - Processing rate in records/second
+    /// * `bytes_per_second` - Optional bytes processed per second
+    pub fn set_throughput_metrics(
+        batch_span: &mut Option<BatchSpan>,
+        records_per_second: f64,
+        bytes_per_second: Option<f64>,
+    ) {
+        if let Some(span) = batch_span {
+            span.set_throughput_metrics(records_per_second, bytes_per_second);
+        }
+    }
+
+    /// Enrich batch span with error rate metrics
+    ///
+    /// Sets error count and percentage attributes for monitoring data quality
+    /// and processing reliability.
+    ///
+    /// # Arguments
+    /// * `batch_span` - Batch span to enrich
+    /// * `errors` - Number of records that failed processing
+    /// * `total` - Total number of records processed
+    pub fn set_error_rate(batch_span: &mut Option<BatchSpan>, errors: u64, total: u64) {
+        if let Some(span) = batch_span {
+            span.set_error_rate(errors, total);
+        }
+    }
+
+    /// Enrich batch span with window-specific metrics (for windowed queries)
+    ///
+    /// Sets window timing and record count attributes for analyzing windowing
+    /// performance and late data handling.
+    ///
+    /// # Arguments
+    /// * `batch_span` - Batch span to enrich
+    /// * `window_start_ms` - Window start timestamp (epoch milliseconds)
+    /// * `window_end_ms` - Window end timestamp (epoch milliseconds)
+    /// * `records_in_window` - Number of records in the window
+    /// * `windows_emitted` - Number of windows emitted in this batch
+    pub fn set_window_metrics(
+        batch_span: &mut Option<BatchSpan>,
+        window_start_ms: i64,
+        window_end_ms: i64,
+        records_in_window: u64,
+        windows_emitted: u64,
+    ) {
+        if let Some(span) = batch_span {
+            span.set_window_metrics(
+                window_start_ms,
+                window_end_ms,
+                records_in_window,
+                windows_emitted,
+            );
+        }
+    }
+
+    /// Enrich batch span with join-specific metrics
+    ///
+    /// Sets join performance and matching statistics for analyzing join
+    /// effectiveness and cache hit rates.
+    ///
+    /// # Arguments
+    /// * `batch_span` - Batch span to enrich
+    /// * `left_records` - Number of records from left source
+    /// * `right_records` - Number of records from right source
+    /// * `joined_records` - Number of successfully joined records
+    /// * `join_hit_rate` - Percentage of successful joins (0.0-1.0)
+    pub fn set_join_metrics(
+        batch_span: &mut Option<BatchSpan>,
+        left_records: u64,
+        right_records: u64,
+        joined_records: u64,
+        join_hit_rate: f64,
+    ) {
+        if let Some(span) = batch_span {
+            span.set_join_metrics(left_records, right_records, joined_records, join_hit_rate);
         }
     }
 }

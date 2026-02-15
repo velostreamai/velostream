@@ -54,9 +54,8 @@ pub mod processor_lifecycle_test;
 /// Common data structures and utility function tests
 pub mod stream_job_common_test;
 
-// Job naming tests (future enhancement)
-
-// SQL deployment tests (future enhancement)
+/// Job name extraction tests (@name annotation, AST fallback, priority chain)
+pub mod job_name_extraction_test;
 
 /// General stream job integration tests
 pub mod stream_job_test;

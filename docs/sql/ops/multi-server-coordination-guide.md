@@ -159,9 +159,9 @@ velo-{app_name}-{job_name}
 
 Job names come from (in priority order):
 
-1. **Explicit `@job_name` annotation:**
+1. **Explicit `@name` annotation:**
    ```sql
-   -- @job_name: custom_job_name
+   -- @name: custom_job_name
    CREATE STREAM data_processor AS SELECT * FROM source;
    ```
 

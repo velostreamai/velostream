@@ -406,6 +406,11 @@ impl PartitionReceiver {
                 let start = Instant::now();
                 let batch_size = batch.len();
 
+                // Track timing breakdown for performance analysis
+                let deser_ms: u64 = 0; // PartitionReceiver doesn't separately track deserialization
+                let exec_ms: u64; // Set on line 439 in Ok branch
+                let mut ser_ms: u64 = 0;
+
                 // Create batch span BEFORE processing so inner spans are children
                 let mut batch_span = ObservabilityHelper::start_batch_span(
                     self.observability_wrapper.observability_ref(),
@@ -431,13 +436,15 @@ impl PartitionReceiver {
                     match self.process_batch(&batch) {
                         Ok((processed, mut output_records, pending_dlq_entries)) => {
                             let sql_elapsed = sql_start.elapsed();
+                            exec_ms = sql_elapsed.as_millis() as u64;
+                            let failed = pending_dlq_entries.len(); // Capture before move
                             total_records += processed as u64;
                             batch_count += 1;
 
                             // Record SQL processing span
                             let batch_result = crate::velostream::server::processors::common::BatchProcessingResultWithOutput {
                                 records_processed: processed,
-                                records_failed: pending_dlq_entries.len(),
+                                records_failed: failed,
                                 processing_time: sql_elapsed,
                                 batch_size,
                                 error_details: vec![],
@@ -517,6 +524,7 @@ impl PartitionReceiver {
                                                 );
                                             } else {
                                                 let ser_elapsed = ser_start.elapsed();
+                                                ser_ms = ser_elapsed.as_millis() as u64;
                                                 debug!(
                                                     "PartitionReceiver {}: Successfully wrote and flushed {} records to sink",
                                                     self.partition_id, output_count
@@ -557,6 +565,81 @@ impl PartitionReceiver {
                                         output_records.len()
                                     );
                                 }
+                            }
+
+                            // Enrich batch span with performance attributes
+                            let batch_duration = start.elapsed().as_millis() as u64;
+
+                            // Extract Kafka metadata from first record
+                            if let Some(first_record) = batch.first() {
+                                let topic = first_record
+                                    .topic
+                                    .as_ref()
+                                    .and_then(|v| {
+                                        if let crate::velostream::sql::execution::types::FieldValue::String(s) = v {
+                                            Some(s.as_str())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or("unknown");
+
+                                let message_key = first_record
+                                    .key
+                                    .as_ref()
+                                    .and_then(|v| {
+                                        if let crate::velostream::sql::execution::types::FieldValue::String(s) = v {
+                                            Some(s.as_str())
+                                        } else {
+                                            None
+                                        }
+                                    });
+
+                                ObservabilityHelper::set_messaging_attributes(
+                                    &mut batch_span,
+                                    topic,
+                                    first_record.partition,
+                                    first_record.offset,
+                                    None, // consumer_group not available
+                                    message_key,
+                                );
+                            }
+
+                            // Set application attributes
+                            ObservabilityHelper::set_application_attributes(
+                                &mut batch_span,
+                                &self.job_name,
+                                None,              // app_name
+                                None,              // app_version
+                                Some("partition"), // PartitionReceiver
+                            );
+
+                            // Set performance timing breakdown
+                            ObservabilityHelper::set_performance_timings(
+                                &mut batch_span,
+                                deser_ms,
+                                exec_ms,
+                                ser_ms,
+                            );
+
+                            // Set throughput metrics
+                            if batch_duration > 0 {
+                                let throughput_rps =
+                                    (processed as f64) / (batch_duration as f64 / 1000.0);
+                                ObservabilityHelper::set_throughput_metrics(
+                                    &mut batch_span,
+                                    throughput_rps,
+                                    None,
+                                );
+                            }
+
+                            // Set error rate (failed already captured above)
+                            if failed > 0 || processed > 0 {
+                                ObservabilityHelper::set_error_rate(
+                                    &mut batch_span,
+                                    failed as u64,
+                                    processed as u64,
+                                );
                             }
 
                             // Complete batch span with success
