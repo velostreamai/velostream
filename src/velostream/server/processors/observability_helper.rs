@@ -5,7 +5,7 @@
 
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::observability::query_metadata::QuerySpanMetadata;
-use crate::velostream::observability::telemetry::{BatchSpan, PipelineStageSpan};
+use crate::velostream::observability::telemetry::BatchSpan;
 use crate::velostream::observability::trace_propagation;
 use crate::velostream::server::processors::common::BatchProcessingResultWithOutput;
 use crate::velostream::server::processors::observability_utils::{
@@ -14,6 +14,8 @@ use crate::velostream::server::processors::observability_utils::{
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::types::FieldValue;
 use log::{debug, warn};
+use opentelemetry::trace::SpanContext;
+use std::collections::HashSet;
 use std::time::Instant;
 
 /// Helper for recording batch processing observability data
@@ -40,57 +42,45 @@ impl ObservabilityHelper {
         batch_number: u64,
         batch_records: &[StreamRecord],
     ) -> Option<BatchSpan> {
-        if let Some(obs) = observability {
-            // Retry try_read() with brief sleeps as a defensive measure against
-            // transient lock contention (e.g., during initialization or shutdown).
-            let obs_lock = {
-                let mut lock = None;
-                for attempt in 0..5 {
-                    match obs.try_read() {
-                        Ok(l) => {
-                            lock = Some(l);
-                            break;
-                        }
-                        Err(_) => {
-                            if attempt < 4 {
-                                std::thread::sleep(std::time::Duration::from_millis(1));
-                            }
-                        }
-                    }
-                }
-                match lock {
-                    Some(l) => l,
-                    None => {
-                        warn!(
-                            "Job '{}': Could not acquire observability read lock for batch span after 5 attempts, skipping trace for batch #{}",
-                            job_name, batch_number
-                        );
-                        return None;
-                    }
-                }
-            };
-            if let Some(telemetry) = obs_lock.telemetry() {
-                // Extract trace context from first record's Kafka headers
-                let upstream_context = batch_records.first().and_then(|record| {
-                    let ctx = trace_propagation::extract_trace_context(&record.headers);
-                    if ctx.is_some() {
-                        debug!(
-                            "Job '{}': 🔗 Extracted upstream trace context from Kafka headers",
-                            job_name
-                        );
-                    } else {
-                        debug!(
-                            "Job '{}': 🆕 No upstream trace context - starting new trace",
-                            job_name
-                        );
-                    }
-                    ctx
-                });
+        with_observability_try_lock(observability, |obs_lock| {
+            let telemetry = obs_lock.telemetry()?;
 
-                return Some(telemetry.start_batch_span(job_name, batch_number, upstream_context));
+            // Collect unique upstream trace contexts from ALL records in the batch
+            let mut upstream_contexts: Vec<SpanContext> = Vec::new();
+            let mut seen_trace_ids = HashSet::new();
+
+            for record in batch_records {
+                if let Some(ctx) = trace_propagation::extract_trace_context(&record.headers) {
+                    if seen_trace_ids.insert(ctx.trace_id()) {
+                        upstream_contexts.push(ctx);
+                    }
+                }
             }
-        }
-        None
+
+            if !upstream_contexts.is_empty() {
+                debug!(
+                    "Job '{}': Extracted {} unique upstream trace context(s) from batch of {} records",
+                    job_name,
+                    upstream_contexts.len(),
+                    batch_records.len()
+                );
+            }
+
+            // First context becomes parent, rest become span links
+            let primary_context = upstream_contexts.first().cloned();
+            let linked_contexts = if upstream_contexts.len() > 1 {
+                upstream_contexts[1..].to_vec()
+            } else {
+                Vec::new()
+            };
+
+            Some(telemetry.start_batch_span(
+                job_name,
+                batch_number,
+                primary_context,
+                linked_contexts,
+            ))
+        })
     }
 
     /// Inject trace context into output records for downstream distributed tracing
@@ -110,28 +100,38 @@ impl ObservabilityHelper {
         if let Some(span) = batch_span {
             if let Some(span_ctx) = span.span_context() {
                 if span_ctx.is_valid() {
-                    debug!(
-                        "Job '{}': Injecting trace context into {} output records",
-                        job_name,
-                        output_records.len()
-                    );
-
-                    // Pre-compute trace headers once per batch to avoid
-                    // redundant format!/to_string() allocations per record
+                    // Pre-compute trace headers once (used only for records without traceparent)
                     let precomputed = trace_propagation::precompute_trace_headers(&span_ctx);
 
-                    // Use Arc::make_mut for copy-on-write mutation
-                    // Clones only if refcount > 1 (shared ownership)
+                    let mut injected = 0usize;
+                    let mut preserved = 0usize;
+
                     for record_arc in output_records.iter_mut() {
-                        let record = std::sync::Arc::make_mut(record_arc);
-                        trace_propagation::inject_precomputed_trace_context(
-                            &precomputed,
-                            &mut record.headers,
-                        );
+                        // Check if record already has a traceparent (from FR-090 header propagation)
+                        let has_traceparent = record_arc
+                            .headers
+                            .keys()
+                            .any(|k| k.eq_ignore_ascii_case("traceparent"));
+
+                        if has_traceparent {
+                            preserved += 1;
+                        } else {
+                            let record = std::sync::Arc::make_mut(record_arc);
+                            trace_propagation::inject_precomputed_trace_context(
+                                &precomputed,
+                                &mut record.headers,
+                            );
+                            injected += 1;
+                        }
                     }
+
+                    debug!(
+                        "Job '{}': Trace injection: {} records preserved existing traceparent, {} injected batch context",
+                        job_name, preserved, injected
+                    );
                 } else {
                     warn!(
-                        "Job '{}': ⚠️  Batch span context is invalid, skipping trace injection",
+                        "Job '{}': Batch span context is invalid, skipping trace injection",
                         job_name
                     );
                 }
@@ -184,73 +184,53 @@ impl ObservabilityHelper {
         duration_ms: u64,
         metadata: Option<(&str, i32, i64)>, // (topic, partition, offset)
     ) {
-        if observability.is_some() {
-            debug!(
-                "Job '{}': Recording deserialization metrics (batch_size={}, duration={}ms)",
-                job_name, record_count, duration_ms
-            );
+        with_observability_try_lock(observability, |obs_lock| {
+            // Record telemetry span with Kafka metadata enrichment
+            if let Some(telemetry) = obs_lock.telemetry() {
+                let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
+                let mut span = telemetry.start_streaming_span(
+                    job_name,
+                    "deserialization",
+                    record_count as u64,
+                    parent_ctx,
+                );
+                span.set_processing_time(duration_ms);
 
-            with_observability_try_lock(observability, |obs_lock| {
-                // Record telemetry span with Kafka metadata enrichment
-                if let Some(telemetry) = obs_lock.telemetry() {
-                    let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
-                    let mut span = telemetry.start_streaming_span(
-                        job_name,
-                        "deserialization",
-                        record_count as u64,
-                        parent_ctx,
-                    );
-                    span.set_processing_time(duration_ms);
-
-                    // Attach Kafka metadata to the span if available
-                    if let Some((topic, partition, offset)) = metadata {
-                        span.set_kafka_metadata(topic, partition, offset);
-                    }
-
-                    span.set_success();
-                    debug!(
-                        "Job '{}': Telemetry span recorded for deserialization",
-                        job_name
-                    );
+                // Attach Kafka metadata to the span if available
+                if let Some((topic, partition, offset)) = metadata {
+                    span.set_kafka_metadata(topic, partition, offset);
                 }
 
-                // Record Prometheus metrics
-                if let Some(metrics) = obs_lock.metrics() {
-                    let throughput = calculate_throughput(record_count, duration_ms);
+                span.set_success();
+            }
 
-                    // Phase 2.1: Global streaming operation metrics
-                    metrics.record_streaming_operation(
-                        "deserialization",
-                        std::time::Duration::from_millis(duration_ms),
-                        record_count as u64,
-                        throughput,
-                    );
+            // Record Prometheus metrics
+            if let Some(metrics) = obs_lock.metrics() {
+                let throughput = calculate_throughput(record_count, duration_ms);
 
-                    // Phase 2.2: Job-aware profiling phase metrics
-                    metrics.record_profiling_phase(
-                        job_name,
-                        "deserialization",
-                        std::time::Duration::from_millis(duration_ms),
-                        record_count as u64,
-                        throughput,
-                    );
+                metrics.record_streaming_operation(
+                    "deserialization",
+                    std::time::Duration::from_millis(duration_ms),
+                    record_count as u64,
+                    throughput,
+                );
 
-                    debug!(
-                        "Job '{}': Metrics recorded for deserialization (throughput={:.2} rec/s)",
-                        job_name, throughput
-                    );
-                } else {
-                    warn!(
-                        "Job '{}': Observability manager present but NO metrics provider",
-                        job_name
-                    );
-                }
-                None::<()>
-            });
-        }
+                metrics.record_profiling_phase(
+                    job_name,
+                    "deserialization",
+                    std::time::Duration::from_millis(duration_ms),
+                    record_count as u64,
+                    throughput,
+                );
+            }
+            None::<()>
+        });
     }
 
     /// Record SQL processing telemetry and metrics
+    ///
+    /// # Arguments
+    /// * `query_sql` - Actual SQL query text for `db.operation` extraction (e.g., "SELECT ...", "CREATE STREAM ...")
     pub fn record_sql_processing(
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
@@ -258,6 +238,7 @@ impl ObservabilityHelper {
         batch_result: &BatchProcessingResultWithOutput,
         duration_ms: u64,
         query_metadata: Option<&QuerySpanMetadata>,
+        query_sql: &str,
     ) {
         with_observability_try_lock(observability, |obs_lock| {
             // Record telemetry span
@@ -265,7 +246,7 @@ impl ObservabilityHelper {
                 let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
                 let mut span = telemetry.start_sql_query_span(
                     job_name,
-                    "sql_processing",
+                    query_sql,
                     "stream_processor",
                     parent_ctx,
                 );
@@ -425,38 +406,6 @@ impl ObservabilityHelper {
             span.set_total_records(records_processed);
             span.set_batch_duration(batch_duration);
             span.set_success();
-        }
-    }
-
-    /// Record job-specific throughput metrics (Phase 2.4)
-    ///
-    /// # Arguments
-    /// * `observability` - Observability manager
-    /// * `job_name` - Name of the job/query
-    /// * `batch_duration_ms` - Duration of the batch in milliseconds
-    /// * `records_processed` - Number of records processed in the batch
-    pub fn record_batch_throughput(
-        observability: &Option<SharedObservabilityManager>,
-        job_name: &str,
-        batch_duration_ms: u64,
-        records_processed: u64,
-    ) {
-        if observability.is_some() {
-            with_observability_try_lock(observability, |obs_lock| {
-                if let Some(metrics) = obs_lock.metrics() {
-                    let throughput_rps =
-                        calculate_throughput(records_processed as usize, batch_duration_ms);
-
-                    // Phase 2.4: Job-specific throughput gauge
-                    metrics.record_throughput_by_job(job_name, throughput_rps);
-
-                    debug!(
-                        "Job '{}': Batch throughput recorded: {:.2} rec/s",
-                        job_name, throughput_rps
-                    );
-                }
-                None::<()>
-            });
         }
     }
 

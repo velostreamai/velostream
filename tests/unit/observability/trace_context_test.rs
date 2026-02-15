@@ -52,7 +52,7 @@ async fn test_batch_span_provides_context_when_active() {
     let telemetry = get_telemetry();
 
     // Create batch span
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
 
     // Verify span_context() returns valid SpanContext when active
     let span_context = batch_span.span_context();
@@ -82,7 +82,7 @@ async fn test_streaming_span_accepts_parent_context() {
     let telemetry = get_telemetry();
 
     // Create batch span (parent)
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
 
     // Extract parent context
     let parent_context = batch_span.span_context();
@@ -118,7 +118,7 @@ async fn test_sql_query_span_accepts_parent_context() {
     let telemetry = get_telemetry();
 
     // Create batch span (parent)
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
 
     // Extract parent context
     let parent_context = batch_span.span_context();
@@ -174,7 +174,7 @@ async fn test_multiple_children_can_extract_same_parent_context() {
     let telemetry = get_telemetry();
 
     // Create batch span (parent)
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
 
     // Extract parent context
     let parent_context = batch_span.span_context();
@@ -219,7 +219,7 @@ async fn test_span_context_method_exists_and_is_callable() {
     // This test verifies that the span_context() method exists and is callable
     // on BatchSpan, which is the key requirement for parent-child linking
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
 
     // The fact that this compiles proves the method exists
     let _ = batch_span.span_context();

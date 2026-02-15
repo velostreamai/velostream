@@ -498,6 +498,7 @@ impl TransactionalJobProcessor {
         stats.add_sql_time(sql_elapsed);
 
         // Record SQL processing telemetry
+        let query_sql = query.to_string();
         ObservabilityHelper::record_sql_processing(
             self.observability_wrapper.observability_ref(),
             job_name,
@@ -505,6 +506,7 @@ impl TransactionalJobProcessor {
             &batch_result,
             sql_duration,
             None,
+            &query_sql,
         );
 
         // Update stats from batch result BEFORE moving output_records
@@ -842,6 +844,9 @@ impl TransactionalJobProcessor {
             job_name
         );
 
+        // Pre-compute SQL text once for db.operation extraction in telemetry spans
+        let query_sql = query.to_string();
+
         let source_names = context.list_sources();
         if source_names.is_empty() {
             warn!("Job '{}': No sources available for processing", job_name);
@@ -1073,6 +1078,7 @@ impl TransactionalJobProcessor {
                 &batch_result,
                 sql_duration,
                 Some(query_metadata),
+                &query_sql,
             );
 
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!

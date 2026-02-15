@@ -450,6 +450,7 @@ impl PartitionReceiver {
                                 error_details: vec![],
                                 output_records: output_records.clone(),
                             };
+                            let query_sql = self.query.to_string();
                             ObservabilityHelper::record_sql_processing(
                                 self.observability_wrapper.observability_ref(),
                                 &self.job_name,
@@ -457,6 +458,7 @@ impl PartitionReceiver {
                                 &batch_result,
                                 sql_elapsed.as_millis() as u64,
                                 Some(&self.query_metadata),
+                                &query_sql,
                             );
 
                             // Write any pending DLQ entries asynchronously (fix for block_on panic)

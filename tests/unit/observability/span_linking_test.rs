@@ -29,7 +29,7 @@ mod span_linking_tests {
         let telemetry = create_test_telemetry("streaming-child-test").await;
 
         // Create parent batch span
-        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
         let parent_ctx = batch_span
             .span_context()
             .expect("batch should have context");
@@ -70,7 +70,7 @@ mod span_linking_tests {
     async fn test_sql_query_span_is_child_of_batch_span() {
         let telemetry = create_test_telemetry("sql-child-test").await;
 
-        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
         let parent_ctx = batch_span
             .span_context()
             .expect("batch should have context");
@@ -145,7 +145,7 @@ mod span_linking_tests {
         let telemetry = create_test_telemetry("pipeline-hierarchy-test").await;
 
         // Create batch span
-        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
         let parent_ctx = batch_span
             .span_context()
             .expect("batch should have context");
@@ -221,7 +221,7 @@ mod span_linking_tests {
     async fn test_job_lifecycle_span_is_child_of_parent() {
         let telemetry = create_test_telemetry("lifecycle-child-test").await;
 
-        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
         let parent_ctx = batch_span
             .span_context()
             .expect("batch should have context");
@@ -259,12 +259,12 @@ mod span_linking_tests {
     async fn test_independent_batches_have_separate_traces() {
         let telemetry = create_test_telemetry("independent-batches-test").await;
 
-        let batch1 = telemetry.start_batch_span("job-1", 1, None);
+        let batch1 = telemetry.start_batch_span("job-1", 1, None, Vec::new());
         let ctx1 = batch1.span_context().expect("batch1 should have context");
         let trace_id_1 = ctx1.trace_id();
         drop(batch1);
 
-        let batch2 = telemetry.start_batch_span("job-2", 2, None);
+        let batch2 = telemetry.start_batch_span("job-2", 2, None, Vec::new());
         let ctx2 = batch2.span_context().expect("batch2 should have context");
         let trace_id_2 = ctx2.trace_id();
         drop(batch2);
@@ -316,7 +316,7 @@ mod span_linking_tests {
     async fn test_sibling_spans_share_trace_id() {
         let telemetry = create_test_telemetry("sibling-spans-test").await;
 
-        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
         let parent_ctx = batch_span
             .span_context()
             .expect("batch should have context");
@@ -357,7 +357,7 @@ mod span_linking_tests {
     async fn test_batch_span_is_root_without_upstream() {
         let telemetry = create_test_telemetry("batch-root-test").await;
 
-        let batch_span = telemetry.start_batch_span("test-job", 1, None);
+        let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
         drop(batch_span);
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -383,7 +383,7 @@ mod span_linking_tests {
         let telemetry = create_test_telemetry("batch-upstream-test").await;
 
         // Create a "upstream" batch span to get a valid SpanContext
-        let upstream_span = telemetry.start_batch_span("upstream-job", 0, None);
+        let upstream_span = telemetry.start_batch_span("upstream-job", 0, None, Vec::new());
         let upstream_ctx = upstream_span
             .span_context()
             .expect("upstream should have context");
@@ -392,7 +392,8 @@ mod span_linking_tests {
         drop(upstream_span);
 
         // Create downstream batch span with upstream as parent
-        let downstream_span = telemetry.start_batch_span("downstream-job", 1, Some(upstream_ctx));
+        let downstream_span =
+            telemetry.start_batch_span("downstream-job", 1, Some(upstream_ctx), Vec::new());
         drop(downstream_span);
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

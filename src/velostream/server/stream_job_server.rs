@@ -369,8 +369,17 @@ impl StreamJobServer {
     }
 
     /// Get performance metrics (if monitoring is enabled)
+    ///
+    /// Uses the server-level ObservabilityManager which contains all SQL metrics,
+    /// error tracking gauges, and custom `@metric` annotations. All jobs share this
+    /// same manager via `Arc`, so it always has the complete metric set.
+    ///
+    /// If the ObservabilityManager lock cannot be acquired (brief write-lock
+    /// contention during job submission), returns `None` so Prometheus receives a
+    /// 503 and retries on the next scrape. This is preferable to falling back to a
+    /// different registry which would cause Prometheus stale-marker insertion for
+    /// any series not present in the fallback (e.g., `velo_error_message`).
     pub fn get_performance_metrics(&self) -> Option<String> {
-        // First try to get metrics from server-level ObservabilityManager (Phase 4)
         if let Some(obs_manager) = &self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if let Some(metrics_provider) = obs_lock.metrics() {
@@ -381,37 +390,28 @@ impl StreamJobServer {
                     // Export Prometheus metrics from the MetricsProvider
                     return metrics_provider.get_metrics_text().ok();
                 }
+            } else {
+                log::debug!(
+                    "get_performance_metrics: ObservabilityManager read lock contention, \
+                     returning None to avoid stale Prometheus series"
+                );
             }
         }
 
-        // Try to get metrics from any running job's ObservabilityManager
-        if let Ok(jobs) = self.jobs.try_read() {
-            for job in jobs.values() {
-                if let Some(job_obs) = &job.observability {
-                    if let Ok(obs_lock) = job_obs.try_read() {
-                        if let Some(metrics_provider) = obs_lock.metrics() {
-                            // Sync error metrics to Prometheus gauges before export
-                            // This ensures error buffer data is current in the exported metrics
-                            metrics_provider.sync_error_metrics();
-
-                            // Return metrics from the first job that has them
-                            // Note: All jobs share the same MetricsProvider via Arc, so any job's metrics will have all data
-                            return metrics_provider.get_metrics_text().ok();
-                        }
-                    }
-                }
-            }
+        // No observability manager configured — fall back to performance monitor
+        // (only reached when self.observability is None, NOT on lock contention)
+        if self.observability.is_none() {
+            return self
+                .performance_monitor
+                .as_ref()
+                .map(|monitor| monitor.export_prometheus_metrics());
         }
 
-        // Fall back to performance monitor metrics
-        self.performance_monitor
-            .as_ref()
-            .map(|monitor| monitor.export_prometheus_metrics())
+        None
     }
 
     /// Check if performance monitoring is enabled
     pub fn has_performance_monitoring(&self) -> bool {
-        // Check if server-level observability metrics are enabled (Phase 4)
         if let Some(obs_manager) = &self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if obs_lock.metrics().is_some() {
@@ -420,21 +420,8 @@ impl StreamJobServer {
             }
         }
 
-        // Check if any job has observability metrics enabled
-        if let Ok(jobs) = self.jobs.try_read() {
-            for job in jobs.values() {
-                if let Some(job_obs) = &job.observability {
-                    if let Ok(obs_lock) = job_obs.try_read() {
-                        if obs_lock.metrics().is_some() {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fall back to checking performance monitor
-        self.performance_monitor.is_some()
+        // Fall back to checking performance monitor only when no observability configured
+        self.observability.is_none() && self.performance_monitor.is_some()
     }
 
     /// Get performance health status

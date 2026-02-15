@@ -21,12 +21,15 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 // Use shared helpers from mod.rs
 use super::*;
 
-/// Helper to extract attribute value from span
+/// Helper to extract string attribute value from span
 fn get_attribute(span: &SpanData, key: &str) -> Option<String> {
     span.attributes
         .iter()
         .find(|kv| kv.key.as_str() == key)
-        .map(|kv| format!("{:?}", kv.value))
+        .and_then(|kv| match &kv.value {
+            opentelemetry::Value::String(s) => Some(s.to_string()),
+            _ => None,
+        })
 }
 
 /// Helper to extract numeric attribute value
@@ -103,19 +106,19 @@ async fn test_messaging_attributes_complete() {
     // Validate all messaging attributes
     assert_eq!(
         get_attribute(span, "messaging.system"),
-        Some("String(\"kafka\")".to_string()),
+        Some("kafka".to_string()),
         "Should have messaging.system=kafka"
     );
 
     assert_eq!(
         get_attribute(span, "messaging.operation"),
-        Some("String(\"process\")".to_string()),
+        Some("process".to_string()),
         "Should have messaging.operation=process"
     );
 
     assert_eq!(
         get_attribute(span, "messaging.destination.name"),
-        Some("String(\"market_data\")".to_string()),
+        Some("market_data".to_string()),
         "Should have messaging.destination.name (topic)"
     );
 
@@ -132,14 +135,14 @@ async fn test_messaging_attributes_complete() {
     );
 
     assert_eq!(
-        get_attribute(span, "messaging.kafka.consumer_group"),
-        Some("String(\"test_consumer_group\")".to_string()),
+        get_attribute(span, "messaging.kafka.consumer.group"),
+        Some("test_consumer_group".to_string()),
         "Should have messaging.kafka.consumer_group"
     );
 
     assert_eq!(
-        get_attribute(span, "messaging.kafka.message_key"),
-        Some("String(\"AAPL\")".to_string()),
+        get_attribute(span, "messaging.kafka.message.key"),
+        Some("AAPL".to_string()),
         "Should have messaging.kafka.message_key"
     );
 
@@ -183,25 +186,25 @@ async fn test_application_attributes_complete() {
     // Validate application attributes
     assert_eq!(
         get_attribute(span, "velostream.job_name"),
-        Some("String(\"market_data_processor\")".to_string()),
+        Some("market_data_processor".to_string()),
         "Should have velostream.job_name"
     );
 
     assert_eq!(
         get_attribute(span, "velostream.app_name"),
-        Some("String(\"trading_platform\")".to_string()),
+        Some("trading_platform".to_string()),
         "Should have velostream.app_name"
     );
 
     assert_eq!(
         get_attribute(span, "velostream.app_version"),
-        Some("String(\"1.2.3\")".to_string()),
+        Some("1.2.3".to_string()),
         "Should have velostream.app_version"
     );
 
     assert_eq!(
         get_attribute(span, "velostream.job_mode"),
-        Some("String(\"simple\")".to_string()),
+        Some("simple".to_string()),
         "Should have velostream.job_mode"
     );
 
@@ -256,9 +259,9 @@ async fn test_performance_timing_attributes() {
     );
 
     // Validate percentage breakdown (total = 10 + 50 + 5 = 65ms)
-    let deser_pct = get_float_attribute(span, "velostream.timing.deserialization_percent");
-    let exec_pct = get_float_attribute(span, "velostream.timing.execution_percent");
-    let ser_pct = get_float_attribute(span, "velostream.timing.serialization_percent");
+    let deser_pct = get_float_attribute(span, "velostream.timing.deserialization_pct");
+    let exec_pct = get_float_attribute(span, "velostream.timing.execution_pct");
+    let ser_pct = get_float_attribute(span, "velostream.timing.serialization_pct");
 
     assert!(deser_pct.is_some(), "Should have deserialization_percent");
     assert!(exec_pct.is_some(), "Should have execution_percent");
@@ -361,7 +364,7 @@ async fn test_error_rate_metrics() {
     );
 
     assert_eq!(
-        get_float_attribute(span, "velostream.errors.rate_percent"),
+        get_float_attribute(span, "velostream.errors.rate_pct"),
         Some(5.0),
         "Should have errors.rate_percent=5.0"
     );
@@ -413,13 +416,13 @@ async fn test_window_metrics() {
     );
 
     assert_eq!(
-        get_numeric_attribute(span, "velostream.window.records"),
+        get_numeric_attribute(span, "velostream.window.records_in_window"),
         Some(50),
         "Should have window.records=50"
     );
 
     assert_eq!(
-        get_numeric_attribute(span, "velostream.window.count"),
+        get_numeric_attribute(span, "velostream.window.windows_emitted"),
         Some(3),
         "Should have window.count=3 (windows emitted)"
     );
@@ -534,7 +537,7 @@ async fn test_job_mode_across_processors() {
         let span = &collected_spans[idx];
         assert_eq!(
             get_attribute(span, "velostream.job_mode"),
-            Some(format!("String(\"{}\")", mode)),
+            Some(mode.to_string()),
             "Span {} should have job_mode={}",
             idx,
             mode

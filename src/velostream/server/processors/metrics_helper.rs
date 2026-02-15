@@ -15,9 +15,6 @@ use crate::velostream::observability::label_extraction::{
     LabelExtractionConfig, extract_label_values,
 };
 use crate::velostream::observability::metrics::{MetricBatch, MetricsProvider};
-use crate::velostream::server::processors::observability_utils::{
-    extract_and_validate_labels, with_observability_lock,
-};
 use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::execution::FieldValue;

@@ -9,7 +9,7 @@ use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::TracingConfig;
 use opentelemetry::{
     KeyValue, global,
-    trace::{Span, SpanKind, Status, Tracer, TracerProvider as _},
+    trace::{Link, Span, SpanKind, Status, Tracer, TracerProvider as _},
 };
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
@@ -60,16 +60,6 @@ impl BaseSpan {
     /// Get mutable reference to the underlying span (if active)
     pub(crate) fn span_mut(&mut self) -> Option<&mut opentelemetry::global::BoxedSpan> {
         self.span.as_mut()
-    }
-
-    /// Check if this span is active
-    pub(crate) fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Get elapsed time since span creation
-    pub(crate) fn elapsed(&self) -> std::time::Duration {
-        self.start_time.elapsed()
     }
 
     /// Mark the span as successful
@@ -177,7 +167,7 @@ impl TelemetryProvider {
             ),
             KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
-                "0.1.0",
+                config.service_version.clone(),
             ),
         ]);
 
@@ -358,7 +348,7 @@ impl TelemetryProvider {
             ),
             opentelemetry::KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
-                "0.1.0",
+                config.service_version.clone(),
             ),
         ]);
 
@@ -533,6 +523,7 @@ impl TelemetryProvider {
         job_name: &str,
         batch_id: u64,
         upstream_context: Option<opentelemetry::trace::SpanContext>,
+        linked_contexts: Vec<opentelemetry::trace::SpanContext>,
     ) -> BatchSpan {
         if !self.active {
             return BatchSpan::new_inactive();
@@ -568,12 +559,18 @@ impl TelemetryProvider {
             ));
         }
 
+        // Build span links from additional upstream trace contexts
+        let links: Vec<Link> = linked_contexts
+            .into_iter()
+            .map(|ctx| Link::new(ctx, Vec::new()))
+            .collect();
+
         // Create span with upstream context if available for distributed tracing
-        let mut span = if let Some(parent_ctx) = upstream_context {
+        let span = if let Some(parent_ctx) = upstream_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
 
             log::debug!(
-                "🔗 Starting batch span as child of upstream trace: {} (parent_span={})",
+                "Starting batch span as child of upstream trace: {} (parent_span={})",
                 parent_ctx.trace_id(),
                 parent_ctx.span_id()
             );
@@ -584,17 +581,20 @@ impl TelemetryProvider {
             let parent_cx =
                 opentelemetry::Context::new().with_remote_span_context(parent_ctx.clone());
 
-            let child_span = tracer
+            let mut builder = tracer
                 .span_builder(format!("batch:{}", job_name))
-                .with_kind(SpanKind::Consumer) // Consumer span for Kafka message processing
-                .with_attributes(attributes)
-                .start_with_context(&tracer, &parent_cx);
+                .with_kind(SpanKind::Consumer)
+                .with_attributes(attributes);
+            if !links.is_empty() {
+                builder = builder.with_links(links);
+            }
+            let child_span = builder.start_with_context(&tracer, &parent_cx);
 
             // Verify child span was properly linked to parent
             let child_ctx = child_span.span_context();
             if child_ctx.trace_id() != parent_ctx.trace_id() {
                 log::warn!(
-                    "⚠️  Child span NOT linked to parent: child_trace={} != parent_trace={}",
+                    "Child span NOT linked to parent: child_trace={} != parent_trace={}",
                     child_ctx.trace_id(),
                     parent_ctx.trace_id()
                 );
@@ -609,16 +609,17 @@ impl TelemetryProvider {
 
             child_span
         } else {
-            log::debug!("🆕 Starting new trace for batch (no upstream context)");
+            log::debug!("Starting new trace for batch (no upstream context)");
 
-            tracer
+            let mut builder = tracer
                 .span_builder(format!("batch:{}", job_name))
                 .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start(&tracer)
+                .with_attributes(attributes);
+            if !links.is_empty() {
+                builder = builder.with_links(links);
+            }
+            builder.start(&tracer)
         };
-
-        span.set_status(Status::Ok);
 
         log::debug!("Batch span created: {} (batch #{})", job_name, batch_id,);
 
@@ -636,7 +637,7 @@ impl TelemetryProvider {
     ///
     /// # Example
     /// ```rust,ignore
-    /// let mut batch_span = telemetry.start_batch_span("job", 123, None);
+    /// let mut batch_span = telemetry.start_batch_span("job", 123, None, Vec::new());
     /// let mut deser_span = telemetry.start_pipeline_stage_span(
     ///     "deserialization",
     ///     batch_span.span_context()
@@ -744,7 +745,7 @@ impl TelemetryProvider {
         }
 
         // Create child span under parent context for proper span hierarchy
-        let mut span = if let Some(parent_ctx) = parent_context {
+        let span = if let Some(parent_ctx) = parent_context {
             if parent_ctx.is_valid() {
                 use opentelemetry::trace::{TraceContextExt, Tracer as _};
                 log::debug!(
@@ -772,7 +773,6 @@ impl TelemetryProvider {
                 .with_attributes(attributes)
                 .start(&tracer)
         };
-        span.set_status(Status::Ok);
 
         log::debug!(
             "🔍 Started SQL query span: {} from source: {} (child of parent, exporting to Tempo)",
@@ -827,7 +827,7 @@ impl TelemetryProvider {
         }
 
         // Create child span under parent context for proper span hierarchy
-        let mut span = if let Some(parent_ctx) = parent_context {
+        let span = if let Some(parent_ctx) = parent_context {
             if parent_ctx.is_valid() {
                 use opentelemetry::trace::{TraceContextExt, Tracer as _};
                 log::debug!(
@@ -855,7 +855,6 @@ impl TelemetryProvider {
                 .with_attributes(attributes)
                 .start(&tracer)
         };
-        span.set_status(Status::Ok);
 
         log::debug!(
             "🔍 Started streaming span: {} with {} records (child of parent, exporting to Tempo)",
@@ -863,7 +862,7 @@ impl TelemetryProvider {
             record_count
         );
 
-        StreamingSpan::new_active(span, record_count)
+        StreamingSpan::new_active(span)
     }
 
     /// Create a new trace span for job lifecycle events (submit, queue, execute, complete)
@@ -913,7 +912,7 @@ impl TelemetryProvider {
         }
 
         // Create child span under parent context for proper span hierarchy
-        let mut span = if let Some(parent_ctx) = parent_context {
+        let span = if let Some(parent_ctx) = parent_context {
             if parent_ctx.is_valid() {
                 use opentelemetry::trace::{TraceContextExt, Tracer as _};
                 log::debug!(
@@ -942,7 +941,6 @@ impl TelemetryProvider {
                 .with_attributes(attributes)
                 .start(&tracer)
         };
-        span.set_status(Status::Ok);
 
         log::info!(
             "📍 Job lifecycle event: {} -> {} (exporting to Tempo)",
@@ -950,21 +948,36 @@ impl TelemetryProvider {
             lifecycle_event
         );
 
-        StreamingSpan::new_active(span, 0)
+        StreamingSpan::new_active(span)
     }
 
     /// Extract operation name from SQL query for span naming
+    ///
+    /// For streaming queries like `CREATE STREAM ... AS SELECT ...`, extracts the
+    /// inner operation ("select") rather than the outer DDL wrapper ("create"),
+    /// since the SELECT is the meaningful operation for observability.
     fn extract_operation_name(query: &str) -> &str {
-        let query_trimmed = query.trim_start();
-        if query_trimmed.starts_with("SELECT") || query_trimmed.starts_with("select") {
+        let upper = query.trim_start().to_uppercase();
+        if upper.starts_with("SELECT") {
             "select"
-        } else if query_trimmed.starts_with("CREATE") || query_trimmed.starts_with("create") {
-            "create"
-        } else if query_trimmed.starts_with("INSERT") || query_trimmed.starts_with("insert") {
+        } else if upper.starts_with("CREATE") {
+            // For CREATE STREAM ... AS SELECT, the meaningful operation is the inner SELECT
+            // Handle various whitespace patterns between AS and SELECT
+            if let Some(as_pos) = upper.find(" AS ") {
+                let after_as = upper[as_pos + 4..].trim_start();
+                if after_as.starts_with("SELECT") {
+                    "select"
+                } else {
+                    "create"
+                }
+            } else {
+                "create"
+            }
+        } else if upper.starts_with("INSERT") {
             "insert"
-        } else if query_trimmed.starts_with("UPDATE") || query_trimmed.starts_with("update") {
+        } else if upper.starts_with("UPDATE") {
             "update"
-        } else if query_trimmed.starts_with("DELETE") || query_trimmed.starts_with("delete") {
+        } else if upper.starts_with("DELETE") {
             "delete"
         } else {
             "unknown"
@@ -1077,21 +1090,18 @@ impl QuerySpan {
 /// Streaming operation span wrapper
 pub struct StreamingSpan {
     base: BaseSpan,
-    record_count: u64,
 }
 
 impl StreamingSpan {
-    fn new_active(span: opentelemetry::global::BoxedSpan, record_count: u64) -> Self {
+    fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
         Self {
             base: BaseSpan::new_active(span),
-            record_count,
         }
     }
 
     fn new_inactive() -> Self {
         Self {
             base: BaseSpan::new_inactive(),
-            record_count: 0,
         }
     }
 
@@ -1215,6 +1225,10 @@ impl BatchSpan {
     }
 
     /// Set OpenTelemetry messaging semantic conventions for Kafka operations
+    ///
+    /// Note: messaging.system and messaging.operation are already set during
+    /// batch span creation in start_batch_span(). This method adds the
+    /// Kafka-specific context attributes (destination, partition, offset, etc.).
     pub fn set_messaging_attributes(
         &mut self,
         topic: &str,
@@ -1224,9 +1238,8 @@ impl BatchSpan {
         message_key: Option<&str>,
     ) {
         if let Some(span) = self.base.span_mut() {
-            // OpenTelemetry messaging semantic conventions
-            span.set_attribute(KeyValue::new("messaging.system", "kafka"));
-            span.set_attribute(KeyValue::new("messaging.operation", "process"));
+            // Kafka-specific messaging semantic conventions
+            // (messaging.system and messaging.operation already set in start_batch_span)
             span.set_attribute(KeyValue::new(
                 "messaging.destination.name",
                 topic.to_string(),
@@ -1407,7 +1420,7 @@ impl BatchSpan {
 /// # Example
 /// ```rust,ignore
 /// // Create parent batch span
-/// let mut batch_span = telemetry.start_batch_span("job_name", 123, None);
+/// let mut batch_span = telemetry.start_batch_span("job_name", 123, None, Vec::new());
 ///
 /// // Create child span for deserialization stage
 /// let mut deser_span = telemetry.start_pipeline_stage_span(
@@ -1516,6 +1529,7 @@ mod tests {
 
     #[test]
     fn test_extract_operation_name() {
+        // Basic operation types
         assert_eq!(
             TelemetryProvider::extract_operation_name("SELECT * FROM table"),
             "select"
@@ -1523,10 +1537,6 @@ mod tests {
         assert_eq!(
             TelemetryProvider::extract_operation_name("  select id from users"),
             "select"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("CREATE STREAM test"),
-            "create"
         );
         assert_eq!(
             TelemetryProvider::extract_operation_name("INSERT INTO table"),
@@ -1543,6 +1553,35 @@ mod tests {
         assert_eq!(
             TelemetryProvider::extract_operation_name("UNKNOWN QUERY"),
             "unknown"
+        );
+
+        // Plain CREATE (no inner SELECT) → "create"
+        assert_eq!(
+            TelemetryProvider::extract_operation_name("CREATE STREAM test"),
+            "create"
+        );
+        assert_eq!(
+            TelemetryProvider::extract_operation_name("CREATE TABLE foo (id INT)"),
+            "create"
+        );
+
+        // CREATE STREAM ... AS SELECT → "select" (the meaningful operation)
+        assert_eq!(
+            TelemetryProvider::extract_operation_name(
+                "CREATE STREAM market_data_ts AS SELECT * FROM in_market_data_stream"
+            ),
+            "select"
+        );
+        assert_eq!(
+            TelemetryProvider::extract_operation_name(
+                "create stream tick_buckets as select symbol, count(*) from market_data_ts group by symbol"
+            ),
+            "select"
+        );
+        // Extra whitespace between AS and SELECT
+        assert_eq!(
+            TelemetryProvider::extract_operation_name("CREATE STREAM foo AS   SELECT id FROM bar"),
+            "select"
         );
     }
 

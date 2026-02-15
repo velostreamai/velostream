@@ -84,7 +84,7 @@ async fn test_telemetry_provider_creates_spans_across_multiple_batches() {
 
     // Simulate 10 consecutive batch processing cycles
     for batch_id in 0..10u64 {
-        let batch_span = telemetry.start_batch_span("test-job", batch_id, None);
+        let batch_span = telemetry.start_batch_span("test-job", batch_id, None, Vec::new());
 
         // Verify each batch span is active (has a valid span context)
         let span_ctx = batch_span

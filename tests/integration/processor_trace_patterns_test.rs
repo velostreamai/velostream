@@ -382,13 +382,22 @@ async fn test_join_processor_trace_pattern() {
     assert!(span_ctx.is_valid());
     assert_ne!(span_ctx.trace_id(), TraceId::INVALID);
 
-    // Verify: ALL output records get new traceparent (including first record which gets overwritten)
+    // Verify: Records WITHOUT traceparent get batch span context injected
+    // Records WITH existing traceparent are preserved (per-record trace lineage)
     let injected_trace_id = span_ctx.trace_id().to_string();
     let injected_span_id = span_ctx.span_id().to_string();
 
-    for (i, record) in output_buffer.iter().enumerate() {
-        assert_traceparent_injected(record, &format!("join output record {}", i));
-        let tp = &record.headers["traceparent"];
+    // Record 0: had existing traceparent → should be PRESERVED
+    let first_tp = &output_buffer[0].headers["traceparent"];
+    assert_eq!(
+        first_tp, UPSTREAM_TRACEPARENT,
+        "First record's original traceparent should be preserved (per-record trace lineage)"
+    );
+
+    // Records 1, 2: had no traceparent → should get batch span context
+    for i in 1..output_buffer.len() {
+        assert_traceparent_injected(&output_buffer[i], &format!("join output record {}", i));
+        let tp = &output_buffer[i].headers["traceparent"];
         assert_eq!(
             extract_trace_id(tp),
             injected_trace_id,
@@ -402,13 +411,6 @@ async fn test_join_processor_trace_pattern() {
             i
         );
     }
-
-    // Verify: first record's original traceparent was overwritten
-    let first_tp = &output_buffer[0].headers["traceparent"];
-    assert_ne!(
-        first_tp, UPSTREAM_TRACEPARENT,
-        "First record's original traceparent should be overwritten with batch span's context"
-    );
 }
 
 // =============================================================================

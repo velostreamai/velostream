@@ -69,7 +69,7 @@ async fn test_batch_span_query_metadata_attributes() {
 
     // Create batch span, enrich, and drop to flush
     {
-        let mut span = telemetry.start_batch_span("test-job", 1, None);
+        let mut span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
         span.set_query_metadata(&metadata);
         span.set_success();
         // span dropped here, flushed to collector
@@ -145,7 +145,7 @@ async fn test_batch_span_kafka_record_metadata() {
 
     // Create batch span and set record metadata
     {
-        let mut span = telemetry.start_batch_span("test-kafka-job", 1, None);
+        let mut span = telemetry.start_batch_span("test-kafka-job", 1, None, Vec::new());
         span.set_input_topic("trades-topic");
         span.set_input_partition(3);
         span.set_message_key("AAPL");
@@ -242,7 +242,7 @@ async fn test_empty_metadata_sets_false_attributes() {
     let metadata = QuerySpanMetadata::empty();
 
     {
-        let mut span = telemetry.start_batch_span("empty-metadata-job", 1, None);
+        let mut span = telemetry.start_batch_span("empty-metadata-job", 1, None, Vec::new());
         span.set_query_metadata(&metadata);
         span.set_success();
     }
@@ -283,7 +283,7 @@ async fn test_enrich_batch_span_with_record_metadata_empty_batch() {
 
     // Enrich with empty batch — should not panic, kafka.* attributes absent
     {
-        let span = telemetry.start_batch_span("empty-batch-job", 1, None);
+        let span = telemetry.start_batch_span("empty-batch-job", 1, None, Vec::new());
         let empty_records: Vec<StreamRecord> = vec![];
         let mut opt_span = Some(span);
         ObservabilityHelper::enrich_batch_span_with_record_metadata(&mut opt_span, &empty_records);
@@ -326,7 +326,7 @@ async fn test_enrich_batch_span_with_non_string_topic_and_key() {
     record.partition = 7;
 
     {
-        let mut span = Some(telemetry.start_batch_span("non-string-job", 1, None));
+        let mut span = Some(telemetry.start_batch_span("non-string-job", 1, None, Vec::new()));
         ObservabilityHelper::enrich_batch_span_with_record_metadata(&mut span, &[record]);
         if let Some(s) = span.as_mut() {
             s.set_success();

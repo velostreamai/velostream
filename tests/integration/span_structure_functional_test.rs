@@ -182,6 +182,7 @@ async fn test_single_hop_full_span_tree_structure() {
         &batch_result,
         10, // duration_ms
         None,
+        "SELECT * FROM test",
     );
 
     // --- Step 4: Inject trace context into output records ---
@@ -442,6 +443,7 @@ async fn test_single_hop_error_path_span_structure() {
         &batch_result,
         15,
         None,
+        "SELECT * FROM test",
     );
 
     // --- Step 4: Serialization failure ---
@@ -602,6 +604,7 @@ async fn test_multi_hop_full_span_tree_with_inner_phases() {
             &batch_result,
             10,
             None,
+            "SELECT * FROM test",
         );
 
         // Inject trace context
@@ -810,6 +813,7 @@ async fn test_broken_chain_creates_independent_trace_with_full_tree() {
         &batch_result_1,
         10,
         None,
+        "SELECT * FROM test",
     );
 
     ObservabilityHelper::inject_trace_context_into_records(
@@ -863,6 +867,7 @@ async fn test_broken_chain_creates_independent_trace_with_full_tree() {
         &batch_result_2,
         10,
         None,
+        "SELECT * FROM test",
     );
 
     ObservabilityHelper::record_serialization_success(
@@ -1013,6 +1018,7 @@ async fn test_concurrent_batches_span_isolation() {
         &result_a,
         10,
         None,
+        "SELECT * FROM test",
     );
 
     // SQL for B
@@ -1024,6 +1030,7 @@ async fn test_concurrent_batches_span_isolation() {
         &result_b,
         10,
         None,
+        "SELECT * FROM test",
     );
 
     // Serialization for B first (out of order)

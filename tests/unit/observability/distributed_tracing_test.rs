@@ -56,7 +56,7 @@ fn get_telemetry() -> &'static TelemetryProvider {
 #[serial]
 async fn test_inject_trace_context_adds_traceparent_header() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
     let span_ctx = batch_span.span_context().expect("Should have span context");
 
     let mut headers = HashMap::new();
@@ -81,7 +81,7 @@ async fn test_inject_trace_context_adds_traceparent_header() {
 #[serial]
 async fn test_inject_trace_context_preserves_trace_id() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let batch_span = telemetry.start_batch_span("test-job", 1, None, Vec::new());
     let span_ctx = batch_span.span_context().expect("Should have span context");
 
     let expected_trace_id = span_ctx.trace_id().to_string();
@@ -210,7 +210,7 @@ fn test_extract_trace_context_zero_span_id() {
 #[serial]
 async fn test_trace_context_round_trip() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("round-trip-test", 1, None);
+    let batch_span = telemetry.start_batch_span("round-trip-test", 1, None, Vec::new());
     let original_ctx = batch_span.span_context().expect("Should have span context");
 
     let original_trace_id = original_ctx.trace_id();
@@ -241,7 +241,7 @@ async fn test_trace_context_round_trip() {
 #[serial]
 async fn test_trace_context_round_trip_preserves_flags() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("flags-test", 1, None);
+    let batch_span = telemetry.start_batch_span("flags-test", 1, None, Vec::new());
     let original_ctx = batch_span.span_context().expect("Should have span context");
 
     let original_flags = original_ctx.trace_flags();
@@ -267,7 +267,7 @@ async fn test_trace_context_round_trip_preserves_flags() {
 #[serial]
 async fn test_observability_helper_injects_trace_into_output_records() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("inject-test", 1, None);
+    let batch_span = telemetry.start_batch_span("inject-test", 1, None, Vec::new());
     let batch_span_opt = Some(batch_span);
 
     // Create output records without headers
@@ -324,7 +324,7 @@ async fn test_observability_helper_no_injection_without_span() {
 #[serial]
 async fn test_observability_helper_all_records_get_same_trace_id() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("same-trace-test", 1, None);
+    let batch_span = telemetry.start_batch_span("same-trace-test", 1, None, Vec::new());
     let batch_span_opt = Some(batch_span);
 
     let mut output_records: Vec<Arc<StreamRecord>> = vec![
@@ -366,7 +366,7 @@ async fn test_start_batch_span_extracts_upstream_context() {
     let telemetry = get_telemetry();
 
     // Create an upstream span and inject its context into a record
-    let upstream_span = telemetry.start_batch_span("upstream-job", 1, None);
+    let upstream_span = telemetry.start_batch_span("upstream-job", 1, None, Vec::new());
     let upstream_ctx = upstream_span.span_context().expect("Should have context");
     let _upstream_trace_id = upstream_ctx.trace_id();
 
@@ -434,7 +434,7 @@ async fn test_end_to_end_trace_propagation_through_pipeline() {
     let telemetry = get_telemetry();
 
     // Stage 1: Upstream producer creates a trace
-    let upstream_span = telemetry.start_batch_span("producer", 1, None);
+    let upstream_span = telemetry.start_batch_span("producer", 1, None, Vec::new());
     let upstream_ctx = upstream_span.span_context().expect("Should have context");
 
     // Inject into "Kafka message"
@@ -483,7 +483,7 @@ async fn test_end_to_end_trace_propagation_through_pipeline() {
 #[serial]
 async fn test_trace_context_injection_is_idempotent() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("idempotent-test", 1, None);
+    let batch_span = telemetry.start_batch_span("idempotent-test", 1, None, Vec::new());
     let batch_span_opt = Some(batch_span);
 
     let mut output_records: Vec<Arc<StreamRecord>> = vec![Arc::new(create_test_record())];
@@ -514,7 +514,7 @@ async fn test_trace_context_injection_is_idempotent() {
 #[serial]
 async fn test_empty_output_records_no_panic() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("empty-test", 1, None);
+    let batch_span = telemetry.start_batch_span("empty-test", 1, None, Vec::new());
     let batch_span_opt = Some(batch_span);
 
     let mut output_records: Vec<Arc<StreamRecord>> = vec![];
@@ -529,11 +529,9 @@ async fn test_empty_output_records_no_panic() {
 
 #[tokio::test]
 #[serial]
-async fn test_record_with_existing_traceparent_gets_overwritten() {
+async fn test_record_with_existing_traceparent_is_preserved() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("overwrite-test", 1, None);
-    let span_ctx = batch_span.span_context().expect("Should have context");
-    let expected_trace_id = span_ctx.trace_id().to_string();
+    let batch_span = telemetry.start_batch_span("preserve-test", 1, None, Vec::new());
     let batch_span_opt = Some(batch_span);
 
     // Record with a pre-existing (different) traceparent
@@ -548,13 +546,12 @@ async fn test_record_with_existing_traceparent_gets_overwritten() {
         "test-job",
     );
 
-    let new_traceparent = &output_records[0].headers["traceparent"];
-    let new_trace_id: &str = new_traceparent.split('-').nth(1).unwrap();
+    let preserved_traceparent = &output_records[0].headers["traceparent"];
 
-    // Should be overwritten with the batch span's trace ID
+    // Records with existing traceparent should preserve it (per-record trace lineage)
     assert_eq!(
-        new_trace_id, expected_trace_id,
-        "Should overwrite existing traceparent with batch span's trace"
+        preserved_traceparent, old_traceparent,
+        "Should preserve existing traceparent, not overwrite with batch span's trace"
     );
 }
 

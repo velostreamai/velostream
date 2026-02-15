@@ -679,6 +679,9 @@ impl SimpleJobProcessor {
     ) -> DataSourceResult<()> {
         debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
+        // Pre-compute SQL text once for db.operation extraction in telemetry spans
+        let query_sql = query.to_string();
+
         let source_names = context.list_sources();
         if source_names.is_empty() {
             debug!("Job '{}': No sources available for processing", job_name);
@@ -725,6 +728,16 @@ impl SimpleJobProcessor {
             total_deser_ms += deser_duration;
 
             source_batches.push((source_name.clone(), batch, deser_duration));
+        }
+
+        // Skip batch span creation for empty batches to avoid 0ms noise in Tempo
+        let has_data = source_batches.iter().any(|(_, batch, _)| !batch.is_empty());
+        if !has_data {
+            debug!(
+                "Job '{}': All source batches empty - skipping batch (no span created)",
+                job_name
+            );
+            return Ok(());
         }
 
         // Create parent batch span for the overall multi-source batch operation
@@ -774,26 +787,13 @@ impl SimpleJobProcessor {
             first_batch,
         );
 
-        // Now process all collected batches with per-source batch spans
+        // Now process all collected batches under the parent batch span
         for (source_name, batch, deser_duration) in source_batches {
-            // Create per-source batch span linked to parent batch span for proper tracing
-            // This ensures each source's data is traced independently while maintaining parent-child relationship
-            debug!(
-                "🔗 Creating per-source batch span for source '{}' linked to parent batch span",
-                source_name
-            );
-            let source_batch_span_guard = ObservabilityHelper::start_batch_span(
-                self.observability_wrapper.observability_ref(),
-                &format!("{} (source: {})", job_name, source_name),
-                stats.batches_processed,
-                if !batch.is_empty() { &batch } else { &[] },
-            );
-
-            // Record deserialization telemetry and metrics on per-source span
+            // Record deserialization telemetry and metrics as child of parent batch span
             ObservabilityHelper::record_deserialization(
                 self.observability_wrapper.observability_ref(),
                 job_name,
-                &source_batch_span_guard,
+                &parent_batch_span_guard,
                 batch.len(),
                 deser_duration,
                 None,
@@ -826,14 +826,15 @@ impl SimpleJobProcessor {
             // Accumulate execution time for performance breakdown
             total_exec_ms += sql_duration;
 
-            // Record SQL processing telemetry and metrics on per-source span
+            // Record SQL processing telemetry and metrics as child of parent batch span
             ObservabilityHelper::record_sql_processing(
                 self.observability_wrapper.observability_ref(),
                 job_name,
-                &source_batch_span_guard,
+                &parent_batch_span_guard,
                 &batch_result,
                 sql_duration,
                 Some(query_metadata),
+                &query_sql,
             );
 
             total_records_processed += batch_result.records_processed;
