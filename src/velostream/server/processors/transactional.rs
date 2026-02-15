@@ -976,6 +976,24 @@ impl TransactionalJobProcessor {
             source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
+        // Skip batch span creation for empty batches to avoid 0ms noise in Tempo
+        let has_data = source_batches.iter().any(|(_, batch, _)| !batch.is_empty());
+        if !has_data {
+            debug!(
+                "Job '{}': All source batches empty - committing transactions and skipping batch (no span created)",
+                job_name
+            );
+            // Commit empty transactions to maintain transactional consistency
+            self.commit_multi_source_transactions(
+                context,
+                &active_reader_transactions,
+                &active_writer_transactions,
+                job_name,
+            )
+            .await?;
+            return Ok(());
+        }
+
         // Create batch span with trace context from first non-empty batch
         let first_batch = source_batches
             .iter()
