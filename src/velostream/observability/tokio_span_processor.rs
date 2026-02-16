@@ -84,6 +84,11 @@ pub struct TokioSpanProcessor {
     sender: tokio::sync::mpsc::Sender<SpanData>,
     control_tx: tokio::sync::mpsc::Sender<ControlMessage>,
     dropped_count: Arc<AtomicUsize>,
+    /// Approximate number of spans pending in the queue + export buffer.
+    /// Incremented on successful `try_send`, decremented after export.
+    pending_count: Arc<AtomicUsize>,
+    /// Maximum queue capacity, used for computing queue pressure ratio.
+    max_queue_size: usize,
 }
 
 impl fmt::Debug for TokioSpanProcessor {
@@ -112,13 +117,16 @@ impl TokioSpanProcessor {
             panic!("TokioSpanProcessorConfig validation failed: {}", msg);
         }
 
-        let (sender, receiver) = tokio::sync::mpsc::channel(config.max_queue_size);
+        let max_queue_size = config.max_queue_size;
+        let (sender, receiver) = tokio::sync::mpsc::channel(max_queue_size);
         let (control_tx, control_rx) = tokio::sync::mpsc::channel(4);
         let dropped_count = Arc::new(AtomicUsize::new(0));
+        let pending_count = Arc::new(AtomicUsize::new(0));
+        let pending_count_export = pending_count.clone();
 
         tokio::spawn(async move {
             log::info!("TokioSpanProcessor: export loop started");
-            export_loop(receiver, control_rx, exporter, config).await;
+            export_loop(receiver, control_rx, exporter, config, pending_count_export).await;
             log::info!("TokioSpanProcessor: export loop ended");
         });
 
@@ -126,12 +134,40 @@ impl TokioSpanProcessor {
             sender,
             control_tx,
             dropped_count,
+            pending_count,
+            max_queue_size,
         }
     }
 
     /// Get the number of spans dropped due to queue full or channel closed.
     pub fn dropped_count(&self) -> usize {
         self.dropped_count.load(Ordering::Relaxed)
+    }
+
+    /// Get the approximate number of spans currently pending (queued + in-flight).
+    pub fn pending_count(&self) -> usize {
+        self.pending_count.load(Ordering::Relaxed)
+    }
+
+    /// Get the maximum queue capacity.
+    pub fn queue_capacity(&self) -> usize {
+        self.max_queue_size
+    }
+
+    /// Queue pressure as a ratio from 0.0 (empty) to 1.0+ (full/overflowing).
+    ///
+    /// Values above 0.8 indicate the queue is nearing capacity and adaptive
+    /// sampling should reduce the trace rate to avoid span drops.
+    pub fn queue_pressure(&self) -> f64 {
+        self.pending_count.load(Ordering::Relaxed) as f64 / self.max_queue_size.max(1) as f64
+    }
+
+    /// Get a clone of the internal pending count handle.
+    ///
+    /// This allows external code (e.g., TelemetryProvider) to monitor queue
+    /// pressure after the processor has been moved into a TracerProvider.
+    pub fn pending_count_handle(&self) -> Arc<AtomicUsize> {
+        self.pending_count.clone()
     }
 }
 
@@ -145,6 +181,7 @@ async fn export_loop<E>(
     mut control_rx: tokio::sync::mpsc::Receiver<ControlMessage>,
     mut exporter: E,
     config: TokioSpanProcessorConfig,
+    pending_count: Arc<AtomicUsize>,
 ) where
     E: SpanExporter + 'static,
 {
@@ -166,13 +203,13 @@ async fn export_loop<E>(
                         buffer.push(span);
                         // If buffer is full, flush immediately
                         if buffer.len() >= max_batch {
-                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout).await;
+                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout, &pending_count).await;
                         }
                     }
                     None => {
                         // Channel closed (shutdown) — flush remaining spans
                         if !buffer.is_empty() {
-                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout).await;
+                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout, &pending_count).await;
                         }
                         log::info!("TokioSpanProcessor: channel closed, export loop exiting");
                         return;
@@ -184,7 +221,7 @@ async fn export_loop<E>(
                 match maybe_ctrl {
                     Some(ControlMessage::Flush(ack)) => {
                         if !buffer.is_empty() {
-                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout).await;
+                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout, &pending_count).await;
                         }
                         let _ = ack.send(());
                     }
@@ -195,7 +232,7 @@ async fn export_loop<E>(
                             buffer.push(span);
                         }
                         if !buffer.is_empty() {
-                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout).await;
+                            flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout, &pending_count).await;
                         }
                         let _ = ack.send(());
                         log::info!("TokioSpanProcessor: shutdown complete, export loop exiting");
@@ -210,7 +247,7 @@ async fn export_loop<E>(
             // Periodic flush
             _ = interval.tick() => {
                 if !buffer.is_empty() {
-                    flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout).await;
+                    flush_buffer(&mut buffer, &mut exporter, max_batch, export_timeout, &pending_count).await;
                 }
             }
         }
@@ -226,6 +263,7 @@ async fn flush_buffer<E>(
     exporter: &mut E,
     max_batch_size: usize,
     export_timeout: Duration,
+    pending_count: &AtomicUsize,
 ) where
     E: SpanExporter + 'static,
 {
@@ -264,6 +302,8 @@ async fn flush_buffer<E>(
                 );
             }
         }
+        // Decrement pending count after export (regardless of success/failure)
+        pending_count.fetch_sub(batch_len, Ordering::Relaxed);
     }
 
     log::debug!("TokioSpanProcessor: flushed {} spans total", total);
@@ -276,16 +316,21 @@ impl SpanProcessor for TokioSpanProcessor {
 
     fn on_end(&self, span: SpanData) {
         // Non-blocking send; drop span if queue is full
-        if let Err(e) = self.sender.try_send(span) {
-            self.dropped_count.fetch_add(1, Ordering::Relaxed);
-            match e {
-                tokio::sync::mpsc::error::TrySendError::Full(_) => {
-                    log::debug!("TokioSpanProcessor: queue full, dropping span");
-                }
-                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
-                    log::warn!(
-                        "TokioSpanProcessor: channel closed, dropping span (export loop may have exited)"
-                    );
+        match self.sender.try_send(span) {
+            Ok(()) => {
+                self.pending_count.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(e) => {
+                self.dropped_count.fetch_add(1, Ordering::Relaxed);
+                match e {
+                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                        log::debug!("TokioSpanProcessor: queue full, dropping span");
+                    }
+                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                        log::warn!(
+                            "TokioSpanProcessor: channel closed, dropping span (export loop may have exited)"
+                        );
+                    }
                 }
             }
         }

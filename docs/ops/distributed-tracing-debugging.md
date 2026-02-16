@@ -193,12 +193,23 @@ let provider = TracerProvider::builder()
 
 **Cause**: High sampling ratio in development
 
-**Solution**: Velostream uses head-based per-record sampling controlled by the `sampling_ratio` configuration. Reduce it to lower the number of traces:
+**Solution**: Use a named sampling mode to set the ratio and export pipeline together:
 
-```yaml
-# In tracing config - sample 10% of new traces
-sampling_ratio: 0.1
+```bash
+# Recommended: use --sampling-mode to set ratio + flush interval + export timeout
+velo-sql deploy-app --file app.sql --enable-tracing --sampling-mode prod   # 1% sampling
+velo-sql deploy-app --file app.sql --enable-tracing --sampling-mode staging # 25% (default)
+
+# Override ratio while keeping the mode's flush/timeout settings
+velo-sql deploy-app --file app.sql --enable-tracing --sampling-mode prod --sampling-ratio 0.05
 ```
+
+| Mode | Ratio | Flush Interval | Export Timeout | Use Case |
+|------|-------|----------------|----------------|----------|
+| `debug` | 1.0 (100%) | 500ms | 5s | Full visibility, local dev |
+| `dev` | 0.5 (50%) | 1000ms | 5s | Team dev environments |
+| `staging` | 0.25 (25%) | 2000ms | 10s | Pre-prod validation (**default**) |
+| `prod` | 0.01 (1%) | 5000ms | 30s | Live traffic |
 
 **How sampling works**:
 - Records with an existing `traceparent` flag `01` → always sampled (continue chain)
@@ -218,6 +229,27 @@ If you need to propagate trace context to **non-Kafka** downstream services (e.g
 SELECT HEADER('traceparent') as trace_context, ...
 FROM my_stream;
 ```
+
+### Issue: Span drops under high load
+
+**Cause**: Export queue full — spans are produced faster than the OTLP exporter can send them.
+
+**Solution**: Velostream includes adaptive backpressure. When the span export queue exceeds 80% capacity, the effective sampling ratio is automatically reduced (floored at 5% of the base ratio). This is logged at `debug` level:
+
+```
+Adaptive sampling: pressure=0.85, base=0.25, effective=0.0375
+```
+
+You can also tune the export pipeline via `TracingConfig`:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `max_queue_size` | 65536 | Max spans queued before dropping |
+| `max_export_batch_size` | 2048 | Spans per export HTTP call |
+| `export_flush_interval_ms` | 2000 | Interval between batch flushes |
+| `export_timeout_seconds` | 10 | Timeout per export call |
+
+OTLP HTTP payloads are gzip-compressed automatically (typically 5-10x reduction).
 
 ## Performance Monitoring
 

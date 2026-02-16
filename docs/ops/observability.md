@@ -487,13 +487,25 @@ The observability system consists of three main components:
 pub struct TracingConfig {
     pub service_name: String,           // Service identifier
     pub sampling_ratio: f64,            // Trace sampling rate (0.0-1.0)
+    pub sampling_mode: SamplingMode,    // Named mode (Debug/Dev/Staging/Production)
     pub enable_console_output: bool,    // Enable console logging
     pub otlp_endpoint: Option<String>,  // OpenTelemetry endpoint
+    pub export_flush_interval_ms: u64,  // Batch flush interval
+    pub export_timeout_seconds: u64,    // Export HTTP timeout
 }
 
+// Named modes (set ratio + flush + timeout together)
+// SamplingMode::Debug      — 100%, 500ms flush, 5s timeout
+// SamplingMode::Dev        — 50%, 1s flush, 5s timeout
+// SamplingMode::Staging    — 25%, 2s flush, 10s timeout (default)
+// SamplingMode::Production — 1%, 5s flush, 30s timeout
+
 // Presets
-TracingConfig::development()  // Full sampling, console output
-TracingConfig::production()   // Low sampling, OTLP export
+TracingConfig::development()  // Debug mode: full sampling, 500ms flush, console output
+TracingConfig::production()   // Production mode: 1% sampling, 5s flush, 30s timeout
+
+// Builder — apply mode then optionally override ratio
+TracingConfig::default().with_sampling_mode(SamplingMode::Dev)
 ```
 
 #### PrometheusConfig

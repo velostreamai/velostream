@@ -1,5 +1,6 @@
 // === PHASE 4: OPENTELEMETRY DISTRIBUTED TRACING ===
 
+use crate::velostream::observability::gzip_http_client::GzipHttpClient;
 use crate::velostream::observability::span_collector::CollectingSpanProcessor;
 use crate::velostream::observability::tokio_span_processor::{
     TokioSpanProcessor, TokioSpanProcessorConfig,
@@ -17,6 +18,7 @@ use opentelemetry_sdk::{
     trace::{RandomIdGenerator, Sampler, SpanProcessor, TracerProvider},
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 /// Base span wrapper with common timing and status functionality
@@ -101,6 +103,10 @@ pub struct TelemetryProvider {
     deployment_region: Option<String>,
     /// Span collector for testing (when no OTLP endpoint is configured)
     span_collector: Option<CollectingSpanProcessor>,
+    /// Pending span count from TokioSpanProcessor (for queue pressure)
+    queue_pending_count: Option<Arc<AtomicUsize>>,
+    /// Maximum queue capacity (for computing pressure ratio)
+    queue_capacity: usize,
 }
 
 impl TelemetryProvider {
@@ -154,6 +160,8 @@ impl TelemetryProvider {
         };
 
         let mut span_collector_ref: Option<CollectingSpanProcessor> = None;
+        let mut queue_pending_count: Option<Arc<AtomicUsize>> = None;
+        let mut queue_capacity: usize = 0;
 
         let provider = if let Some(endpoint) = otlp_endpoint {
             // Derive HTTP endpoint from gRPC endpoint for OTLP/HTTP export
@@ -164,15 +172,16 @@ impl TelemetryProvider {
                 endpoint.clone()
             };
 
-            // Create OTLP HTTP exporter (more reliable than gRPC for local deployments)
+            // Create OTLP HTTP exporter with gzip compression
             match opentelemetry_otlp::new_exporter()
                 .http()
                 .with_endpoint(&http_endpoint)
+                .with_http_client(GzipHttpClient::new())
                 .build_span_exporter()
             {
                 Ok(exporter) => {
                     log::info!(
-                        "✅ OTLP HTTP exporter created successfully for {}",
+                        "✅ OTLP HTTP exporter created successfully for {} (gzip enabled)",
                         http_endpoint
                     );
 
@@ -182,12 +191,20 @@ impl TelemetryProvider {
                     let processor = TokioSpanProcessor::new(
                         exporter,
                         TokioSpanProcessorConfig {
-                            max_queue_size: 65536,
-                            max_export_batch_size: 1024,
-                            scheduled_delay: std::time::Duration::from_millis(2000),
-                            export_timeout: std::time::Duration::from_secs(10),
+                            max_queue_size: config.max_queue_size,
+                            max_export_batch_size: config.max_export_batch_size,
+                            scheduled_delay: std::time::Duration::from_millis(
+                                config.export_flush_interval_ms,
+                            ),
+                            export_timeout: std::time::Duration::from_secs(
+                                config.export_timeout_seconds,
+                            ),
                         },
                     );
+
+                    // Extract queue pressure handle before moving processor into provider
+                    queue_pending_count = Some(processor.pending_count_handle());
+                    queue_capacity = processor.queue_capacity();
 
                     TracerProvider::builder()
                         .with_span_processor(processor)
@@ -244,6 +261,8 @@ impl TelemetryProvider {
             deployment_node_name: None,
             deployment_region: None,
             span_collector: span_collector_ref,
+            queue_pending_count,
+            queue_capacity,
         })
     }
 
@@ -443,6 +462,8 @@ impl TelemetryProvider {
             deployment_node_name: None,
             deployment_region: None,
             span_collector: span_collector_ref,
+            queue_pending_count: None,
+            queue_capacity: 0,
         };
 
         Ok((provider_instance, exporter_ref))
@@ -743,6 +764,18 @@ impl TelemetryProvider {
             collector.span_count()
         } else {
             0
+        }
+    }
+
+    /// Queue pressure ratio (0.0 = empty, 1.0 = full).
+    ///
+    /// Returns 0.0 when no OTLP exporter is configured (test mode).
+    pub fn queue_pressure(&self) -> f64 {
+        if let Some(pending) = &self.queue_pending_count {
+            let count = pending.load(Ordering::Relaxed) as f64;
+            count / self.queue_capacity.max(1) as f64
+        } else {
+            0.0
         }
     }
 }

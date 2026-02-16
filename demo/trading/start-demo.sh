@@ -527,11 +527,12 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     for app in "$DEPLOY_APPS_DIR"/*.sql; do
         app_name=$(basename "$app" .sql)
         print_timestamp "Deploying $app_name on metrics port $METRICS_PORT..."
-        echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file $app --enable-tracing --enable-metrics --metrics-port $METRICS_PORT --enable-profiling --enable-remote-write --remote-write-endpoint http://localhost:9090/api/v1/write${NC}"
+        echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file $app --enable-tracing --sampling-mode dev --enable-metrics --metrics-port $METRICS_PORT --enable-profiling --enable-remote-write --remote-write-endpoint http://localhost:9090/api/v1/write${NC}"
 
         $VELO_BUILD_DIR/velo-sql deploy-app \
             --file "$app" \
             --enable-tracing \
+            --sampling-mode dev \
             --enable-metrics \
             --metrics-port $METRICS_PORT \
             --enable-profiling \
@@ -565,6 +566,7 @@ else
         $VELO_BUILD_DIR/velo-sql deploy-app \
             --file "$app" \
             --enable-tracing \
+            --sampling-mode dev \
             --enable-metrics \
             --metrics-port $METRICS_PORT \
             --enable-profiling \
@@ -628,7 +630,7 @@ echo -e "  • Kafka UI:   ${GREEN}http://localhost:8090${NC}"
 echo ""
 echo -e "${BLUE}🔍 Observability${NC}"
 echo -e "  • Velostream Metrics: ${GREEN}http://localhost:9101/metrics${NC} ${BLUE}(Prometheus format)${NC}"
-echo -e "  • Distributed Tracing: ${GREEN}ENABLED${NC} ${BLUE}(100% sampling)${NC}"
+echo -e "  • Distributed Tracing: ${GREEN}ENABLED${NC} ${BLUE}(dev mode, 50% sampling)${NC}"
 echo -e "  • Performance Profiling: ${GREEN}ENABLED${NC}"
 echo ""
 echo -e "${YELLOW}Grafana Dashboards:${NC}"

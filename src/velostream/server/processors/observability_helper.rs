@@ -31,6 +31,32 @@ impl ObservabilityHelper {
             .unwrap_or(0.0)
     }
 
+    /// Get the effective sampling ratio, reduced under queue pressure.
+    ///
+    /// When the span export queue exceeds 80% capacity, the sampling ratio is
+    /// linearly reduced (floored at 5% of base) to prevent span drops.
+    /// This provides adaptive backpressure without losing all observability.
+    pub fn effective_sampling_ratio(observability: &Option<SharedObservabilityManager>) -> f64 {
+        with_observability_try_lock(observability, |obs_lock| {
+            let base = obs_lock.sampling_ratio();
+            let pressure = obs_lock.queue_pressure();
+            if pressure > 0.8 {
+                // Linearly reduce when queue >80% full; floor at 5% of base
+                let reduced = base * (1.0 - pressure).max(0.05);
+                log::debug!(
+                    "Adaptive sampling: pressure={:.2}, base={:.2}, effective={:.4}",
+                    pressure,
+                    base,
+                    reduced
+                );
+                Some(reduced)
+            } else {
+                Some(base)
+            }
+        })
+        .unwrap_or(0.0)
+    }
+
     /// Create a per-record processing span for a sampled record.
     ///
     /// Only call this for records that passed the sampling decision.

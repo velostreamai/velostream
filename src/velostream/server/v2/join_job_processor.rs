@@ -313,7 +313,7 @@ impl JoinJobProcessor {
         // Get sampling ratio once for the entire join job.
         // Only run sampling/injection when tracing is enabled.
         let tracing_enabled = observability.is_some();
-        let sampling_ratio = ObservabilityHelper::sampling_ratio(&observability);
+        let sampling_ratio = ObservabilityHelper::effective_sampling_ratio(&observability);
         let job_name_for_spans = job_name_for_metrics.as_deref().unwrap_or("join");
 
         // Process records as they arrive

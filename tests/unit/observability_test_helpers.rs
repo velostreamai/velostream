@@ -289,6 +289,7 @@ pub fn create_test_tracing_config() -> TracingConfig {
         enable_console_output: false,
         max_span_duration_seconds: 300,
         batch_export_timeout_ms: 30000,
+        ..TracingConfig::default()
     }
 }
 
@@ -311,5 +312,6 @@ pub fn create_test_tracing_config_with_name(service_name: &str) -> TracingConfig
         enable_console_output: false,
         max_span_duration_seconds: 300,
         batch_export_timeout_ms: 30000,
+        ..TracingConfig::default()
     }
 }

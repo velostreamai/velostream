@@ -62,6 +62,7 @@ async fn make_obs(sampling_ratio: f64) -> SharedObservabilityManager {
         enable_console_output: false,
         max_span_duration_seconds: 300,
         batch_export_timeout_ms: 30000,
+        ..TracingConfig::default()
     };
     let streaming_config = StreamingConfig::default().with_tracing_config(tracing_config);
     let mut manager = ObservabilityManager::from_streaming_config(streaming_config);

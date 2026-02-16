@@ -5,7 +5,7 @@
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::{
-    ProfilingConfig, PrometheusConfig, StreamingConfig, TracingConfig,
+    ProfilingConfig, PrometheusConfig, SamplingMode, StreamingConfig, TracingConfig,
 };
 use log::debug;
 
@@ -67,7 +67,9 @@ impl ObservabilityConfigExtractor {
                     debug!("Extracted from SQL annotation: observability.tracing.enabled = true");
 
                     if config.tracing_config.is_none() {
-                        config.tracing_config = Some(TracingConfig::development());
+                        let mut tc = TracingConfig::default().with_sampling_mode(SamplingMode::Dev);
+                        tc.otlp_endpoint = Some("http://localhost:4317".to_string());
+                        config.tracing_config = Some(tc);
                     }
                 }
             }

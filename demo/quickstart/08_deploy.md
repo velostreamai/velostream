@@ -117,7 +117,8 @@ docker-compose up -d kafka
 | `--enable-metrics` | Enable Prometheus metrics |
 | `--metrics-port` | Metrics port (default: 9091) |
 | `--enable-tracing` | Enable OpenTelemetry tracing |
-| `--sampling-ratio` | Trace sampling (0.0-1.0) |
+| `--sampling-mode` | Sampling mode: debug, dev, staging (default), prod |
+| `--sampling-ratio` | Trace sampling ratio override (0.0-1.0) |
 | `--no-monitor` | Exit after deploy (don't wait) |
 
 ### velo-sql server

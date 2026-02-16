@@ -680,8 +680,9 @@ impl PartitionReceiver {
         // Get sampling ratio once per batch (not per record).
         // Only run sampling/injection when tracing is enabled.
         let tracing_enabled = self.observability_wrapper.observability_ref().is_some();
-        let sampling_ratio =
-            ObservabilityHelper::sampling_ratio(self.observability_wrapper.observability_ref());
+        let sampling_ratio = ObservabilityHelper::effective_sampling_ratio(
+            self.observability_wrapper.observability_ref(),
+        );
 
         for (record_index, record) in batch.iter().enumerate() {
             // Per-record sampling: check traceparent flag or roll dice

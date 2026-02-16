@@ -564,7 +564,7 @@ pub async fn process_batch(
     // Only run sampling/injection when tracing is enabled — otherwise output
     // records should not get traceparent headers injected.
     let tracing_enabled = observability.is_some();
-    let sampling_ratio = ObservabilityHelper::sampling_ratio(observability);
+    let sampling_ratio = ObservabilityHelper::effective_sampling_ratio(observability);
 
     // Process all records through engine abstraction layer
     for (index, record) in batch.into_iter().enumerate() {
