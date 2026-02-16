@@ -44,21 +44,21 @@ RUST_LOG=debug your_app [args]
 grep "🔍.*span" /path/to/app.log | head -20
 ```
 
-**Expected output:**
+**Expected output (per-record spans):**
 ```
-[DEBUG] 🔍 Started SQL query span: select from source: market_data (exporting to Tempo)
-[DEBUG] 🔍 SQL span completed successfully in 12ms
-[DEBUG] 🔍 Started streaming span: deserialization with 100 records (exporting to Tempo)
+[DEBUG] 🔍 Started record span: process:my_job (exporting to Tempo)
+[DEBUG] 🔍 Injecting traceparent header: 00-{trace_id}-{span_id}-01
 ```
+
+**Note**: Velostream uses head-based per-record sampling. Only sampled records produce spans. If `sampling_ratio` is low, most records won't generate span messages — this is expected behavior. Check Prometheus metrics for full operational visibility regardless of sampling.
 
 **Troubleshooting:**
 - ❌ **No span messages**: Instrumentation code not being executed
   - Check that `obs_lock.telemetry()` returns `Some(...)`
   - Verify observability manager was initialized
-  - Check processor is using instrumented code paths
-- ❌ **"SQL span failed"**: Query execution errors
-  - Check application error logs for SQL issues
-  - Spans will still be exported with error status
+  - Check `sampling_ratio` is > 0.0 (0.0 means no records sampled)
+- ❌ **All records sampled unexpectedly**: Check `sampling_ratio` configuration
+  - Records with existing `traceparent` flag `01` are always sampled regardless of ratio
 
 ### 3. Query Tempo API to Verify Trace Ingestion
 
@@ -191,34 +191,65 @@ let provider = TracerProvider::builder()
 
 ### Issue: Too many traces causing performance issues
 
-**Cause**: Always-on sampling in development
+**Cause**: High sampling ratio in development
 
-**Solution**: Use probabilistic sampling:
-```rust
-.with_sampler(Sampler::ParentBased(Box::new(
-    Sampler::TraceIdRatioBased(0.1)  // Sample 10% of traces
-)))
+**Solution**: Use a named sampling mode to set the ratio and export pipeline together:
+
+```bash
+# Recommended: use --sampling-mode to set ratio + flush interval + export timeout
+velo-sql deploy-app --file app.sql --enable-tracing --sampling-mode prod   # 1% sampling
+velo-sql deploy-app --file app.sql --enable-tracing --sampling-mode staging # 25% (default)
+
+# Override ratio while keeping the mode's flush/timeout settings
+velo-sql deploy-app --file app.sql --enable-tracing --sampling-mode prod --sampling-ratio 0.05
 ```
+
+| Mode | Ratio | Flush Interval | Export Timeout | Use Case |
+|------|-------|----------------|----------------|----------|
+| `debug` | 1.0 (100%) | 500ms | 5s | Full visibility, local dev |
+| `dev` | 0.5 (50%) | 1000ms | 5s | Team dev environments |
+| `staging` | 0.25 (25%) | 2000ms | 10s | Pre-prod validation (**default**) |
+| `prod` | 0.01 (1%) | 5000ms | 30s | Live traffic |
+
+**How sampling works**:
+- Records with an existing `traceparent` flag `01` → always sampled (continue chain)
+- Records with an existing `traceparent` flag `00` → never sampled (respect upstream decision)
+- Records with no `traceparent` → probabilistic dice roll against `sampling_ratio`
+- Non-sampled records get a `traceparent` with flag `00` injected to prevent downstream re-rolling
 
 ### Issue: Spans not linked across services
 
 **Cause**: Missing trace context propagation
 
-**Solution**: Ensure HTTP headers include trace context:
-```rust
-use opentelemetry::global;
-use opentelemetry::trace::TraceContextExt;
+**Solution**: Velostream automatically handles W3C `traceparent` propagation through Kafka headers. For each sampled record, the processor creates a `RecordSpan` linked to the upstream trace and injects the new span's context into output records. This chain propagates across all processor types (Simple, Transactional, Partition, Join).
 
-let cx = opentelemetry::Context::current();
-let span_context = cx.span().span_context();
-
-// Inject into HTTP headers
-headers.insert("traceparent", format!(
-    "00-{}-{}-01",
-    span_context.trace_id(),
-    span_context.span_id()
-));
+If you need to propagate trace context to **non-Kafka** downstream services (e.g., HTTP APIs), extract the `traceparent` header from the output record:
+```sql
+-- Read the auto-injected traceparent for forwarding to HTTP services
+SELECT HEADER('traceparent') as trace_context, ...
+FROM my_stream;
 ```
+
+### Issue: Span drops under high load
+
+**Cause**: Export queue full — spans are produced faster than the OTLP exporter can send them.
+
+**Solution**: Velostream includes adaptive backpressure. When the span export queue exceeds 80% capacity, the effective sampling ratio is automatically reduced (floored at 5% of the base ratio). This is logged at `debug` level:
+
+```
+Adaptive sampling: pressure=0.85, base=0.25, effective=0.0375
+```
+
+You can also tune the export pipeline via `TracingConfig`:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `max_queue_size` | 65536 | Max spans queued before dropping |
+| `max_export_batch_size` | 2048 | Spans per export HTTP call |
+| `export_flush_interval_ms` | 2000 | Interval between batch flushes |
+| `export_timeout_seconds` | 10 | Timeout per export call |
+
+OTLP HTTP payloads are gzip-compressed automatically (typically 5-10x reduction).
 
 ## Performance Monitoring
 

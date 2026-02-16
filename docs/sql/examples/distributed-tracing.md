@@ -29,13 +29,22 @@ As of FR-090, Velostream **automatically propagates** Kafka message headers thro
 
 ### W3C Trace Context (`traceparent` / `tracestate`)
 
-Velostream's observability layer automatically injects W3C Trace Context headers **after** SQL execution:
+Velostream uses **head-based per-record sampling** for distributed tracing. The W3C `traceparent` header's flag byte controls sampling decisions throughout the entire pipeline:
 
-1. SQL processing propagates input headers (including any existing `traceparent`)
-2. After SQL, `inject_trace_context_into_records()` **overwrites** `traceparent` and `tracestate` with a fresh span
-3. The output record carries the new span, linked to the processor's trace
+1. **Before SQL**: Each input record's `traceparent` is checked for the sampling flag
+   - Flag `01` (sampled) → A `RecordSpan` is created, linked to the upstream trace
+   - Flag `00` (not sampled) → No span created, header propagates naturally through SQL
+   - No `traceparent` → Probabilistic dice roll against the configured `sampling_ratio`
+2. **During SQL**: Headers (including `traceparent`) propagate automatically through SQL operations (FR-090)
+3. **After SQL**: For sampled records, the output `traceparent` is updated with the new span's context (flag `01`). For records that were not sampled and had no upstream `traceparent`, a `traceparent` with flag `00` is injected to prevent downstream processors from re-rolling the dice.
 
-This means you do **not** need to manually propagate `traceparent` via `SET_HEADER()` for standard tracing. Manual `SET_HEADER()` is only needed when you want to add **custom** tracing headers (like `x-trace-id` in the examples below) that are outside the W3C standard.
+This means:
+- Sampling decisions made at the pipeline entry point propagate end-to-end
+- Non-sampled records have **zero tracing overhead** (no spans created)
+- Prometheus metrics provide operational visibility regardless of sampling
+- You do **not** need to manually propagate `traceparent` via `SET_HEADER()` for standard tracing
+
+Manual `SET_HEADER()` is only needed when you want to add **custom** tracing headers (like `x-trace-id` in the examples below) that are outside the W3C standard.
 
 ## Complete Example: E-Commerce Order Processing
 
@@ -357,7 +366,7 @@ Headers now propagate **automatically** through SQL operations (FR-090). If head
 2. **Aggregation output**: Headers come from the last record in the group (last-event-wins). If the last record had no headers, output won't either.
 3. **Joins**: Only left-side headers propagate by default
 4. **`_event_time` header**: Automatically stripped from aggregation output (the Kafka writer injects the correct one)
-5. **`traceparent`/`tracestate`**: Overwritten by trace injection after SQL — this is expected behavior
+5. **`traceparent`/`tracestate`**: For sampled records, updated with the per-record span's context after SQL. For non-sampled records, the existing flag=00 propagates naturally through SQL.
 
 ```sql
 -- Debug: Check if headers are present on input

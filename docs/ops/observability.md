@@ -17,13 +17,13 @@ Add observability annotations to your SQL application header:
 -- @observability.profiling.enabled: prod
 -- @observability.error_reporting.enabled: true
 
--- @job_name: data-processor-stream
+-- @name: data-processor-stream
 -- Name: Data Processing Stream
 CREATE STREAM data_processor AS
 SELECT * FROM input_stream
 EMIT CHANGES;
 
--- @job_name: analytics-stream
+-- @name: analytics-stream
 -- Name: Analytics Stream
 CREATE STREAM analytics AS
 SELECT COUNT(*) as record_count FROM input_stream
@@ -85,7 +85,7 @@ Observability is controlled through SQL Application annotations (no code require
 -- @metric_type: counter
 -- @metric_help: "Total market data records processed"
 -- @metric_labels: symbol
--- @job_name: market-data-ingestion
+-- @name: market-data-ingestion
 
 -- Name: Market Data Stream
 CREATE STREAM market_data AS
@@ -97,7 +97,7 @@ EMIT CHANGES;
 -- @metric_type: counter
 -- @metric_help: "Price movement alerts"
 -- @metric_labels: symbol, severity
--- @job_name: price-movement-detection
+-- @name: price-movement-detection
 
 -- Name: Price Movement Detection
 CREATE STREAM price_alerts AS
@@ -111,7 +111,7 @@ EMIT CHANGES;
 -- @metric_type: gauge
 -- @metric_help: "Trade volume per symbol"
 -- @metric_labels: symbol
--- @job_name: trading-metrics-stream
+-- @name: trading-metrics-stream
 
 -- Name: Trading Metrics
 CREATE STREAM trading_metrics AS
@@ -137,7 +137,7 @@ Define custom metrics and override app-level settings for specific jobs:
 -- Job-level metrics
 -- @metric: velo_standard_records_total
 -- @metric_type: counter
--- @job_name: standard-processing
+-- @name: standard-processing
 
 -- Name: Standard Stream (inherits app-level settings: prod profiling)
 CREATE STREAM standard AS
@@ -148,7 +148,7 @@ EMIT CHANGES;
 -- @metric: velo_lightweight_processed
 -- @metric_type: gauge
 -- @metric_labels: status
--- @job_name: lightweight-stream
+-- @name: lightweight-stream
 
 -- Name: Low-Overhead Stream (disable tracing and profiling to reduce overhead)
 CREATE STREAM lightweight AS
@@ -160,7 +160,7 @@ EMIT CHANGES;
 -- @metric: velo_critical_errors_total
 -- @metric_type: counter
 -- @metric_help: "Errors in critical stream"
--- @job_name: critical-monitoring
+-- @name: critical-monitoring
 
 -- Name: Critical Stream (upgrade to dev profiling for detailed analysis)
 CREATE STREAM critical AS
@@ -352,7 +352,7 @@ Error reporting is enabled via SQL annotation (requires metrics):
 -- @observability.metrics.enabled: true
 -- @observability.error_reporting.enabled: true
 
--- @job_name: critical-processor-stream
+-- @name: critical-processor-stream
 -- Name: Critical Stream
 CREATE STREAM critical_processor AS
 SELECT * FROM critical_stream
@@ -487,13 +487,25 @@ The observability system consists of three main components:
 pub struct TracingConfig {
     pub service_name: String,           // Service identifier
     pub sampling_ratio: f64,            // Trace sampling rate (0.0-1.0)
+    pub sampling_mode: SamplingMode,    // Named mode (Debug/Dev/Staging/Production)
     pub enable_console_output: bool,    // Enable console logging
     pub otlp_endpoint: Option<String>,  // OpenTelemetry endpoint
+    pub export_flush_interval_ms: u64,  // Batch flush interval
+    pub export_timeout_seconds: u64,    // Export HTTP timeout
 }
 
+// Named modes (set ratio + flush + timeout together)
+// SamplingMode::Debug      — 100%, 500ms flush, 5s timeout
+// SamplingMode::Dev        — 50%, 1s flush, 5s timeout
+// SamplingMode::Staging    — 25%, 2s flush, 10s timeout (default)
+// SamplingMode::Production — 1%, 5s flush, 30s timeout
+
 // Presets
-TracingConfig::development()  // Full sampling, console output
-TracingConfig::production()   // Low sampling, OTLP export
+TracingConfig::development()  // Debug mode: full sampling, 500ms flush, console output
+TracingConfig::production()   // Production mode: 1% sampling, 5s flush, 30s timeout
+
+// Builder — apply mode then optionally override ratio
+TracingConfig::default().with_sampling_mode(SamplingMode::Dev)
 ```
 
 #### PrometheusConfig

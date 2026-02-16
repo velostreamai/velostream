@@ -8,6 +8,7 @@
 //! - OpenTelemetry Propagation: https://opentelemetry.io/docs/specs/otel/context/api-propagators/
 
 use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
+use rand::Rng;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -122,63 +123,145 @@ pub fn inject_trace_context(span_context: &SpanContext, headers: &mut HashMap<St
     );
 }
 
-/// Pre-computed trace header values for efficient batch injection.
+/// Check if the traceparent flag byte indicates this record is sampled.
 ///
-/// Created once per batch via [`precompute_trace_headers`], then applied to each
-/// record via [`inject_precomputed_trace_context`]. This avoids redundant `format!`
-/// and `to_string()` allocations in the per-record hot loop.
-pub struct PrecomputedTraceHeaders {
-    pub traceparent_key: String,
-    pub traceparent_value: String,
-    pub tracestate: Option<(String, String)>,
+/// Returns `Some(true)` if the sampled flag (bit 0) is set, `Some(false)` if not,
+/// or `None` if no traceparent header is present.
+pub fn is_sampled(headers: &HashMap<String, String>) -> Option<bool> {
+    let traceparent_value = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(TRACEPARENT_HEADER))
+        .map(|(_, v)| v.as_str())?;
+
+    let parts: Vec<&str> = traceparent_value.split('-').collect();
+    if parts.len() != 4 {
+        return None;
+    }
+
+    let trace_flags = u8::from_str_radix(parts[3], 16).ok()?;
+    Some(trace_flags & 0x01 == 1)
 }
 
-/// Pre-compute trace header values for batch injection (call once per batch).
+/// Determine whether a record should be sampled for tracing.
 ///
-/// This performs the expensive `format!` and string allocations once, producing
-/// a [`PrecomputedTraceHeaders`] that can be cheaply cloned into each record.
-///
-/// # Arguments
-/// * `span_context` - The span context to serialize into W3C traceparent format
-pub fn precompute_trace_headers(span_context: &SpanContext) -> PrecomputedTraceHeaders {
-    let traceparent_value = format!(
-        "00-{}-{}-{:02x}",
-        span_context.trace_id(),
-        span_context.span_id(),
-        span_context.trace_flags().to_u8()
-    );
-    let tracestate_header = span_context.trace_state().header();
-    let tracestate = if tracestate_header.is_empty() {
-        None
-    } else {
-        Some((TRACESTATE_HEADER.to_string(), tracestate_header.to_string()))
-    };
-    PrecomputedTraceHeaders {
-        traceparent_key: TRACEPARENT_HEADER.to_string(),
-        traceparent_value,
-        tracestate,
+/// Decision logic:
+/// 1. If traceparent exists with sampled flag (01) -> true (continue sampled chain)
+/// 2. If traceparent exists without sampled flag (00) -> false (continue unsampled chain)
+/// 3. If no traceparent -> probabilistic: roll dice against `sampling_ratio`
+pub fn should_sample_record(headers: &HashMap<String, String>, sampling_ratio: f64) -> bool {
+    match is_sampled(headers) {
+        Some(sampled) => sampled,
+        None => {
+            // No traceparent: probabilistic head-based sampling
+            if sampling_ratio >= 1.0 {
+                true
+            } else if sampling_ratio <= 0.0 {
+                false
+            } else {
+                rand::thread_rng().r#gen::<f64>() < sampling_ratio
+            }
+        }
     }
 }
 
-/// Inject pre-computed trace headers into a record's header map (call per record).
+/// Make a sampling decision for a record and extract trace context if sampled.
 ///
-/// This performs only `String::clone` per record instead of `format!` + `to_string()`,
-/// eliminating the dominant allocation overhead in the per-record hot loop.
+/// This performs a single-pass lookup of the traceparent header, avoiding the
+/// double-scan that would occur with separate `has_traceparent` + `extract_trace_context` calls.
 ///
-/// # Arguments
-/// * `precomputed` - Pre-computed headers from [`precompute_trace_headers`]
-/// * `headers` - Mutable reference to the record's Kafka message headers
-pub fn inject_precomputed_trace_context(
-    precomputed: &PrecomputedTraceHeaders,
-    headers: &mut HashMap<String, String>,
-) {
-    headers.insert(
-        precomputed.traceparent_key.clone(),
-        precomputed.traceparent_value.clone(),
-    );
-    if let Some((ref key, ref value)) = precomputed.tracestate {
-        headers.insert(key.clone(), value.clone());
+/// Decision logic:
+/// 1. Traceparent present with flag=01 → `Sampled(Some(ctx))` — continue sampled chain
+/// 2. Traceparent present with flag=00 → `NotSampled` — continue unsampled chain
+/// 3. Traceparent present but invalid → `NotSampled` — treat as unsampled
+/// 4. No traceparent + dice roll passes → `Sampled(None)` — new root span
+/// 5. No traceparent + dice roll fails → `NotSampledNew` — must inject flag=00
+pub fn extract_trace_context_if_sampled(
+    headers: &HashMap<String, String>,
+    sampling_ratio: f64,
+) -> SamplingDecision {
+    // Single-pass: find the traceparent value directly
+    let traceparent_value = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(TRACEPARENT_HEADER))
+        .map(|(_, v)| v.as_str());
+
+    match traceparent_value {
+        Some(value) => {
+            // Traceparent exists — parse inline (avoids second header scan via extract_trace_context)
+            let parts: Vec<&str> = value.split('-').collect();
+            if parts.len() != 4 || parts[0] != "00" {
+                return SamplingDecision::NotSampled;
+            }
+
+            let trace_flags = match u8::from_str_radix(parts[3], 16) {
+                Ok(f) => f,
+                Err(_) => return SamplingDecision::NotSampled,
+            };
+
+            if trace_flags & 0x01 == 0 {
+                // Flag=00: not sampled, no need to parse trace_id/span_id
+                return SamplingDecision::NotSampled;
+            }
+
+            // Flag=01: sampled — parse full context for parent linking
+            let trace_id = match TraceId::from_hex(parts[1]) {
+                Ok(id) => id,
+                Err(_) => return SamplingDecision::NotSampled,
+            };
+            let span_id = match SpanId::from_hex(parts[2]) {
+                Ok(id) => id,
+                Err(_) => return SamplingDecision::NotSampled,
+            };
+
+            let flags = TraceFlags::new(trace_flags);
+            let trace_state = headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(TRACESTATE_HEADER))
+                .and_then(|(_, v)| TraceState::from_str(v.as_str()).ok())
+                .unwrap_or_else(TraceState::default);
+
+            let ctx = SpanContext::new(trace_id, span_id, flags, true, trace_state);
+            SamplingDecision::Sampled(Some(ctx))
+        }
+        None => {
+            // No traceparent: probabilistic head-based sampling
+            if should_sample_record(headers, sampling_ratio) {
+                SamplingDecision::Sampled(None) // New root span
+            } else {
+                SamplingDecision::NotSampledNew // Must inject flag=00 to prevent downstream re-roll
+            }
+        }
     }
+}
+
+/// Result of a per-record sampling decision.
+#[derive(Debug)]
+pub enum SamplingDecision {
+    /// Record should be sampled. Contains upstream SpanContext if present.
+    Sampled(Option<SpanContext>),
+    /// Record should NOT be sampled — upstream traceparent already had flag=00.
+    /// Headers carry the decision naturally through the SQL engine; no injection needed.
+    NotSampled,
+    /// Record should NOT be sampled — no traceparent existed, dice roll failed.
+    /// Processors MUST inject a traceparent with flag=00 into outputs to prevent
+    /// downstream processors from re-rolling the dice.
+    NotSampledNew,
+}
+
+/// Inject a "not sampled" traceparent into record headers.
+///
+/// Generates a random trace-id and span-id with flag=00. This tells downstream
+/// processors that the sampling decision was already made and they should NOT
+/// re-roll the dice.
+///
+/// Call this for `SamplingDecision::NotSampledNew` records.
+pub fn inject_not_sampled_context(headers: &mut HashMap<String, String>) {
+    let mut rng = rand::thread_rng();
+    let trace_id = TraceId::from(rng.r#gen::<u128>());
+    let span_id = SpanId::from(rng.r#gen::<u64>());
+    let traceparent = format!("00-{}-{}-00", trace_id, span_id);
+
+    headers.insert(TRACEPARENT_HEADER.to_string(), traceparent);
 }
 
 #[cfg(test)]

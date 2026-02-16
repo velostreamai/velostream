@@ -5,7 +5,6 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
-use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
@@ -467,9 +466,6 @@ impl SimpleJobProcessor {
             );
         }
 
-        // Pre-compute query metadata once for span enrichment (zero per-batch overhead)
-        let query_metadata = QuerySpanMetadata::from_query(&query);
-
         // Create enhanced context with multiple sources and sinks
         let mut context = ProcessorContext::new_with_sources(&job_name, readers, writers);
 
@@ -537,14 +533,7 @@ impl SimpleJobProcessor {
 
             // Process from all sources
             let result = self
-                .process_data(
-                    &mut context,
-                    &engine,
-                    &query,
-                    &job_name,
-                    &mut stats,
-                    &query_metadata,
-                )
+                .process_data(&mut context, &engine, &query, &job_name, &mut stats)
                 .await;
 
             // Calculate batch time and records
@@ -675,7 +664,6 @@ impl SimpleJobProcessor {
         query: &StreamingQuery,
         job_name: &str,
         stats: &mut JobExecutionStats,
-        query_metadata: &QuerySpanMetadata,
     ) -> DataSourceResult<()> {
         debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
@@ -699,9 +687,6 @@ impl SimpleJobProcessor {
         // PERF: Collect Arc<StreamRecord> for zero-copy multi-source collection
         let mut all_output_records: Vec<Arc<StreamRecord>> = Vec::new();
 
-        // Start batch timing
-        let batch_start = Instant::now();
-
         // Collect batches from all sources first
         let mut source_batches = Vec::new();
         for source_name in &source_names {
@@ -719,51 +704,24 @@ impl SimpleJobProcessor {
             source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
-        // Create parent batch span for the overall multi-source batch operation
-        let first_batch = source_batches
-            .iter()
-            .find(|(_, batch, _)| !batch.is_empty())
-            .map(|(_, batch, _)| batch.as_slice())
-            .unwrap_or(&[]);
-
-        let mut parent_batch_span_guard = ObservabilityHelper::start_batch_span(
-            self.observability_wrapper.observability_ref(),
-            job_name,
-            stats.batches_processed,
-            first_batch,
-        );
-        ObservabilityHelper::enrich_batch_span_with_query_metadata(
-            &mut parent_batch_span_guard,
-            query_metadata,
-        );
-        ObservabilityHelper::enrich_batch_span_with_record_metadata(
-            &mut parent_batch_span_guard,
-            first_batch,
-        );
-
-        // Now process all collected batches with per-source batch spans
-        for (source_name, batch, deser_duration) in source_batches {
-            // Create per-source batch span linked to parent batch span for proper tracing
-            // This ensures each source's data is traced independently while maintaining parent-child relationship
+        // Skip processing for empty batches
+        let has_data = source_batches.iter().any(|(_, batch, _)| !batch.is_empty());
+        if !has_data {
             debug!(
-                "🔗 Creating per-source batch span for source '{}' linked to parent batch span",
-                source_name
+                "Job '{}': All source batches empty - skipping batch",
+                job_name
             );
-            let source_batch_span_guard = ObservabilityHelper::start_batch_span(
-                self.observability_wrapper.observability_ref(),
-                &format!("{} (source: {})", job_name, source_name),
-                stats.batches_processed,
-                if !batch.is_empty() { &batch } else { &[] },
-            );
+            return Ok(());
+        }
 
-            // Record deserialization telemetry and metrics on per-source span
+        // Process all collected batches
+        for (source_name, batch, deser_duration) in source_batches {
+            // Record deserialization telemetry and metrics
             ObservabilityHelper::record_deserialization(
                 self.observability_wrapper.observability_ref(),
                 job_name,
-                &source_batch_span_guard,
                 batch.len(),
                 deser_duration,
-                None,
             );
 
             if batch.is_empty() {
@@ -781,23 +739,28 @@ impl SimpleJobProcessor {
                 source_name
             );
 
-            // Process batch through SQL engine and capture output records (with telemetry)
+            // Process batch through SQL engine and capture output records (with per-record tracing)
             let sql_start = Instant::now();
-            let batch_result = process_batch(batch, engine, query, job_name).await;
+            let batch_result = process_batch(
+                batch,
+                engine,
+                query,
+                job_name,
+                self.observability_wrapper.observability_ref(),
+            )
+            .await;
             let sql_elapsed = sql_start.elapsed();
             let sql_duration = sql_elapsed.as_millis() as u64;
 
             // Accumulate SQL time for final stats breakdown
             stats.add_sql_time(sql_elapsed);
 
-            // Record SQL processing telemetry and metrics on per-source span
+            // Record SQL processing telemetry and metrics
             ObservabilityHelper::record_sql_processing(
                 self.observability_wrapper.observability_ref(),
                 job_name,
-                &source_batch_span_guard,
                 &batch_result,
                 sql_duration,
-                Some(query_metadata),
             );
 
             total_records_processed += batch_result.records_processed;
@@ -940,15 +903,8 @@ impl SimpleJobProcessor {
 
         if should_commit {
             // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
-            let mut output_owned: Vec<Arc<StreamRecord>> = all_output_records;
+            let output_owned: Vec<Arc<StreamRecord>> = all_output_records;
             let output_record_count = output_owned.len(); // Save count before potential move
-
-            // Inject trace context into all output records for distributed tracing
-            ObservabilityHelper::inject_trace_context_into_records(
-                &parent_batch_span_guard,
-                &mut output_owned,
-                job_name,
-            );
 
             // Write output records to all sinks
             if !output_owned.is_empty() && !sink_names.is_empty() {
@@ -976,10 +932,8 @@ impl SimpleJobProcessor {
                             ObservabilityHelper::record_serialization_success(
                                 self.observability_wrapper.observability_ref(),
                                 job_name,
-                                &parent_batch_span_guard,
                                 record_count,
                                 ser_duration,
-                                None,
                             );
 
                             debug!(
@@ -1005,7 +959,6 @@ impl SimpleJobProcessor {
                     }
                 } else {
                     // Multiple sinks: use shared slice to avoid N clones
-                    // NOTE: output_owned already created above for trace injection
                     for sink_name in &sink_names {
                         let ser_start = Instant::now();
                         match context
@@ -1023,10 +976,8 @@ impl SimpleJobProcessor {
                                 ObservabilityHelper::record_serialization_success(
                                     self.observability_wrapper.observability_ref(),
                                     job_name,
-                                    &parent_batch_span_guard,
                                     output_owned.len(),
                                     ser_duration,
-                                    None,
                                 );
 
                                 debug!(
@@ -1144,14 +1095,6 @@ impl SimpleJobProcessor {
                 job_name, total_records_processed, total_records_failed, output_record_count
             );
 
-            // Complete batch span with success
-            if let Some(mut batch_span) = parent_batch_span_guard {
-                let batch_duration = batch_start.elapsed().as_millis() as u64;
-                batch_span.set_total_records(total_records_processed as u64);
-                batch_span.set_batch_duration(batch_duration);
-                batch_span.set_success();
-            }
-
             // Sync error metrics to Prometheus after batch completion
             if let Some(obs) = self.observability_wrapper.observability() {
                 if let Ok(obs_lock) = obs.try_read() {
@@ -1167,14 +1110,6 @@ impl SimpleJobProcessor {
                 "Job '{}': Skipping commit due to {} failures",
                 job_name, total_records_failed
             );
-
-            // Complete batch span with error
-            if let Some(mut batch_span) = parent_batch_span_guard {
-                let batch_duration = batch_start.elapsed().as_millis() as u64;
-                batch_span.set_total_records(total_records_processed as u64);
-                batch_span.set_batch_duration(batch_duration);
-                batch_span.set_error(&format!("{} records failed", total_records_failed));
-            }
 
             // Sync error metrics to Prometheus after batch failure
             if let Some(obs) = self.observability_wrapper.observability() {

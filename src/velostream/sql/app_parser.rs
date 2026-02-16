@@ -473,8 +473,13 @@ impl SqlApplicationParser {
             }
 
             // Extract statement name from comments
+            // Supports both "-- Name:" and "-- @name:" formats
             if trimmed.starts_with("-- Name:") {
                 current_name = Some(trimmed.replace("-- Name:", "").trim().to_string());
+                continue;
+            }
+            if trimmed.starts_with("-- @name:") {
+                current_name = Some(trimmed.replace("-- @name:", "").trim().to_string());
                 continue;
             }
 

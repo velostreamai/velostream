@@ -624,6 +624,94 @@ impl ResourceMonitoringConfig {
 
 // === PHASE 4: OBSERVABILITY CONFIGURATION STRUCTS ===
 
+/// Named sampling modes that bundle sampling ratio + export pipeline settings.
+///
+/// Each mode provides a curated set of defaults for a common deployment scenario,
+/// making the configuration self-documenting. Use `--sampling-ratio` to override
+/// the mode's ratio without changing the export pipeline settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SamplingMode {
+    /// 100% sampling, fast flush (500ms). Full visibility for local development.
+    Debug,
+    /// 50% sampling, 1s flush. Balanced for team dev environments.
+    Dev,
+    /// 25% sampling, 2s flush. Pre-production validation (**default**).
+    Staging,
+    /// 1% sampling, 5s flush. Minimal overhead for live traffic.
+    Production,
+}
+
+impl SamplingMode {
+    /// Returns the sampling ratio for this mode (0.0–1.0).
+    pub fn sampling_ratio(self) -> f64 {
+        match self {
+            SamplingMode::Debug => 1.0,
+            SamplingMode::Dev => 0.5,
+            SamplingMode::Staging => 0.25,
+            SamplingMode::Production => 0.01,
+        }
+    }
+
+    /// Returns the export flush interval in milliseconds.
+    pub fn export_flush_interval_ms(self) -> u64 {
+        match self {
+            SamplingMode::Debug => 500,
+            SamplingMode::Dev => 1000,
+            SamplingMode::Staging => 2000,
+            SamplingMode::Production => 5000,
+        }
+    }
+
+    /// Returns the export timeout in seconds.
+    pub fn export_timeout_seconds(self) -> u64 {
+        match self {
+            SamplingMode::Debug => 5,
+            SamplingMode::Dev => 5,
+            SamplingMode::Staging => 10,
+            SamplingMode::Production => 30,
+        }
+    }
+
+    /// Returns a lowercase string representation.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SamplingMode::Debug => "debug",
+            SamplingMode::Dev => "dev",
+            SamplingMode::Staging => "staging",
+            SamplingMode::Production => "production",
+        }
+    }
+}
+
+impl Default for SamplingMode {
+    fn default() -> Self {
+        SamplingMode::Staging
+    }
+}
+
+impl std::fmt::Display for SamplingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for SamplingMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "debug" => Ok(SamplingMode::Debug),
+            "dev" => Ok(SamplingMode::Dev),
+            "staging" => Ok(SamplingMode::Staging),
+            "prod" | "production" => Ok(SamplingMode::Production),
+            _ => Err(format!(
+                "unknown sampling mode '{}': expected debug, dev, staging, or prod",
+                s
+            )),
+        }
+    }
+}
+
 /// OpenTelemetry distributed tracing configuration
 #[derive(Debug, Clone, PartialEq)]
 pub struct TracingConfig {
@@ -641,47 +729,91 @@ pub struct TracingConfig {
     pub max_span_duration_seconds: u64,
     /// Batch export timeout in milliseconds
     pub batch_export_timeout_ms: u64,
+    /// Maximum number of spans queued for export before dropping
+    pub max_queue_size: usize,
+    /// Maximum number of spans per export batch
+    pub max_export_batch_size: usize,
+    /// Interval between scheduled span exports (milliseconds)
+    pub export_flush_interval_ms: u64,
+    /// Timeout for each export HTTP call (seconds)
+    pub export_timeout_seconds: u64,
+    /// Named sampling mode that determines the default sampling ratio and export pipeline settings.
+    pub sampling_mode: SamplingMode,
 }
 
 impl Default for TracingConfig {
     fn default() -> Self {
+        let mode = SamplingMode::default(); // Staging
         Self {
             service_name: "velo-streams".to_string(),
             service_version: "1.0.0".to_string(),
             otlp_endpoint: None,
-            sampling_ratio: 0.1,
+            sampling_ratio: mode.sampling_ratio(),
             enable_console_output: false,
             max_span_duration_seconds: 300,
             batch_export_timeout_ms: 30000,
+            max_queue_size: 65536,
+            max_export_batch_size: 2048,
+            export_flush_interval_ms: mode.export_flush_interval_ms(),
+            export_timeout_seconds: mode.export_timeout_seconds(),
+            sampling_mode: mode,
         }
     }
 }
 
 impl TracingConfig {
-    /// Development configuration with higher sampling and console output
+    /// Development configuration with full sampling and console output.
+    ///
+    /// Uses `SamplingMode::Debug` — 100% sampling, 500ms flush. Intended for
+    /// debugging only (high export volume).
     pub fn development() -> Self {
+        let mode = SamplingMode::Debug;
         Self {
             service_name: "velo-streams-dev".to_string(),
             service_version: "dev".to_string(),
             otlp_endpoint: Some("http://localhost:4317".to_string()),
-            sampling_ratio: 1.0,
+            sampling_ratio: mode.sampling_ratio(),
             enable_console_output: true,
             max_span_duration_seconds: 60,
             batch_export_timeout_ms: 5000,
+            max_queue_size: 65536,
+            max_export_batch_size: 2048,
+            export_flush_interval_ms: mode.export_flush_interval_ms(),
+            export_timeout_seconds: mode.export_timeout_seconds(),
+            sampling_mode: mode,
         }
     }
 
-    /// Production configuration with optimized sampling
+    /// Production configuration with optimized sampling.
+    ///
+    /// Uses `SamplingMode::Production` — 1% sampling, 5s flush, 30s timeout.
     pub fn production() -> Self {
+        let mode = SamplingMode::Production;
         Self {
             service_name: "velo-streams".to_string(),
             service_version: env!("CARGO_PKG_VERSION").to_string(),
             otlp_endpoint: Some("https://traces.example.com:4317".to_string()),
-            sampling_ratio: 0.01,
+            sampling_ratio: mode.sampling_ratio(),
             enable_console_output: false,
             max_span_duration_seconds: 300,
             batch_export_timeout_ms: 30000,
+            max_queue_size: 65536,
+            max_export_batch_size: 2048,
+            export_flush_interval_ms: mode.export_flush_interval_ms(),
+            export_timeout_seconds: mode.export_timeout_seconds(),
+            sampling_mode: mode,
         }
+    }
+
+    /// Set the sampling mode, updating the ratio, flush interval, and export timeout
+    /// to the mode's defaults. An explicit `sampling_ratio` override (e.g. from CLI)
+    /// should be applied *after* this call.
+    pub fn with_sampling_mode(mut self, mode: SamplingMode) -> Self {
+        self.sampling_mode = mode;
+        self.sampling_ratio = mode.sampling_ratio();
+        self.export_flush_interval_ms = mode.export_flush_interval_ms();
+        self.export_timeout_seconds = mode.export_timeout_seconds();
+        self
     }
 }
 
@@ -969,9 +1101,14 @@ mod tests {
         let config = TracingConfig::default();
         assert_eq!(config.service_name, "velo-streams");
         assert_eq!(config.service_version, "1.0.0");
-        assert_eq!(config.sampling_ratio, 0.1);
+        assert_eq!(config.sampling_ratio, 0.25);
         assert!(!config.enable_console_output);
         assert_eq!(config.max_span_duration_seconds, 300);
+        assert_eq!(config.max_queue_size, 65536);
+        assert_eq!(config.max_export_batch_size, 2048);
+        assert_eq!(config.export_flush_interval_ms, 2000);
+        assert_eq!(config.export_timeout_seconds, 10);
+        assert_eq!(config.sampling_mode, SamplingMode::Staging);
     }
 
     #[test]
@@ -984,6 +1121,9 @@ mod tests {
             config.otlp_endpoint,
             Some("http://localhost:4317".to_string())
         );
+        assert_eq!(config.sampling_mode, SamplingMode::Debug);
+        assert_eq!(config.export_flush_interval_ms, 500);
+        assert_eq!(config.export_timeout_seconds, 5);
     }
 
     #[test]
@@ -996,6 +1136,80 @@ mod tests {
             config.otlp_endpoint,
             Some("https://traces.example.com:4317".to_string())
         );
+        assert_eq!(config.sampling_mode, SamplingMode::Production);
+        assert_eq!(config.export_flush_interval_ms, 5000);
+        assert_eq!(config.export_timeout_seconds, 30);
+    }
+
+    #[test]
+    fn test_sampling_mode_values() {
+        assert_eq!(SamplingMode::Debug.sampling_ratio(), 1.0);
+        assert_eq!(SamplingMode::Debug.export_flush_interval_ms(), 500);
+        assert_eq!(SamplingMode::Debug.export_timeout_seconds(), 5);
+
+        assert_eq!(SamplingMode::Dev.sampling_ratio(), 0.5);
+        assert_eq!(SamplingMode::Dev.export_flush_interval_ms(), 1000);
+        assert_eq!(SamplingMode::Dev.export_timeout_seconds(), 5);
+
+        assert_eq!(SamplingMode::Staging.sampling_ratio(), 0.25);
+        assert_eq!(SamplingMode::Staging.export_flush_interval_ms(), 2000);
+        assert_eq!(SamplingMode::Staging.export_timeout_seconds(), 10);
+
+        assert_eq!(SamplingMode::Production.sampling_ratio(), 0.01);
+        assert_eq!(SamplingMode::Production.export_flush_interval_ms(), 5000);
+        assert_eq!(SamplingMode::Production.export_timeout_seconds(), 30);
+    }
+
+    #[test]
+    fn test_sampling_mode_from_str() {
+        assert_eq!(
+            "debug".parse::<SamplingMode>().unwrap(),
+            SamplingMode::Debug
+        );
+        assert_eq!("dev".parse::<SamplingMode>().unwrap(), SamplingMode::Dev);
+        assert_eq!(
+            "staging".parse::<SamplingMode>().unwrap(),
+            SamplingMode::Staging
+        );
+        assert_eq!(
+            "prod".parse::<SamplingMode>().unwrap(),
+            SamplingMode::Production
+        );
+        assert_eq!(
+            "production".parse::<SamplingMode>().unwrap(),
+            SamplingMode::Production
+        );
+        assert_eq!(
+            "DEBUG".parse::<SamplingMode>().unwrap(),
+            SamplingMode::Debug
+        );
+        assert!("unknown".parse::<SamplingMode>().is_err());
+    }
+
+    #[test]
+    fn test_sampling_mode_default() {
+        assert_eq!(SamplingMode::default(), SamplingMode::Staging);
+    }
+
+    #[test]
+    fn test_sampling_mode_display() {
+        assert_eq!(SamplingMode::Debug.to_string(), "debug");
+        assert_eq!(SamplingMode::Dev.to_string(), "dev");
+        assert_eq!(SamplingMode::Staging.to_string(), "staging");
+        assert_eq!(SamplingMode::Production.to_string(), "production");
+    }
+
+    #[test]
+    fn test_tracing_config_with_sampling_mode() {
+        let config = TracingConfig::default().with_sampling_mode(SamplingMode::Production);
+        assert_eq!(config.sampling_mode, SamplingMode::Production);
+        assert_eq!(config.sampling_ratio, 0.01);
+        assert_eq!(config.export_flush_interval_ms, 5000);
+        assert_eq!(config.export_timeout_seconds, 30);
+
+        // Non-mode fields should remain at defaults
+        assert_eq!(config.service_name, "velo-streams");
+        assert_eq!(config.max_queue_size, 65536);
     }
 
     #[test]
@@ -1100,7 +1314,7 @@ mod tests {
         // Verify configs use default values
         let tracing = config.tracing_config.unwrap();
         assert_eq!(tracing.service_name, "velo-streams");
-        assert_eq!(tracing.sampling_ratio, 0.1);
+        assert_eq!(tracing.sampling_ratio, 0.25);
     }
 
     #[test]

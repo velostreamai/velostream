@@ -5,10 +5,6 @@
 //
 // Supported annotations:
 //
-// ## Job Name Annotation
-// - @job_name: <custom_name>           (optional)
-//   Provides a human-readable name for the job instead of auto-generated name
-//
 // ## Partitioning Strategy Annotations
 // - @partitioning_strategy: <strategy> (optional)
 //   Selects partitioning strategy: always_hash, smart_repartition, sticky_partition, round_robin, fan_in
@@ -126,90 +122,6 @@ impl Default for PartitionAnnotations {
             partition_count: None,
         }
     }
-}
-
-/// Parse job name annotation from comment tokens
-///
-/// Extracts @job_name annotation from SQL comments that appear before
-/// a CREATE STREAM statement.
-///
-/// # Arguments
-/// * `comments` - Comment tokens from tokenize_with_comments()
-///
-/// # Returns
-/// * `Ok(Option<String>)` - Parsed job name if present
-/// * `Err(SqlError)` - Parse error with details
-///
-/// # Example
-/// ```no_run
-/// use velostream::velostream::sql::parser::annotations::parse_job_name;
-///
-/// let comments = vec![
-///     "-- @job_name: tick_buckets".to_string(),
-/// ];
-/// let job_name = parse_job_name(&comments).unwrap();
-/// assert_eq!(job_name, Some("tick_buckets".to_string()));
-/// ```
-pub fn parse_job_name(comments: &[String]) -> Result<Option<String>, SqlError> {
-    for comment in comments {
-        let trimmed = comment.trim();
-
-        // Skip non-annotation comments
-        if !trimmed.starts_with('@') {
-            continue;
-        }
-
-        // Parse annotation directive
-        if let Some((directive, value)) = parse_annotation_line(trimmed) {
-            if directive == "job_name" {
-                let name = value.trim().to_string();
-
-                // Validate job name
-                validate_job_name(&name)?;
-
-                return Ok(Some(name));
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-/// Validate job name follows naming conventions
-///
-/// Rules: alphanumeric, underscores, hyphens, max 63 characters
-fn validate_job_name(name: &str) -> Result<(), SqlError> {
-    if name.is_empty() {
-        return Err(SqlError::ParseError {
-            message: "Job name cannot be empty".to_string(),
-            position: None,
-        });
-    }
-
-    if name.len() > 63 {
-        return Err(SqlError::ParseError {
-            message: format!(
-                "Job name '{}' too long ({}). Maximum 63 characters allowed",
-                name,
-                name.len()
-            ),
-            position: None,
-        });
-    }
-
-    for ch in name.chars() {
-        if !ch.is_alphanumeric() && ch != '_' && ch != '-' {
-            return Err(SqlError::ParseError {
-                message: format!(
-                    "Invalid character '{}' in job name '{}'. Only alphanumeric, underscore, and hyphen allowed",
-                    ch, name
-                ),
-                position: None,
-            });
-        }
-    }
-
-    Ok(())
 }
 
 /// Parse partition configuration annotations from comment tokens
@@ -420,7 +332,7 @@ pub fn parse_metric_annotations(comments: &[String]) -> Result<Vec<MetricAnnotat
                 }
                 _ => {
                     // Unknown annotation directive - skip silently
-                    // These are likely metadata annotations (e.g., @job_name, @application)
+                    // These are likely metadata annotations (e.g., @application)
                     // not metric definitions, so debug level is appropriate
                     log::debug!("Skipping non-metric annotation: @{}", directive);
                 }
@@ -465,13 +377,34 @@ fn parse_buckets(value: &str) -> Result<Vec<f64>, SqlError> {
         .map(|s| s.trim().parse::<f64>())
         .collect();
 
-    buckets.map_err(|_| SqlError::ParseError {
+    let buckets = buckets.map_err(|_| SqlError::ParseError {
         message: format!(
             "Invalid bucket values: {}. Expected comma-separated numbers",
             value
         ),
         position: None,
-    })
+    })?;
+
+    // Validate buckets are in ascending order (required for Prometheus histograms)
+    if buckets.windows(2).any(|w| w[0] >= w[1]) {
+        return Err(SqlError::ParseError {
+            message: format!(
+                "Histogram buckets must be in strictly ascending order: {:?}",
+                buckets
+            ),
+            position: None,
+        });
+    }
+
+    // Validate no negative or zero buckets
+    if buckets.iter().any(|&b| b <= 0.0) {
+        return Err(SqlError::ParseError {
+            message: format!("Histogram buckets must be positive: {:?}", buckets),
+            position: None,
+        });
+    }
+
+    Ok(buckets)
 }
 
 /// Validate that a metric annotation has all required fields

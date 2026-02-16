@@ -298,7 +298,6 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
         properties: std::collections::HashMap::new(),
         emit_mode: None,
         metric_annotations: vec![],
-        job_name: None,
     };
 
     let selection = PartitionerSelector::select(&query);

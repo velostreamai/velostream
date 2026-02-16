@@ -238,7 +238,6 @@ fn test_emit_final_flush_with_create_stream_wrapper() {
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Final),
         metric_annotations: Vec::new(),
-        job_name: None,
     };
 
     // Process records through CreateStream wrapper

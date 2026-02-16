@@ -1509,6 +1509,15 @@ impl QueryExecutor {
         }
     }
 
+    // NOTE: The test harness does NOT inject traceparent headers into input records.
+    // As the first hop in the pipeline, there is no upstream span to reference.
+    // Injecting a fake traceparent with flag=01 would create orphaned traces in Tempo
+    // (child spans pointing to a parent that doesn't exist).
+    //
+    // Instead, the processor's `sampling_ratio` controls the head-based sampling
+    // decision for first-hop records (no traceparent → dice roll). Downstream
+    // processors then respect the flag propagated by the first processor.
+
     /// Send a single record to a producer (non-blocking)
     fn send_record(
         producer: &mut crate::velostream::kafka::kafka_fast_producer::AsyncPolledProducer,
@@ -1528,19 +1537,21 @@ impl QueryExecutor {
             base_record
         };
 
-        // Inject _event_time as a Kafka header so consumers can extract it
+        // Build Kafka headers: _event_time only.
+        // No traceparent injected — the processor's sampling_ratio controls
+        // head-based per-record sampling for first-hop records.
         let et_str;
-        let headers;
-        let base_record = if let Some(et) = event_time_ms {
+        let mut headers = rdkafka::message::OwnedHeaders::new();
+
+        if let Some(et) = event_time_ms {
             et_str = et.to_string();
-            headers = rdkafka::message::OwnedHeaders::new().insert(rdkafka::message::Header {
+            headers = headers.insert(rdkafka::message::Header {
                 key: system_columns::EVENT_TIME,
                 value: Some(et_str.as_bytes()),
             });
-            base_record.headers(headers)
-        } else {
-            base_record
-        };
+        }
+
+        let base_record = base_record.headers(headers);
 
         if let Err((e, _)) = producer.send(base_record) {
             return Err(TestHarnessError::ExecutionError {

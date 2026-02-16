@@ -1,19 +1,19 @@
-//! Processor-specific distributed trace coverage tests
+//! Processor-specific distributed trace coverage tests (per-record API)
 //!
-//! These tests exercise the exact trace patterns used by each of the 4 processor types:
-//! - SimpleJobProcessor: Parent span from first input batch + per-source child spans
-//! - TransactionalJobProcessor: Single span from input, completed after commit
-//! - PartitionReceiver: Span created from input batch, injected into output
-//! - JoinJobProcessor: Span from first OUTPUT record (not input)
+//! These tests exercise the per-record trace patterns used by each of the 4 processor types:
+//! - SimpleJobProcessor: Per-record span from sampled input record
+//! - TransactionalJobProcessor: Per-record span, completed after commit
+//! - PartitionReceiver: Per-record span from input, injected into output
+//! - JoinJobProcessor: Per-record span from first OUTPUT record (not input)
 //!
-//! Each processor has a distinct trace pattern — bugs in one processor's trace wiring
+//! Each processor has a distinct trace pattern -- bugs in one processor's trace wiring
 //! won't be caught by the generic ObservabilityHelper tests.
 
 use opentelemetry::trace::{SpanId, TraceId};
 use serial_test::serial;
 use std::sync::Arc;
-use std::time::Instant;
 use velostream::velostream::observability::SharedObservabilityManager;
+use velostream::velostream::observability::trace_propagation;
 use velostream::velostream::server::processors::observability_helper::ObservabilityHelper;
 use velostream::velostream::sql::execution::types::StreamRecord;
 
@@ -21,74 +21,62 @@ use velostream::velostream::sql::execution::types::StreamRecord;
 use super::*;
 
 // =============================================================================
-// Test 1: SimpleJobProcessor trace pattern
+// Test 1: SimpleJobProcessor trace pattern (per-record)
 // =============================================================================
 
-/// Simulates SimpleJobProcessor's trace pattern:
-/// 1. Parent batch span from first non-empty input batch
-/// 2. Per-source child spans for each source
-/// 3. Trace injection uses PARENT span (not source spans)
+/// Simulates SimpleJobProcessor's per-record trace pattern:
+/// 1. Extract upstream context from sampled input record
+/// 2. Start a RecordSpan linked to upstream trace
+/// 3. Inject trace context into individual output records
 #[tokio::test]
 #[serial]
 async fn test_simple_processor_trace_pattern() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
-    // Simulate multi-source input batches (like simple.rs lines 692-703)
-    let source_a_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
-    let source_b_batch = vec![create_test_record()];
+    // Simulate input record with upstream traceparent
+    let input_record = create_test_record_with_traceparent(UPSTREAM_TRACEPARENT);
 
-    // Step 1: Create parent batch span from first non-empty batch
-    // This mirrors simple.rs finding the first non-empty batch
-    let first_batch = &source_a_batch;
-    let parent_batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-simple-job", 1, first_batch);
+    // Step 1: Extract upstream context from the sampled record
+    let upstream_ctx = trace_propagation::extract_trace_context(&input_record.headers);
     assert!(
-        parent_batch_span.is_some(),
-        "Parent batch span should be created"
+        upstream_ctx.is_some(),
+        "Should extract upstream context from traceparent header"
     );
 
-    let parent_ctx = parent_batch_span
+    // Step 2: Start a per-record span
+    let record_span =
+        ObservabilityHelper::start_record_span(&obs, "test-simple-job", upstream_ctx.as_ref());
+    assert!(record_span.is_some(), "Record span should be created");
+
+    let span_ctx = record_span
         .as_ref()
         .unwrap()
         .span_context()
-        .expect("Parent span should have context");
-    assert!(parent_ctx.is_valid(), "Parent span context should be valid");
-    let parent_trace_id = parent_ctx.trace_id().to_string();
-    let parent_span_id = parent_ctx.span_id().to_string();
+        .expect("Record span should have valid context");
+    assert!(span_ctx.is_valid(), "Span context should be valid");
 
-    // Step 2: Create per-source child spans (like simple.rs lines 713-718)
-    let source_a_span = ObservabilityHelper::start_batch_span(
-        &obs,
-        "test-simple-job (source: source_a)",
-        1,
-        &source_a_batch,
+    // Span should continue the upstream trace
+    let upstream_trace_id = extract_trace_id(UPSTREAM_TRACEPARENT);
+    assert_eq!(
+        span_ctx.trace_id().to_string(),
+        upstream_trace_id,
+        "Record span should continue the upstream trace_id"
     );
-    assert!(source_a_span.is_some(), "Source A span should be created");
 
-    let source_b_span = ObservabilityHelper::start_batch_span(
-        &obs,
-        "test-simple-job (source: source_b)",
-        1,
-        &source_b_batch,
-    );
-    assert!(source_b_span.is_some(), "Source B span should be created");
-
-    // Step 3: Create output records and inject trace using PARENT span
-    // This mirrors simple.rs lines 948-952
+    // Step 3: Inject trace context into multiple output records
     let mut output_records: Vec<Arc<StreamRecord>> = vec![
         Arc::new(create_test_record()),
         Arc::new(create_test_record()),
         Arc::new(create_test_record()),
     ];
 
-    ObservabilityHelper::inject_trace_context_into_records(
-        &parent_batch_span,
-        &mut output_records,
-        "test-simple-job",
-    );
+    let record_span = record_span.unwrap();
+    for output in &mut output_records {
+        ObservabilityHelper::inject_record_trace_context(&record_span, output);
+    }
 
-    // Verify: all output records have traceparent from PARENT span
+    // Verify: all output records have traceparent from the record span
     for (i, record) in output_records.iter().enumerate() {
         assert_traceparent_injected(record, &format!("output record {}", i));
 
@@ -97,147 +85,115 @@ async fn test_simple_processor_trace_pattern() {
         let injected_span_id = extract_span_id(tp);
 
         assert_eq!(
-            injected_trace_id, parent_trace_id,
-            "Output record {} should have parent's trace_id",
+            injected_trace_id,
+            span_ctx.trace_id().to_string(),
+            "Output record {} should have the record span's trace_id",
             i
         );
         assert_eq!(
-            injected_span_id, parent_span_id,
-            "Output record {} should have parent's span_id (not a source span)",
+            injected_span_id,
+            span_ctx.span_id().to_string(),
+            "Output record {} should have the record span's span_id",
             i
         );
     }
-
-    // Verify: all 3 span contexts are valid and have distinct span_ids
-    let source_a_ctx = source_a_span
-        .as_ref()
-        .unwrap()
-        .span_context()
-        .expect("Source A span should have context");
-    let source_b_ctx = source_b_span
-        .as_ref()
-        .unwrap()
-        .span_context()
-        .expect("Source B span should have context");
-
-    assert!(source_a_ctx.is_valid(), "Source A span should be valid");
-    assert!(source_b_ctx.is_valid(), "Source B span should be valid");
-
-    // All 3 spans should have unique span_ids
-    let span_ids = vec![
-        parent_span_id.clone(),
-        source_a_ctx.span_id().to_string(),
-        source_b_ctx.span_id().to_string(),
-    ];
-    let unique_ids: std::collections::HashSet<_> = span_ids.iter().collect();
-    assert_eq!(
-        unique_ids.len(),
-        3,
-        "All 3 spans should have unique span_ids: {:?}",
-        span_ids
-    );
 }
 
 // =============================================================================
-// Test 1b: SimpleJobProcessor span completion
+// Test 1b: SimpleJobProcessor span completion (success and error)
 // =============================================================================
 
-/// Simulates SimpleJobProcessor's span completion pattern:
-/// Creates batch span, sets total_records/batch_duration, then set_success or set_error.
+/// Simulates SimpleJobProcessor's RecordSpan lifecycle:
+/// Creates record span, calls set_success or set_error, then drops.
 #[tokio::test]
 #[serial]
 async fn test_simple_processor_span_completion() {
     let obs_manager = create_test_observability_manager("processor-span-completion-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
-    let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
-
     // Success path
-    let batch_start = Instant::now();
-    let mut success_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-span-complete", 1, &input_batch);
+    let mut success_span = ObservabilityHelper::start_record_span(&obs, "test-span-complete", None);
     assert!(success_span.is_some(), "Span should be created");
-
-    ObservabilityHelper::complete_batch_span_success(&mut success_span, &batch_start, 42);
-    // After completion, the span should have been marked (no panic)
+    success_span.as_mut().unwrap().set_output_count(42);
+    success_span.as_mut().unwrap().set_success();
+    drop(success_span);
 
     // Error path
-    let mut error_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-span-error", 2, &input_batch);
+    let mut error_span = ObservabilityHelper::start_record_span(&obs, "test-span-error", None);
     assert!(error_span.is_some(), "Error span should be created");
-
-    ObservabilityHelper::complete_batch_span_error(&mut error_span, &batch_start, 10, 5);
-    // After error completion, the span should have been marked (no panic)
+    error_span
+        .as_mut()
+        .unwrap()
+        .set_error("simulated processing error");
+    drop(error_span);
 }
 
 // =============================================================================
-// Test 2: TransactionalJobProcessor trace pattern
+// Test 2: TransactionalJobProcessor trace pattern (per-record)
 // =============================================================================
 
-/// Simulates TransactionalJobProcessor's trace pattern:
-/// 1. Single batch span from input records
-/// 2. Inject into output records
-/// 3. Complete span after simulated commit
+/// Simulates TransactionalJobProcessor's per-record trace pattern:
+/// 1. Extract upstream context from input record
+/// 2. Create RecordSpan linked to upstream
+/// 3. Inject into output records
+/// 4. Mark success after simulated commit
 #[tokio::test]
 #[serial]
 async fn test_transactional_processor_trace_pattern() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
-    // Simulate input batch with upstream trace (like transactional.rs lines 502-508)
-    let input_batch = vec![
-        create_test_record_with_traceparent(UPSTREAM_TRACEPARENT),
-        create_test_record(),
-    ];
+    // Simulate input with upstream traceparent
+    let input_record = create_test_record_with_traceparent(UPSTREAM_TRACEPARENT);
 
-    // Step 1: Create batch span (single span for entire transaction)
-    let mut batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-txn-job", 1, &input_batch);
-    assert!(batch_span.is_some(), "Batch span should be created");
+    // Step 1: Extract upstream context
+    let upstream_ctx = trace_propagation::extract_trace_context(&input_record.headers);
 
-    let batch_ctx = batch_span
+    // Step 2: Create record span
+    let record_span =
+        ObservabilityHelper::start_record_span(&obs, "test-txn-job", upstream_ctx.as_ref());
+    assert!(record_span.is_some(), "Record span should be created");
+
+    let span_ctx = record_span
         .as_ref()
         .unwrap()
         .span_context()
-        .expect("Batch span should have context");
-    assert!(batch_ctx.is_valid());
-    let batch_trace_id = batch_ctx.trace_id().to_string();
+        .expect("Record span should have context");
+    assert!(span_ctx.is_valid());
+    let record_trace_id = span_ctx.trace_id().to_string();
 
-    // Step 2: Inject into output records (like transactional.rs lines 541-548)
+    // Step 3: Inject into output records
     let mut output_records: Vec<Arc<StreamRecord>> = vec![
         Arc::new(create_test_record()),
         Arc::new(create_test_record()),
     ];
 
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut output_records,
-        "test-txn-job",
-    );
+    let mut record_span = record_span.unwrap();
+    for output in &mut output_records {
+        ObservabilityHelper::inject_record_trace_context(&record_span, output);
+    }
 
-    // Step 3: Complete span after simulated commit
-    let batch_start = Instant::now();
-    ObservabilityHelper::complete_batch_span_success(&mut batch_span, &batch_start, 2);
+    // Step 4: Mark success after simulated commit
+    record_span.set_output_count(2);
+    record_span.set_success();
 
-    // Verify: output records have traceparent matching batch span
+    // Verify: output records have traceparent matching record span
     for (i, record) in output_records.iter().enumerate() {
         assert_traceparent_injected(record, &format!("txn output record {}", i));
         let tp = &record.headers["traceparent"];
         assert_eq!(
             extract_trace_id(tp),
-            batch_trace_id,
-            "Output record {} should share batch trace_id",
+            record_trace_id,
+            "Output record {} should share record span's trace_id",
             i
         );
     }
 
     // Verify: span is child of upstream trace
-    // The batch span extracts upstream context, so it should be linked to the upstream trace
-    // (The TelemetryProvider creates spans as children of upstream context)
     assert_ne!(
-        batch_ctx.trace_id(),
+        span_ctx.trace_id(),
         TraceId::INVALID,
-        "Batch span should have valid trace_id"
+        "Record span should have valid trace_id"
     );
 }
 
@@ -246,45 +202,45 @@ async fn test_transactional_processor_trace_pattern() {
 // =============================================================================
 
 /// Simulates TransactionalJobProcessor's error path:
-/// Batch span created, processing fails, span completed with error.
+/// Record span created, processing fails, span completed with error.
 #[tokio::test]
 #[serial]
 async fn test_transactional_processor_error_path() {
     let obs_manager = create_test_observability_manager("processor-trace-error-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
-    let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
+    let input_record = create_test_record_with_traceparent(UPSTREAM_TRACEPARENT);
+    let upstream_ctx = trace_propagation::extract_trace_context(&input_record.headers);
 
-    let mut batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-txn-error", 1, &input_batch);
-    assert!(batch_span.is_some(), "Batch span should be created");
+    let mut record_span =
+        ObservabilityHelper::start_record_span(&obs, "test-txn-error", upstream_ctx.as_ref());
+    assert!(record_span.is_some(), "Record span should be created");
 
-    // Simulate batch failure — complete with error instead of success
-    let batch_start = Instant::now();
-    ObservabilityHelper::complete_batch_span_error(&mut batch_span, &batch_start, 5, 3);
+    // Simulate failure -- complete with error instead of success
+    record_span
+        .as_mut()
+        .unwrap()
+        .set_error("transaction commit failed");
+    drop(record_span);
     // Should not panic, span is properly completed with error status
 }
 
 // =============================================================================
-// Test 3: PartitionReceiver trace pattern
+// Test 3: PartitionReceiver trace pattern (per-record)
 // =============================================================================
 
-/// Simulates PartitionReceiver's trace pattern:
-/// 1. Process batch first (trace-agnostic processing)
-/// 2. THEN create batch span from ORIGINAL INPUT batch
-/// 3. Inject into output records
+/// Simulates PartitionReceiver's per-record trace pattern:
+/// 1. Process records first (trace-agnostic processing)
+/// 2. THEN for each sampled input record, create a RecordSpan
+/// 3. Inject into individual output records
 #[tokio::test]
 #[serial]
 async fn test_partition_receiver_trace_pattern() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
-    // Simulate input batch with upstream trace
-    let input_batch = vec![
-        create_test_record_with_traceparent(UPSTREAM_TRACEPARENT),
-        create_test_record(),
-        create_test_record(),
-    ];
+    // Simulate input record with upstream trace
+    let input_record = create_test_record_with_traceparent(UPSTREAM_TRACEPARENT);
 
     // Step 1: Simulate process_batch() producing output (trace-agnostic)
     let mut output_records: Vec<Arc<StreamRecord>> = vec![
@@ -292,50 +248,48 @@ async fn test_partition_receiver_trace_pattern() {
         Arc::new(create_test_record()),
     ];
 
-    // Step 2: Create batch span from ORIGINAL INPUT batch
-    // This mirrors partition_receiver.rs lines 475-480
-    // Key difference: span is created AFTER processing, using input records for context
-    let batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-partition-job", 1, &input_batch);
-    assert!(batch_span.is_some(), "Batch span should be created");
+    // Step 2: Create record span from the input record's upstream context
+    let upstream_ctx = trace_propagation::extract_trace_context(&input_record.headers);
+    let record_span =
+        ObservabilityHelper::start_record_span(&obs, "test-partition-job", upstream_ctx.as_ref());
+    assert!(record_span.is_some(), "Record span should be created");
 
-    let span_ctx = batch_span
+    let span_ctx = record_span
         .as_ref()
         .unwrap()
         .span_context()
         .expect("Should have span context");
 
-    // Step 3: Inject into output records (like partition_receiver.rs lines 481-487)
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut output_records,
-        "test-partition-job",
-    );
+    // Step 3: Inject into output records
+    let record_span = record_span.unwrap();
+    for output in &mut output_records {
+        ObservabilityHelper::inject_record_trace_context(&record_span, output);
+    }
 
-    // Verify: span extracts upstream context from INPUT records
+    // Verify: span extracts upstream context from input record
     assert!(span_ctx.is_valid(), "Span should have valid context");
     assert_ne!(span_ctx.trace_id(), TraceId::INVALID);
 
-    // Verify: output records get traceparent from batch span
+    // Verify: output records get traceparent from record span
     for (i, record) in output_records.iter().enumerate() {
         assert_traceparent_injected(record, &format!("partition output record {}", i));
         let tp = &record.headers["traceparent"];
         assert_eq!(
             extract_trace_id(tp),
             span_ctx.trace_id().to_string(),
-            "Output record {} should have batch span's trace_id",
+            "Output record {} should have record span's trace_id",
             i
         );
     }
 }
 
 // =============================================================================
-// Test 4: JoinJobProcessor trace pattern
+// Test 4: JoinJobProcessor trace pattern (per-record)
 // =============================================================================
 
-/// Simulates JoinJobProcessor's trace pattern:
+/// Simulates JoinJobProcessor's per-record trace pattern:
 /// 1. Uses first OUTPUT record (not input!) to extract upstream trace context
-/// 2. Clones first output record for span creation
+/// 2. Creates RecordSpan from that upstream context
 /// 3. Injects trace into ALL output records
 #[tokio::test]
 #[serial]
@@ -344,71 +298,56 @@ async fn test_join_processor_trace_pattern() {
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
     // Simulate output buffer where first record carries upstream traceparent
-    // In a join, output records may carry forward headers from left/right inputs
     let mut output_buffer: Vec<Arc<StreamRecord>> = vec![
         Arc::new(create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)),
         Arc::new(create_test_record()),
         Arc::new(create_test_record()),
     ];
 
-    // Step 1: Clone first output record for span creation
-    // This mirrors join_job_processor.rs lines 192-195
-    let first_records: Vec<StreamRecord> = output_buffer
-        .first()
-        .map(|r| vec![(**r).clone()])
-        .unwrap_or_default();
+    // Step 1: Extract upstream context from first output record
+    let upstream_ctx = trace_propagation::extract_trace_context(&output_buffer[0].headers);
 
-    // Step 2: Create batch span from first output record
-    // This mirrors join_job_processor.rs lines 196-201
-    let batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-join-job", 1, &first_records);
-    assert!(batch_span.is_some(), "Batch span should be created");
+    // Step 2: Create record span from first output record's context
+    let record_span =
+        ObservabilityHelper::start_record_span(&obs, "test-join-job", upstream_ctx.as_ref());
+    assert!(record_span.is_some(), "Record span should be created");
 
-    let span_ctx = batch_span
+    let span_ctx = record_span
         .as_ref()
         .unwrap()
         .span_context()
         .expect("Should have span context");
 
     // Step 3: Inject trace into ALL output records
-    // This mirrors join_job_processor.rs lines 202-206
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut output_buffer,
-        "test-join-job",
-    );
+    let record_span = record_span.unwrap();
+    for output in &mut output_buffer {
+        ObservabilityHelper::inject_record_trace_context(&record_span, output);
+    }
 
     // Verify: span is child of upstream trace from FIRST OUTPUT RECORD
     assert!(span_ctx.is_valid());
     assert_ne!(span_ctx.trace_id(), TraceId::INVALID);
 
-    // Verify: ALL output records get new traceparent (including first record which gets overwritten)
     let injected_trace_id = span_ctx.trace_id().to_string();
     let injected_span_id = span_ctx.span_id().to_string();
 
+    // All records should have the record span's trace context injected
     for (i, record) in output_buffer.iter().enumerate() {
         assert_traceparent_injected(record, &format!("join output record {}", i));
         let tp = &record.headers["traceparent"];
         assert_eq!(
             extract_trace_id(tp),
             injected_trace_id,
-            "Join output record {} should have batch span's trace_id",
+            "Join output record {} should have record span's trace_id",
             i
         );
         assert_eq!(
             extract_span_id(tp),
             injected_span_id,
-            "Join output record {} should have batch span's span_id",
+            "Join output record {} should have record span's span_id",
             i
         );
     }
-
-    // Verify: first record's original traceparent was overwritten
-    let first_tp = &output_buffer[0].headers["traceparent"];
-    assert_ne!(
-        first_tp, UPSTREAM_TRACEPARENT,
-        "First record's original traceparent should be overwritten with batch span's context"
-    );
 }
 
 // =============================================================================
@@ -428,18 +367,18 @@ async fn test_join_processor_no_upstream_trace_starts_new_root() {
         Arc::new(create_test_record()),
     ];
 
-    // Clone first output record (no trace context)
-    let first_records: Vec<StreamRecord> = output_buffer
-        .first()
-        .map(|r| vec![(**r).clone()])
-        .unwrap_or_default();
+    // No upstream context (no traceparent in first record)
+    let upstream_ctx = trace_propagation::extract_trace_context(&output_buffer[0].headers);
+    assert!(
+        upstream_ctx.is_none(),
+        "Should have no upstream context without traceparent"
+    );
 
-    // Create batch span — should start new root trace
-    let batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-join-no-upstream", 1, &first_records);
-    assert!(batch_span.is_some(), "Batch span should be created");
+    // Create record span -- should start new root trace
+    let record_span = ObservabilityHelper::start_record_span(&obs, "test-join-no-upstream", None);
+    assert!(record_span.is_some(), "Record span should be created");
 
-    let span_ctx = batch_span
+    let span_ctx = record_span
         .as_ref()
         .unwrap()
         .span_context()
@@ -459,11 +398,10 @@ async fn test_join_processor_no_upstream_trace_starts_new_root() {
     );
 
     // Inject into output records
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut output_buffer,
-        "test-join-no-upstream",
-    );
+    let record_span = record_span.unwrap();
+    for output in &mut output_buffer {
+        ObservabilityHelper::inject_record_trace_context(&record_span, output);
+    }
 
     // Verify: output records get injected traceparent
     for (i, record) in output_buffer.iter().enumerate() {
@@ -472,151 +410,45 @@ async fn test_join_processor_no_upstream_trace_starts_new_root() {
 }
 
 // =============================================================================
-// Test 6: SimpleJobProcessor multi-source span hierarchy
+// Test 6: Per-record spans have unique span_ids
 // =============================================================================
 
-/// Tests the parent-child span relationships unique to SimpleJobProcessor:
-/// - Parent span and per-source spans each extract from their own input records
-/// - Output injection uses parent span context, not source spans
+/// Tests that multiple RecordSpans created for different records each get unique span_ids
 #[tokio::test]
 #[serial]
-async fn test_simple_processor_multi_source_span_hierarchy() {
+async fn test_per_record_spans_have_unique_span_ids() {
     let obs_manager = create_test_observability_manager("processor-trace-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
-    // Source A has upstream trace, Source B does not
-    let source_a_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
-    let source_b_batch = vec![create_test_record()];
+    // Create multiple record spans for different records
+    let span1 = ObservabilityHelper::start_record_span(&obs, "test-unique-spans", None);
+    let span2 = ObservabilityHelper::start_record_span(&obs, "test-unique-spans", None);
+    let span3 = ObservabilityHelper::start_record_span(&obs, "test-unique-spans", None);
 
-    // Parent span from source_a (first non-empty batch)
-    let parent_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-hierarchy", 1, &source_a_batch);
-    let parent_ctx = parent_span
-        .as_ref()
-        .unwrap()
-        .span_context()
-        .expect("Should have context");
-    let parent_trace_id = parent_ctx.trace_id().to_string();
-    let parent_span_id = parent_ctx.span_id().to_string();
+    let ctx1 = span1.as_ref().unwrap().span_context().unwrap();
+    let ctx2 = span2.as_ref().unwrap().span_context().unwrap();
+    let ctx3 = span3.as_ref().unwrap().span_context().unwrap();
 
-    // Per-source spans
-    let source_a_span = ObservabilityHelper::start_batch_span(
-        &obs,
-        "test-hierarchy (source: a)",
-        1,
-        &source_a_batch,
-    );
-    let source_a_ctx = source_a_span
-        .as_ref()
-        .unwrap()
-        .span_context()
-        .expect("Should have context");
-    let source_a_span_id = source_a_ctx.span_id().to_string();
-
-    let source_b_span = ObservabilityHelper::start_batch_span(
-        &obs,
-        "test-hierarchy (source: b)",
-        1,
-        &source_b_batch,
-    );
-    let source_b_ctx = source_b_span
-        .as_ref()
-        .unwrap()
-        .span_context()
-        .expect("Should have context");
-    let source_b_span_id = source_b_ctx.span_id().to_string();
-
-    // Verify: each span has its own unique span_id
-    assert_ne!(
-        parent_span_id, source_a_span_id,
-        "Parent and source_a should have different span_ids"
-    );
-    assert_ne!(
-        parent_span_id, source_b_span_id,
-        "Parent and source_b should have different span_ids"
-    );
-    assert_ne!(
-        source_a_span_id, source_b_span_id,
-        "Source spans should have different span_ids"
-    );
-
-    // Verify: output injection uses PARENT span, not source spans
-    let mut output_records: Vec<Arc<StreamRecord>> = vec![Arc::new(create_test_record())];
-    ObservabilityHelper::inject_trace_context_into_records(
-        &parent_span,
-        &mut output_records,
-        "test-hierarchy",
-    );
-
-    let tp = &output_records[0].headers["traceparent"];
+    // All spans should have unique span_ids
+    let span_ids = vec![
+        ctx1.span_id().to_string(),
+        ctx2.span_id().to_string(),
+        ctx3.span_id().to_string(),
+    ];
+    let unique_ids: std::collections::HashSet<_> = span_ids.iter().collect();
     assert_eq!(
-        extract_trace_id(tp),
-        parent_trace_id,
-        "Output should use parent's trace_id"
-    );
-    assert_eq!(
-        extract_span_id(tp),
-        parent_span_id,
-        "Output should use parent's span_id, not any source span"
+        unique_ids.len(),
+        3,
+        "All 3 record spans should have unique span_ids: {:?}",
+        span_ids
     );
 }
 
 // =============================================================================
-// Test 7: All processors handle empty batch gracefully
+// Test 7: Trace injection with shared Arc records (copy-on-write)
 // =============================================================================
 
-/// Verifies graceful handling when input batch is empty (each processor's edge case)
-#[tokio::test]
-#[serial]
-async fn test_all_processors_handle_empty_batch() {
-    let obs_manager = create_test_observability_manager("processor-trace-test").await;
-    let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
-
-    // Empty input batch
-    let empty_batch: Vec<StreamRecord> = vec![];
-
-    // start_batch_span with empty slice should still create a span (new root trace)
-    let batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "test-empty-batch", 1, &empty_batch);
-    assert!(
-        batch_span.is_some(),
-        "Batch span should be created even with empty batch"
-    );
-
-    let span_ctx = batch_span
-        .as_ref()
-        .unwrap()
-        .span_context()
-        .expect("Should have span context");
-    assert!(
-        span_ctx.is_valid(),
-        "Span from empty batch should be valid (new root trace)"
-    );
-
-    // Inject on empty output records should not panic
-    let mut empty_output: Vec<Arc<StreamRecord>> = vec![];
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut empty_output,
-        "test-empty-batch",
-    );
-    assert!(empty_output.is_empty(), "Empty output should remain empty");
-
-    // Also verify None batch span with empty output doesn't panic
-    let no_span: Option<velostream::velostream::observability::telemetry::BatchSpan> = None;
-    let mut empty_output2: Vec<Arc<StreamRecord>> = vec![];
-    ObservabilityHelper::inject_trace_context_into_records(
-        &no_span,
-        &mut empty_output2,
-        "test-empty-batch",
-    );
-}
-
-// =============================================================================
-// Test 8: Trace injection with shared Arc records (copy-on-write)
-// =============================================================================
-
-/// Verifies that inject_trace_context_into_records correctly handles
+/// Verifies that inject_record_trace_context correctly handles
 /// Arc<StreamRecord> with refcount > 1, using Arc::make_mut for copy-on-write.
 #[tokio::test]
 #[serial]
@@ -624,25 +456,20 @@ async fn test_trace_injection_with_shared_arc_records() {
     let obs_manager = create_test_observability_manager("processor-arc-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager.clone());
 
-    let input_batch = vec![create_test_record()];
-    let batch_span = ObservabilityHelper::start_batch_span(&obs, "test-arc-cow", 1, &input_batch);
-    assert!(batch_span.is_some());
+    let record_span = ObservabilityHelper::start_record_span(&obs, "test-arc-cow", None);
+    assert!(record_span.is_some());
 
-    // Create shared Arc records — clone the Arc (refcount > 1)
+    // Create shared Arc records -- clone the Arc (refcount > 1)
     let shared_record = Arc::new(create_test_record());
     let shared_clone = Arc::clone(&shared_record);
 
-    let mut output_records: Vec<Arc<StreamRecord>> = vec![shared_record];
+    let mut output_record = shared_record;
 
-    // Inject trace — this should use Arc::make_mut (copy-on-write)
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut output_records,
-        "test-arc-cow",
-    );
+    // Inject trace -- this should use Arc::make_mut (copy-on-write)
+    ObservabilityHelper::inject_record_trace_context(&record_span.unwrap(), &mut output_record);
 
     // The injected record should have traceparent
-    assert_traceparent_injected(&output_records[0], "injected arc record");
+    assert_traceparent_injected(&output_record, "injected arc record");
 
     // The original clone should NOT have traceparent (copy-on-write created a new allocation)
     assert!(

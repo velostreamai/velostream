@@ -107,6 +107,7 @@
 -- @metric: velo_market_data_ts_records_total
 -- @metric_type: counter
 -- @metric_help: "Total records processed by market_data_ts"
+-- @metric_labels: symbol
 --
 -- @metric: velo_market_data_current_price
 -- @metric_type: gauge

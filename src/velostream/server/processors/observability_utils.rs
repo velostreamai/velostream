@@ -1,73 +1,18 @@
-//! Shared observability utilities to eliminate duplication
+//! Shared observability utilities
 //!
 //! This module provides helper functions for common observability patterns used across
-//! ProcessorMetricsHelper and ObservabilityHelper, reducing code duplication by ~30%.
+//! ProcessorMetricsHelper and ObservabilityHelper.
 
-use crate::velostream::observability::{
-    SharedObservabilityManager,
-    label_extraction::{LabelExtractionConfig, extract_label_values},
-};
-use crate::velostream::sql::execution::StreamRecord;
-use crate::velostream::sql::parser::annotations::MetricAnnotation;
-use log::debug;
-use std::time::Instant;
+use crate::velostream::observability::SharedObservabilityManager;
 
-/// Safely access observability manager with read lock
+/// Try-lock helper for non-async contexts
 ///
-/// This helper eliminates the repeated pattern of:
-/// ```rust
-/// # use std::sync::Arc;
-/// # use tokio::sync::RwLock;
-/// # async fn example() {
-/// // Instead of this boilerplate:
-/// let observability: Option<Arc<RwLock<i32>>> = None; // placeholder type
-/// if let Some(obs) = observability {
-///     match obs.read().await {
-///         obs_lock => {
-///             // process obs_lock
-///         }
-///     }
-/// }
-/// # }
-/// ```
+/// Acquires a read lock on the `SharedObservabilityManager` using `try_read()`.
+/// Returns `None` if observability is not configured or the lock cannot be acquired.
 ///
-/// You can now use the helper:
-/// ```rust
-/// # use std::sync::Arc;
-/// # use tokio::sync::RwLock;
-/// # async fn example() {
-/// let observability: Option<Arc<RwLock<i32>>> = None;
-/// // with_observability_lock(observability, |obs_lock| {
-/// //     // process obs_lock
-/// //     None::<()>
-/// // }).await;
-/// # }
-/// ```
-///
-/// # Arguments
-/// * `observability` - Optional observability manager
-/// * `f` - Closure that receives the locked observability manager
-///
-/// # Returns
-/// Result of the closure if observability is available and lock acquired
-pub async fn with_observability_lock<F, T>(
-    observability: &Option<SharedObservabilityManager>,
-    f: F,
-) -> Option<T>
-where
-    F: FnOnce(&crate::velostream::observability::ObservabilityManager) -> Option<T>,
-{
-    if let Some(obs) = observability {
-        let obs_lock = obs.read().await;
-        f(&obs_lock)
-    } else {
-        None
-    }
-}
-
-/// Try-lock version for non-async contexts
-///
-/// Used when we can't await and need try_read() instead of read()
+/// During normal runtime, `SharedObservabilityManager` only acquires read locks
+/// (metrics emission, span creation), so `try_read()` should virtually always
+/// succeed. The only write lock is held during initialization.
 pub fn with_observability_try_lock<F, T>(
     observability: &Option<SharedObservabilityManager>,
     f: F,
@@ -76,10 +21,15 @@ where
     F: FnOnce(&crate::velostream::observability::ObservabilityManager) -> Option<T>,
 {
     if let Some(obs) = observability {
-        if let Ok(obs_lock) = obs.try_read() {
-            f(&obs_lock)
-        } else {
-            None
+        match obs.try_read() {
+            Ok(obs_lock) => f(&obs_lock),
+            Err(_) => {
+                log::warn!(
+                    "with_observability_try_lock: could not acquire read lock, \
+                     observability data will be dropped for this batch"
+                );
+                None
+            }
         }
     } else {
         None
@@ -96,68 +46,15 @@ where
 /// * `duration_ms` - Time taken in milliseconds
 ///
 /// # Returns
-/// Throughput in records per second
+/// Throughput in records per second. For sub-millisecond durations (duration_ms == 0)
+/// with non-zero records, treats the duration as 1ms to avoid reporting 0 throughput
+/// for fast operations.
 pub fn calculate_throughput(record_count: usize, duration_ms: u64) -> f64 {
-    if duration_ms > 0 {
-        (record_count as f64 / duration_ms as f64) * 1000.0
-    } else {
-        0.0
+    if record_count == 0 {
+        return 0.0;
     }
-}
-
-/// Extract and validate labels in a single operation
-///
-/// Combines label extraction with performance telemetry and validation,
-/// eliminating the repeated 15-line pattern across emit methods.
-///
-/// # Arguments
-/// * `record` - Stream record to extract labels from
-/// * `annotation` - Metric annotation defining expected labels
-/// * `metric_type_name` - Type of metric (counter/gauge/histogram) for logging
-/// * `job_name` - Job name for logging
-/// * `strict_mode` - Whether to require exact label match
-/// * `record_label_extract_time` - Callback to record extraction time
-///
-/// # Returns
-/// - `Some(labels)` if extraction and validation succeeded
-/// - `None` if validation failed (strict mode mismatch)
-pub async fn extract_and_validate_labels<F>(
-    record: &StreamRecord,
-    annotation: &MetricAnnotation,
-    metric_type_name: &str,
-    job_name: &str,
-    strict_mode: bool,
-    mut record_label_extract_time: F,
-) -> Option<Vec<String>>
-where
-    F: FnMut(u64),
-{
-    let extract_start = Instant::now();
-    let config = LabelExtractionConfig::default();
-    let label_values = extract_label_values(record, &annotation.labels, &config);
-    let extract_duration = extract_start.elapsed().as_micros() as u64;
-    record_label_extract_time(extract_duration);
-
-    // Validate labels
-    let labels_valid = if strict_mode {
-        // Strict mode: require exact match
-        label_values.len() == annotation.labels.len()
-    } else {
-        // Permissive mode: always valid
-        true
-    };
-
-    if !labels_valid {
-        debug!(
-            "Job '{}': Skipping {} '{}' - strict mode: missing label values (expected {}, got {})",
-            job_name,
-            metric_type_name,
-            annotation.name,
-            annotation.labels.len(),
-            label_values.len()
-        );
-        return None;
-    }
-
-    Some(label_values)
+    // Treat sub-millisecond durations as 1ms to avoid reporting 0 throughput
+    // for fast operations that complete faster than timer resolution.
+    let effective_ms = duration_ms.max(1);
+    (record_count as f64 / effective_ms as f64) * 1000.0
 }

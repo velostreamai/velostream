@@ -557,7 +557,11 @@ mod strict_mode_label_handling_tests {
 
     #[test]
     fn test_strict_mode_enabled() {
-        let config = LabelHandlingConfig { strict_mode: true };
+        let config = LabelHandlingConfig {
+            strict_mode: true,
+            max_cardinality: 100,
+            max_timestamp_age_ms: 48 * 60 * 60 * 1000,
+        };
         let helper = ProcessorMetricsHelper::with_config(config);
         assert!(helper.label_config.strict_mode);
     }
@@ -591,7 +595,11 @@ mod strict_mode_label_handling_tests {
 
     #[test]
     fn test_strict_mode_requires_exact_label_count() {
-        let config = LabelHandlingConfig { strict_mode: true };
+        let config = LabelHandlingConfig {
+            strict_mode: true,
+            max_cardinality: 100,
+            max_timestamp_age_ms: 48 * 60 * 60 * 1000,
+        };
         let helper = ProcessorMetricsHelper::with_config(config);
 
         let mut annotation =
@@ -607,7 +615,11 @@ mod strict_mode_label_handling_tests {
 
     #[test]
     fn test_strict_mode_with_no_labels() {
-        let config = LabelHandlingConfig { strict_mode: true };
+        let config = LabelHandlingConfig {
+            strict_mode: true,
+            max_cardinality: 100,
+            max_timestamp_age_ms: 48 * 60 * 60 * 1000,
+        };
         let helper = ProcessorMetricsHelper::with_config(config);
 
         let annotation =

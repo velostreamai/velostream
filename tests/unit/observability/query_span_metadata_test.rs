@@ -241,7 +241,6 @@ fn test_csas_wrapping_extracts_metadata() {
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Final),
         metric_annotations: vec![],
-        job_name: None,
     };
 
     let metadata = QuerySpanMetadata::from_query(&csas);

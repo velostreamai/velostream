@@ -61,7 +61,7 @@
 //! - Empty batch handling via `empty_batch_count` and `wait_on_empty_batch_ms`
 
 use crate::velostream::datasource::DataWriter;
-use crate::velostream::observability::query_metadata::QuerySpanMetadata;
+use crate::velostream::observability::trace_propagation::{self, SamplingDecision};
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::metrics_helper::extract_job_name;
@@ -133,8 +133,6 @@ pub struct PartitionReceiver {
     eof_flag: Option<Arc<AtomicBool>>,
     /// Job name for metric emission (derived from query)
     job_name: String,
-    /// Pre-computed query metadata for span enrichment
-    query_metadata: QuerySpanMetadata,
 }
 
 impl PartitionReceiver {
@@ -179,9 +177,6 @@ impl PartitionReceiver {
         // Extract job name from query for metric emission
         let job_name = extract_job_name(&query);
 
-        // Pre-compute query metadata once for span enrichment
-        let query_metadata = QuerySpanMetadata::from_query(&query);
-
         Self {
             partition_id,
             execution_engine,
@@ -195,7 +190,6 @@ impl PartitionReceiver {
             queue: None,
             eof_flag: None,
             job_name,
-            query_metadata,
         }
     }
 
@@ -246,9 +240,6 @@ impl PartitionReceiver {
         // Extract job name from query for metric emission
         let job_name = extract_job_name(&query);
 
-        // Pre-compute query metadata once for span enrichment
-        let query_metadata = QuerySpanMetadata::from_query(&query);
-
         Self {
             partition_id,
             execution_engine,
@@ -262,7 +253,6 @@ impl PartitionReceiver {
             queue: Some(queue),
             eof_flag: Some(eof_flag),
             job_name,
-            query_metadata,
         }
     }
 
@@ -406,22 +396,6 @@ impl PartitionReceiver {
                 let start = Instant::now();
                 let batch_size = batch.len();
 
-                // Create batch span BEFORE processing so inner spans are children
-                let mut batch_span = ObservabilityHelper::start_batch_span(
-                    self.observability_wrapper.observability_ref(),
-                    &self.job_name,
-                    batch_count + 1,
-                    &batch,
-                );
-                ObservabilityHelper::enrich_batch_span_with_query_metadata(
-                    &mut batch_span,
-                    &self.query_metadata,
-                );
-                ObservabilityHelper::enrich_batch_span_with_record_metadata(
-                    &mut batch_span,
-                    &batch,
-                );
-
                 // Process batch with retry logic
                 let mut retry_count = 0;
 
@@ -429,15 +403,16 @@ impl PartitionReceiver {
                     // SQL processing phase: time and record span
                     let sql_start = Instant::now();
                     match self.process_batch(&batch) {
-                        Ok((processed, mut output_records, pending_dlq_entries)) => {
+                        Ok((processed, output_records, pending_dlq_entries)) => {
                             let sql_elapsed = sql_start.elapsed();
+                            let failed = pending_dlq_entries.len(); // Capture before move
                             total_records += processed as u64;
                             batch_count += 1;
 
-                            // Record SQL processing span
+                            // Record SQL processing metrics
                             let batch_result = crate::velostream::server::processors::common::BatchProcessingResultWithOutput {
                                 records_processed: processed,
-                                records_failed: pending_dlq_entries.len(),
+                                records_failed: failed,
                                 processing_time: sql_elapsed,
                                 batch_size,
                                 error_details: vec![],
@@ -446,10 +421,8 @@ impl PartitionReceiver {
                             ObservabilityHelper::record_sql_processing(
                                 self.observability_wrapper.observability_ref(),
                                 &self.job_name,
-                                &batch_span,
                                 &batch_result,
                                 sql_elapsed.as_millis() as u64,
-                                Some(&self.query_metadata),
                             );
 
                             // Write any pending DLQ entries asynchronously (fix for block_on panic)
@@ -476,16 +449,6 @@ impl PartitionReceiver {
                                 self.emit_sql_metrics(&output_records).await;
                             }
 
-                            // Inject distributed trace context into output records
-                            // so downstream consumers can link their traces
-                            if !output_records.is_empty() {
-                                ObservabilityHelper::inject_trace_context_into_records(
-                                    &batch_span,
-                                    &mut output_records,
-                                    &self.job_name,
-                                );
-                            }
-
                             // Serialization phase: write output records to sink with timing
                             if !output_records.is_empty() {
                                 if let Some(ref writer_arc) = self.writer {
@@ -509,11 +472,8 @@ impl PartitionReceiver {
                                                 ObservabilityHelper::record_serialization_failure(
                                                     self.observability_wrapper.observability_ref(),
                                                     &self.job_name,
-                                                    &batch_span,
                                                     output_count,
                                                     ser_elapsed.as_millis() as u64,
-                                                    &format!("Flush failed: {}", e),
-                                                    None,
                                                 );
                                             } else {
                                                 let ser_elapsed = ser_start.elapsed();
@@ -524,10 +484,8 @@ impl PartitionReceiver {
                                                 ObservabilityHelper::record_serialization_success(
                                                     self.observability_wrapper.observability_ref(),
                                                     &self.job_name,
-                                                    &batch_span,
                                                     output_count,
                                                     ser_elapsed.as_millis() as u64,
-                                                    None,
                                                 );
                                             }
                                         }
@@ -542,11 +500,8 @@ impl PartitionReceiver {
                                             ObservabilityHelper::record_serialization_failure(
                                                 self.observability_wrapper.observability_ref(),
                                                 &self.job_name,
-                                                &batch_span,
                                                 output_count,
                                                 ser_elapsed.as_millis() as u64,
-                                                &format!("Write failed: {}", e),
-                                                None,
                                             );
                                         }
                                     }
@@ -558,13 +513,6 @@ impl PartitionReceiver {
                                     );
                                 }
                             }
-
-                            // Complete batch span with success
-                            ObservabilityHelper::complete_batch_span_success(
-                                &mut batch_span,
-                                &start,
-                                processed as u64,
-                            );
 
                             break; // Batch processed successfully, exit retry loop
                         }
@@ -595,14 +543,6 @@ impl PartitionReceiver {
                                 debug!(
                                     "PartitionReceiver {}: Max retries ({}) exceeded, sending batch to DLQ",
                                     self.partition_id, self.config.max_retries
-                                );
-
-                                // Complete batch span with error for the failed batch
-                                ObservabilityHelper::complete_batch_span_error(
-                                    &mut batch_span,
-                                    &start,
-                                    0,
-                                    batch_size,
                                 );
 
                                 // Send to DLQ if enabled
@@ -737,20 +677,72 @@ impl PartitionReceiver {
         let mut output_records = Vec::new();
         let mut pending_dlq_entries = Vec::new();
 
+        // Get sampling ratio once per batch (not per record).
+        // Only run sampling/injection when tracing is enabled.
+        let tracing_enabled = self.observability_wrapper.observability_ref().is_some();
+        let sampling_ratio = ObservabilityHelper::effective_sampling_ratio(
+            self.observability_wrapper.observability_ref(),
+        );
+
         for (record_index, record) in batch.iter().enumerate() {
+            // Per-record sampling: check traceparent flag or roll dice
+            let (mut record_span, not_sampled_new) = if tracing_enabled {
+                let sampling_decision = trace_propagation::extract_trace_context_if_sampled(
+                    &record.headers,
+                    sampling_ratio,
+                );
+
+                let not_sampled_new = matches!(&sampling_decision, SamplingDecision::NotSampledNew);
+
+                let span = match &sampling_decision {
+                    SamplingDecision::Sampled(upstream_ctx) => {
+                        ObservabilityHelper::start_record_span(
+                            self.observability_wrapper.observability_ref(),
+                            &self.job_name,
+                            upstream_ctx.as_ref(),
+                        )
+                    }
+                    SamplingDecision::NotSampled | SamplingDecision::NotSampledNew => None,
+                };
+
+                (span, not_sampled_new)
+            } else {
+                (None, false)
+            };
+
             match self
                 .execution_engine
                 .execute_with_record_sync(&self.query, record)
             {
                 Ok(outputs) => {
                     processed += 1;
+
+                    // Track output count on the span
+                    if let Some(ref mut span) = record_span {
+                        span.set_output_count(outputs.len());
+                    }
+
                     // Add all output records from this execution
                     for output in outputs {
-                        output_records.push(Arc::new(output));
+                        let mut out = Arc::new(output);
+                        if let Some(ref span) = record_span {
+                            // Inject sampled span context into output record
+                            ObservabilityHelper::inject_record_trace_context(span, &mut out);
+                        } else if not_sampled_new {
+                            // No traceparent existed upstream and dice roll failed —
+                            // inject flag=00 to prevent downstream from re-rolling
+                            ObservabilityHelper::inject_not_sampled_context(&mut out);
+                        }
+                        output_records.push(out);
                     }
                     // Output is available synchronously - main loop can immediately commit if needed
                 }
                 Err(e) => {
+                    // Mark span as error if sampled
+                    if let Some(ref mut span) = record_span {
+                        span.set_error(&e.to_string());
+                    }
+
                     warn!(
                         "PartitionReceiver {}: Error processing record at index {}: {}",
                         self.partition_id, record_index, e

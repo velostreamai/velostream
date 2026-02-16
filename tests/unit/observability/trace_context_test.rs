@@ -47,18 +47,18 @@ fn get_telemetry() -> &'static TelemetryProvider {
 
 #[tokio::test]
 #[serial]
-async fn test_batch_span_provides_context_when_active() {
+async fn test_record_span_provides_context_when_active() {
     // Get shared telemetry provider (initialized once)
     let telemetry = get_telemetry();
 
-    // Create batch span
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    // Create record span
+    let record_span = telemetry.start_record_span("test-job", None);
 
     // Verify span_context() returns valid SpanContext when active
-    let span_context = batch_span.span_context();
+    let span_context = record_span.span_context();
     assert!(
         span_context.is_some(),
-        "Active BatchSpan should provide a valid SpanContext"
+        "Active RecordSpan should provide a valid SpanContext"
     );
 
     let ctx = span_context.unwrap();
@@ -71,21 +71,17 @@ async fn test_batch_span_provides_context_when_active() {
     assert!(ctx.is_valid(), "SpanContext should be valid");
 }
 
-// Note: Removed test_batch_span_no_context_when_inactive because
-// the telemetry provider creates spans even when otlp_endpoint is None
-// (they just don't get exported). This is acceptable behavior.
-
 #[tokio::test]
 #[serial]
 async fn test_streaming_span_accepts_parent_context() {
     // Get shared telemetry provider
     let telemetry = get_telemetry();
 
-    // Create batch span (parent)
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    // Create record span (parent)
+    let record_span = telemetry.start_record_span("test-job", None);
 
     // Extract parent context
-    let parent_context = batch_span.span_context();
+    let parent_context = record_span.span_context();
     assert!(
         parent_context.is_some(),
         "Parent span should provide context"
@@ -101,7 +97,7 @@ async fn test_streaming_span_accepts_parent_context() {
     // The test passes if we can create the span without errors
     // In a real scenario, the span would inherit the parent's trace ID
     drop(streaming_span);
-    drop(batch_span);
+    drop(record_span);
 
     // Verify we captured the parent trace ID for potential linking
     assert_ne!(
@@ -113,31 +109,26 @@ async fn test_streaming_span_accepts_parent_context() {
 
 #[tokio::test]
 #[serial]
-async fn test_sql_query_span_accepts_parent_context() {
+async fn test_job_lifecycle_span_accepts_parent_context() {
     // Get shared telemetry provider
     let telemetry = get_telemetry();
 
-    // Create batch span (parent)
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    // Create record span (parent)
+    let record_span = telemetry.start_record_span("test-job", None);
 
     // Extract parent context
-    let parent_context = batch_span.span_context();
+    let parent_context = record_span.span_context();
     assert!(
         parent_context.is_some(),
         "Parent span should provide context"
     );
 
-    // Create SQL query span with parent context - should not panic
-    let sql_span = telemetry.start_sql_query_span(
-        "test-job",
-        "SELECT * FROM test",
-        "test-source",
-        parent_context,
-    );
+    // Create job lifecycle span with parent context - should not panic
+    let lifecycle_span = telemetry.start_job_lifecycle_span("test-job", "execute", parent_context);
 
     // The test passes if we can create the span without errors
-    drop(sql_span);
-    drop(batch_span);
+    drop(lifecycle_span);
+    drop(record_span);
 }
 
 #[tokio::test]
@@ -155,13 +146,12 @@ async fn test_streaming_span_without_parent_context() {
 
 #[tokio::test]
 #[serial]
-async fn test_sql_query_span_without_parent_context() {
+async fn test_job_lifecycle_span_without_parent_context() {
     // Get shared telemetry provider
     let telemetry = get_telemetry();
 
-    // Create SQL query span without parent context (None) - should not panic
-    let span =
-        telemetry.start_sql_query_span("test-job", "SELECT * FROM test", "test-source", None);
+    // Create job lifecycle span without parent context (None) - should not panic
+    let span = telemetry.start_job_lifecycle_span("test-job", "submit", None);
 
     // The test passes if we can create the span without errors
     drop(span);
@@ -173,11 +163,11 @@ async fn test_multiple_children_can_extract_same_parent_context() {
     // Get shared telemetry provider
     let telemetry = get_telemetry();
 
-    // Create batch span (parent)
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    // Create record span (parent)
+    let record_span = telemetry.start_record_span("test-job", None);
 
     // Extract parent context
-    let parent_context = batch_span.span_context();
+    let parent_context = record_span.span_context();
     assert!(
         parent_context.is_some(),
         "Parent span should provide context"
@@ -189,21 +179,17 @@ async fn test_multiple_children_can_extract_same_parent_context() {
     let deser_span =
         telemetry.start_streaming_span("test-job", "deserialization", 100, parent_context.clone());
 
-    let sql_span = telemetry.start_sql_query_span(
-        "test-job",
-        "SELECT * FROM test",
-        "test-source",
-        parent_context.clone(),
-    );
+    let lifecycle_span =
+        telemetry.start_job_lifecycle_span("test-job", "execute", parent_context.clone());
 
     let ser_span =
         telemetry.start_streaming_span("test-job", "serialization", 100, parent_context.clone());
 
     // All spans should be created successfully without panics
     drop(deser_span);
-    drop(sql_span);
+    drop(lifecycle_span);
     drop(ser_span);
-    drop(batch_span);
+    drop(record_span);
 
     // Verify parent trace ID was valid and could be shared
     assert_ne!(
@@ -215,14 +201,47 @@ async fn test_multiple_children_can_extract_same_parent_context() {
 
 #[tokio::test]
 #[serial]
-async fn test_span_context_method_exists_and_is_callable() {
+async fn test_record_span_context_method_exists_and_is_callable() {
     // This test verifies that the span_context() method exists and is callable
-    // on BatchSpan, which is the key requirement for parent-child linking
+    // on RecordSpan, which is the key requirement for parent-child linking
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
+    let record_span = telemetry.start_record_span("test-job", None);
 
     // The fact that this compiles proves the method exists
-    let _ = batch_span.span_context();
+    let _ = record_span.span_context();
 
     // Test passes if the method is callable
+}
+
+#[tokio::test]
+#[serial]
+async fn test_record_span_with_upstream_context() {
+    // Get shared telemetry provider
+    let telemetry = get_telemetry();
+
+    // Create a parent span and extract its context
+    let parent_span = telemetry.start_record_span("parent-job", None);
+    let parent_ctx = parent_span.span_context().expect("Should have context");
+    let parent_trace_id = parent_ctx.trace_id();
+
+    // Create a child record span using the parent context
+    let child_span = telemetry.start_record_span("child-job", Some(&parent_ctx));
+    let child_ctx = child_span.span_context().expect("Should have context");
+
+    // Child should inherit the parent's trace ID
+    assert_eq!(
+        child_ctx.trace_id(),
+        parent_trace_id,
+        "Child record span should inherit parent's trace ID"
+    );
+
+    // But have its own unique span ID
+    assert_ne!(
+        child_ctx.span_id(),
+        parent_ctx.span_id(),
+        "Child record span should have unique span ID"
+    );
+
+    drop(child_span);
+    drop(parent_span);
 }

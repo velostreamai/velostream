@@ -9,14 +9,14 @@ Velostream V2 Job Server supports **per-job partitioning strategy configuration*
 Add a `@partitioning_strategy` annotation to your SQL job definition:
 
 ```sql
--- @job_name: my_trading_stream
+-- @name: my_trading_stream
 -- @partitioning_strategy: always_hash
 CREATE STREAM my_trading_stream AS
 SELECT symbol, price, volume FROM market_data
 WHERE price > 100;
 ```
 
-The annotation is extracted using the same mechanism as `@job_name` and applied per-job, allowing different jobs to use different strategies.
+The annotation is extracted using the same mechanism as `@name` and applied per-job, allowing different jobs to use different strategies.
 
 ## Annotation Syntax
 
@@ -24,7 +24,7 @@ The annotation is extracted using the same mechanism as `@job_name` and applied 
 -- @partitioning_strategy: <strategy_name>
 ```
 
-**Placement**: Add the annotation immediately before the `CREATE STREAM` or `CREATE TABLE` statement, alongside other job metadata annotations like `@job_name`.
+**Placement**: Add the annotation immediately before the `CREATE STREAM` or `CREATE TABLE` statement, alongside other job metadata annotations like `@name`.
 
 **Case Handling**: Strategy names are case-insensitive. All of these are valid:
 - `always_hash`
@@ -67,7 +67,7 @@ The annotation is extracted using the same mechanism as `@job_name` and applied 
 **Example from Trading Demo**:
 ```sql
 -- Stateful aggregation - must preserve state consistency
--- @job_name: market-data-event-time-1
+-- @name: market-data-event-time-1
 -- @partitioning_strategy: always_hash
 CREATE STREAM market_data_ts AS
 SELECT
@@ -76,7 +76,7 @@ FROM in_market_data_stream
 EMIT CHANGES;
 
 -- Risk monitoring - state accuracy is critical
--- @job_name: risk-monitoring-stream
+-- @name: risk-monitoring-stream
 -- @partitioning_strategy: always_hash
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
@@ -130,7 +130,7 @@ HAVING ABS(position_value) > 1000000;
 ```sql
 -- Order flow analysis - data pre-aligned by symbol in input stream
 -- SmartRepartition leverages existing alignment for optimization
--- @job_name: order_flow_imbalance_detection
+-- @name: order_flow_imbalance_detection
 -- @partitioning_strategy: smart_repartition
 CREATE STREAM order_flow_imbalance_detection AS
 SELECT
@@ -223,7 +223,7 @@ WHERE price > 100 AND volume > 50000;
 ### 1. Market Data Pipeline (Safety-First)
 ```sql
 -- Core market data stream - foundation for other jobs
--- @job_name: market-data-event-time-1
+-- @name: market-data-event-time-1
 -- @partitioning_strategy: always_hash
 CREATE STREAM market_data_ts AS
 SELECT
@@ -242,7 +242,7 @@ WITH (
 ### 2. Volume Spike Detection (Stateful Aggregation)
 ```sql
 -- Complex aggregations with anomaly classification
--- @job_name: volume_spike_analysis
+-- @name: volume_spike_analysis
 -- @partitioning_strategy: always_hash
 CREATE STREAM volume_spike_analysis AS
 SELECT
@@ -265,7 +265,7 @@ WINDOW SLIDING(event_time, 5m, 1m);
 ### 3. Risk Monitoring with Joins (State Critical)
 ```sql
 -- Multi-stream join with position tracking
--- @job_name: risk-monitoring-stream
+-- @name: risk-monitoring-stream
 -- @partitioning_strategy: always_hash
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
@@ -284,7 +284,7 @@ GROUP BY p.trader_id;
 ### 4. Order Flow Analysis (Pre-Aligned Data)
 ```sql
 -- Institutional order flow detection - pre-aligned by symbol
--- @job_name: order_flow_imbalance_detection
+-- @name: order_flow_imbalance_detection
 -- @partitioning_strategy: smart_repartition
 CREATE STREAM order_flow_imbalance_detection AS
 SELECT
@@ -301,7 +301,7 @@ WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE);
 ### 5. Arbitrage Detection (Cross-Exchange Join)
 ```sql
 -- Cross-exchange price discrepancy detection
--- @job_name: arbitrage_opportunities_detection
+-- @name: arbitrage_opportunities_detection
 -- @partitioning_strategy: always_hash
 CREATE STREAM arbitrage_opportunities_detection AS
 SELECT

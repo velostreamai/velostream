@@ -43,7 +43,7 @@ Application-level annotations appear at the top of the SQL file and apply to the
 
 **Per-Job Override**:
 ```sql
--- @job_name: low-overhead-analysis-1
+-- @name: low-overhead-analysis-1
 -- Name: Low-Overhead Analysis
 -- WITH (observability.metrics.enabled = false)
 CREATE STREAM low_overhead AS
@@ -74,7 +74,7 @@ EMIT CHANGES;
 
 **Per-Job Override**:
 ```sql
--- @job_name: high-frequency-stream-1
+-- @name: high-frequency-stream-1
 -- Name: High-Frequency Stream
 -- WITH (observability.tracing.enabled = false)
 CREATE STREAM hf_stream AS
@@ -168,16 +168,16 @@ Use for:        Ultra-low-latency requirements, cost-sensitive deployments
 -- App-level: production mode (minimal overhead)
 -- @observability.profiling.enabled: prod
 
--- @job_name: standard-stream
+-- @name: standard-stream
 -- Standard stream uses app-level prod mode
 CREATE STREAM standard AS SELECT * FROM stream1 EMIT CHANGES;
 
--- @job_name: debug-stream
+-- @name: debug-stream
 -- Debug stream switches to dev mode for detailed analysis
 -- WITH (observability.profiling.enabled = 'dev')
 CREATE STREAM debug AS SELECT * FROM stream2 EMIT CHANGES;
 
--- @job_name: critical-stream
+-- @name: critical-stream
 -- Critical stream disables profiling for zero overhead
 -- WITH (observability.profiling.enabled = 'off')
 CREATE STREAM critical AS SELECT * FROM stream3 EMIT CHANGES;
@@ -226,7 +226,7 @@ CREATE STREAM critical AS SELECT * FROM stream3 EMIT CHANGES;
 
 **Per-Job Override**:
 ```sql
--- @job_name: critical-stream-1
+-- @name: critical-stream-1
 -- Name: Critical Stream
 -- WITH (observability.error_reporting.enabled = true)
 CREATE STREAM critical_stream AS
@@ -258,7 +258,7 @@ EMIT CHANGES;
 -- @metric: transaction_count
 -- @metric: customer_segments(segment_type, region)
 
--- @job_name: order-processing-1
+-- @name: order-processing-1
 -- Name: Order Processing
 CREATE STREAM order_processor AS
 SELECT order_id, total_value FROM orders
@@ -303,12 +303,12 @@ Custom metrics automatically appear in Grafana dashboards:
 -- @metric: portfolio_value
 
 -- All jobs inherit full observability plus error reporting and custom metrics
--- @job_name: market-analysis-1
+-- @name: market-analysis-1
 CREATE STREAM market_analysis AS
 SELECT * FROM market_data
 EMIT CHANGES;
 
--- @job_name: risk-monitor-1
+-- @name: risk-monitor-1
 CREATE STREAM risk_monitor AS
 SELECT * FROM positions
 EMIT CHANGES;
@@ -323,12 +323,12 @@ EMIT CHANGES;
 -- @observability.profiling.enabled: dev
 
 -- All jobs get full observability for debugging
--- @job_name: job-1
+-- @name: job-1
 CREATE STREAM job1 AS
 SELECT * FROM stream1
 EMIT CHANGES;
 
--- @job_name: job-2
+-- @name: job-2
 CREATE STREAM job2 AS
 SELECT * FROM stream2
 EMIT CHANGES;
@@ -342,20 +342,20 @@ EMIT CHANGES;
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: prod
 
--- @job_name: standard-job-1
+-- @name: standard-job-1
 -- Name: Standard Job (inherits metrics, tracing, and prod profiling)
 CREATE STREAM standard AS
 SELECT * FROM stream1
 EMIT CHANGES;
 
--- @job_name: lightweight-job-1
+-- @name: lightweight-job-1
 -- Name: Low-Overhead Job (overrides tracing and profiling)
 -- WITH (observability.tracing.enabled = false, observability.profiling.enabled = off)
 CREATE STREAM lightweight AS
 SELECT * FROM stream2
 EMIT CHANGES;
 
--- @job_name: intensive-job-1
+-- @name: intensive-job-1
 -- Name: High-Observability Job (upgrades to dev profiling)
 -- WITH (observability.profiling.enabled = dev)
 CREATE STREAM intensive AS
@@ -395,21 +395,21 @@ For each observability dimension (metrics, tracing, profiling):
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: prod
 
--- @job_name: job1
+-- @name: job1
 -- Job 1: Inherits app-level settings (metrics=true, tracing=true, profiling=prod)
 CREATE STREAM job1 AS SELECT * FROM stream1 EMIT CHANGES;
 
--- @job_name: job2
+-- @name: job2
 -- Job 2: Overrides metrics only (metrics=false, tracing=true, profiling=prod)
 -- WITH (observability.metrics.enabled = false)
 CREATE STREAM job2 AS SELECT * FROM stream2 EMIT CHANGES;
 
--- @job_name: job3
+-- @name: job3
 -- Job 3: Overrides both metrics and tracing (metrics=false, tracing=false, profiling=prod)
 -- WITH (observability.metrics.enabled = false, observability.tracing.enabled = false)
 CREATE STREAM job3 AS SELECT * FROM stream3 EMIT CHANGES;
 
--- @job_name: job4
+-- @name: job4
 -- Job 4: Upgrades profiling to dev while keeping inherited metrics/tracing
 -- WITH (observability.profiling.enabled = dev)
 CREATE STREAM job4 AS SELECT * FROM stream4 EMIT CHANGES;
@@ -484,7 +484,7 @@ Override at per-job level only for specific jobs with different requirements:
 -- ✅ Good: Most jobs inherit, one job overrides
 -- @observability.tracing.enabled: true
 
--- @job_name: hf-stream-1
+-- @name: hf-stream-1
 -- Name: High-Frequency Stream
 -- WITH (observability.tracing.enabled = false)
 CREATE STREAM hf_stream AS
@@ -502,7 +502,7 @@ Add comments explaining why certain observability settings are configured:
 -- @observability.tracing.enabled: true  -- Track cross-job dependencies
 -- @observability.profiling.enabled: prod  -- Balanced overhead for production
 
--- @job_name: critical-analysis-1
+-- @name: critical-analysis-1
 -- Name: Critical Analysis
 -- WITH (observability.profiling.enabled = dev)  -- Debug CPU bottlenecks
 CREATE STREAM critical_analysis AS
@@ -558,7 +558,7 @@ Balance observability with performance requirements:
 -- SQL Application: My App
 -- @observability.metrics.enabled: true
 
--- @job_name: job1
+-- @name: job1
 CREATE STREAM job1 AS SELECT * FROM stream1 EMIT CHANGES;
 
 -- ❌ Wrong: Annotation after job
@@ -605,7 +605,7 @@ grep "observability\." your_app.sql
 Per-job observability configuration uses WITH clause:
 
 ```sql
--- @job_name: my-job-1
+-- @name: my-job-1
 CREATE STREAM my_job AS
 SELECT * FROM stream
 WITH (

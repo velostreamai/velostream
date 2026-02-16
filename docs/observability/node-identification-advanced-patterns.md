@@ -553,7 +553,7 @@ Result:  Unchanged
 -- @observability.profiling.enabled: prod
 -- @observability.error_reporting.enabled: true
 
--- @job_name: market-data-1
+-- @name: market-data-1
 -- Name: Market Data Processor
 CREATE STREAM market_data AS
 SELECT * FROM kafka_market_data

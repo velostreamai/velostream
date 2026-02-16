@@ -12,7 +12,7 @@ use super::common::TokenParser;
 use super::*;
 use crate::velostream::sql::ast::*;
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::parser::annotations::{parse_job_name, parse_metric_annotations};
+use crate::velostream::sql::parser::annotations::parse_metric_annotations;
 use std::collections::HashMap;
 
 impl<'a> TokenParser<'a> {
@@ -102,10 +102,9 @@ impl<'a> TokenParser<'a> {
         // Consume optional semicolon
         self.consume_semicolon();
 
-        // Parse metric annotations and job name from SQL comments
+        // Parse metric annotations from SQL comments
         let comment_strings = self.get_comment_strings();
         let metric_annotations = parse_metric_annotations(&comment_strings)?;
-        let job_name = parse_job_name(&comment_strings)?;
 
         Ok(StreamingQuery::CreateStream {
             name,
@@ -114,7 +113,6 @@ impl<'a> TokenParser<'a> {
             properties,
             emit_mode,
             metric_annotations,
-            job_name,
         })
     }
 

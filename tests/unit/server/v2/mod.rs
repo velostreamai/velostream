@@ -36,3 +36,7 @@ pub mod yield_instrumentation_test;
 
 // Stream-stream join source coordinator tests
 pub mod source_coordinator_test;
+
+// Per-record sampling tests for V2 processors
+pub mod join_processor_sampling_test;
+pub mod partition_receiver_sampling_test;

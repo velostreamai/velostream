@@ -83,9 +83,11 @@ base64 = "0.21"
 prometheus = "0.14.0"
 prometheus_remote_write = { version = "0.2.1", features = ["http"] }  # Remote-write with event timestamps
 snap = "1.1"  # Snappy compression for Prometheus remote-write
+flate2 = "1.0"  # Gzip compression for OTLP HTTP span export
 opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry-http = "0.10"  # HttpClient trait for custom OTLP HTTP transport
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio", "trace"] }
-opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace"] }
+opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace", "http-proto", "reqwest-client"] }
 opentelemetry-semantic-conventions = "0.13"
 sysinfo = "0.32"
 

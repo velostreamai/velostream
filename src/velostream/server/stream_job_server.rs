@@ -369,8 +369,17 @@ impl StreamJobServer {
     }
 
     /// Get performance metrics (if monitoring is enabled)
+    ///
+    /// Uses the server-level ObservabilityManager which contains all SQL metrics,
+    /// error tracking gauges, and custom `@metric` annotations. All jobs share this
+    /// same manager via `Arc`, so it always has the complete metric set.
+    ///
+    /// If the ObservabilityManager lock cannot be acquired (brief write-lock
+    /// contention during job submission), returns `None` so Prometheus receives a
+    /// 503 and retries on the next scrape. This is preferable to falling back to a
+    /// different registry which would cause Prometheus stale-marker insertion for
+    /// any series not present in the fallback (e.g., `velo_error_message`).
     pub fn get_performance_metrics(&self) -> Option<String> {
-        // First try to get metrics from server-level ObservabilityManager (Phase 4)
         if let Some(obs_manager) = &self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if let Some(metrics_provider) = obs_lock.metrics() {
@@ -381,37 +390,28 @@ impl StreamJobServer {
                     // Export Prometheus metrics from the MetricsProvider
                     return metrics_provider.get_metrics_text().ok();
                 }
+            } else {
+                log::debug!(
+                    "get_performance_metrics: ObservabilityManager read lock contention, \
+                     returning None to avoid stale Prometheus series"
+                );
             }
         }
 
-        // Try to get metrics from any running job's ObservabilityManager
-        if let Ok(jobs) = self.jobs.try_read() {
-            for job in jobs.values() {
-                if let Some(job_obs) = &job.observability {
-                    if let Ok(obs_lock) = job_obs.try_read() {
-                        if let Some(metrics_provider) = obs_lock.metrics() {
-                            // Sync error metrics to Prometheus gauges before export
-                            // This ensures error buffer data is current in the exported metrics
-                            metrics_provider.sync_error_metrics();
-
-                            // Return metrics from the first job that has them
-                            // Note: All jobs share the same MetricsProvider via Arc, so any job's metrics will have all data
-                            return metrics_provider.get_metrics_text().ok();
-                        }
-                    }
-                }
-            }
+        // No observability manager configured — fall back to performance monitor
+        // (only reached when self.observability is None, NOT on lock contention)
+        if self.observability.is_none() {
+            return self
+                .performance_monitor
+                .as_ref()
+                .map(|monitor| monitor.export_prometheus_metrics());
         }
 
-        // Fall back to performance monitor metrics
-        self.performance_monitor
-            .as_ref()
-            .map(|monitor| monitor.export_prometheus_metrics())
+        None
     }
 
     /// Check if performance monitoring is enabled
     pub fn has_performance_monitoring(&self) -> bool {
-        // Check if server-level observability metrics are enabled (Phase 4)
         if let Some(obs_manager) = &self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if obs_lock.metrics().is_some() {
@@ -420,21 +420,8 @@ impl StreamJobServer {
             }
         }
 
-        // Check if any job has observability metrics enabled
-        if let Ok(jobs) = self.jobs.try_read() {
-            for job in jobs.values() {
-                if let Some(job_obs) = &job.observability {
-                    if let Ok(obs_lock) = job_obs.try_read() {
-                        if obs_lock.metrics().is_some() {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fall back to checking performance monitor
-        self.performance_monitor.is_some()
+        // Fall back to checking performance monitor only when no observability configured
+        self.observability.is_none() && self.performance_monitor.is_some()
     }
 
     /// Get performance health status
@@ -1873,56 +1860,52 @@ impl StreamJobServer {
                 | crate::velostream::sql::app_parser::StatementType::CreateStream
                 | crate::velostream::sql::app_parser::StatementType::CreateTable => {
                     // Extract job name from the SQL statement
-                    // Priority: @job_name annotation > stmt.name > auto-generated
-                    let job_name = if let Some(name) = &stmt.name {
-                        name.clone()
-                    } else {
-                        // Check for @job_name annotation in parsed query
-                        let custom_job_name =
-                            if let Ok(parsed_query) = StreamingSqlParser::new().parse(&stmt.sql) {
-                                match parsed_query {
-                                    StreamingQuery::CreateStream { job_name, .. } => job_name,
-                                    _ => None,
-                                }
-                            } else {
-                                None
-                            };
-
-                        if let Some(custom_name) = custom_job_name {
-                            info!(
-                                "Using custom job name from @job_name annotation: '{}'",
-                                custom_name
-                            );
-                            custom_name
+                    // Priority: stmt.name (-- Name: / -- @name:) > AST stream/table name > auto-generated
+                    let parsed_ast_name =
+                        if let Ok(parsed_query) = StreamingSqlParser::new().parse(&stmt.sql) {
+                            match parsed_query {
+                                StreamingQuery::CreateStream { name, .. } => Some(name),
+                                StreamingQuery::CreateTable { name, .. } => Some(name),
+                                _ => None,
+                            }
                         } else {
-                            // Generate compact, meaningful job name: filename_snippet_timestamp_id
-                            let file_prefix = source_filename
-                                .as_ref()
-                                .and_then(|path| {
-                                    std::path::Path::new(path)
-                                        .file_stem()
-                                        .and_then(|s| s.to_str())
-                                })
-                                .map(|name| {
-                                    // Take first few chars of filename, clean it up
-                                    name.chars()
-                                        .filter(|c| c.is_alphanumeric() || *c == '_')
-                                        .take(8)
-                                        .collect::<String>()
-                                })
-                                .unwrap_or_else(|| "app".to_string());
+                            None
+                        };
 
-                            let sql_snippet = Self::extract_sql_snippet(&stmt.sql);
-                            let timestamp = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs()
-                                % 100000; // Last 5 digits for compactness
-                            format!(
-                                "{}_{}_{}_{:02}",
-                                file_prefix, sql_snippet, timestamp, stmt.order
-                            )
-                        }
+                    let job_name = if let Some(name) = &stmt.name {
+                        info!("Using job name from @name annotation: '{}'", name);
+                        name.clone()
+                    } else if let Some(name) = parsed_ast_name {
+                        info!("Using job name from parsed query: '{}'", name);
+                        name
+                    } else {
+                        // Generate compact, meaningful job name: filename_snippet_timestamp_id
+                        let file_prefix = source_filename
+                            .as_ref()
+                            .and_then(|path| {
+                                std::path::Path::new(path)
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                            })
+                            .map(|name| {
+                                // Take first few chars of filename, clean it up
+                                name.chars()
+                                    .filter(|c| c.is_alphanumeric() || *c == '_')
+                                    .take(8)
+                                    .collect::<String>()
+                            })
+                            .unwrap_or_else(|| "app".to_string());
+
+                        let sql_snippet = Self::extract_sql_snippet(&stmt.sql);
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                            % 100000; // Last 5 digits for compactness
+                        format!(
+                            "{}_{}_{}_{:02}",
+                            file_prefix, sql_snippet, timestamp, stmt.order
+                        )
                     };
 
                     // Determine topic from statement dependencies or use default
@@ -2050,27 +2033,65 @@ impl StreamJobServer {
     /// Extract a meaningful snippet from SQL for job naming
     /// Examples:
     /// - "CREATE STREAM raw_transactions AS SELECT..." -> "stream_raw_transactions"
-    /// - "CREATE TABLE merchant_analytics AS SELECT..." -> "table_merchant_analytics"  
+    /// - "CREATE TABLE merchant_analytics AS SELECT..." -> "table_merchant_analytics"
     /// - "CREATE SINK high_value_export WITH..." -> "sink_high_value_export"
-    /// - "SELECT customer_id, amount FROM transactions" -> "sel_customer_transactions"
-    /// - "SELECT COUNT(*) FROM fraud_alerts WHERE..." -> "sel_count_fraud_alerts"
+    /// - "SELECT customer_id, amount FROM transactions" -> "sel_transactions"
     fn extract_sql_snippet(sql: &str) -> String {
-        // Clean and normalize the SQL
-        let sql_clean = sql
+        // Clean and normalize the SQL: strip comments, collapse whitespace
+        let sql_clean: String = sql
+            .lines()
+            .map(|line| {
+                // Strip line comments (-- ...)
+                line.split("--").next().unwrap_or("")
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let sql_clean = sql_clean
             .to_lowercase()
-            .replace(['\n', '\r', '\t'], " ")
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
 
-        // Ensure it's a valid identifier (alphanumeric + underscore)
-        sql_clean
+        // Try to extract name from CREATE STREAM/TABLE/SINK <name>
+        for keyword in &["create stream", "create table", "create sink"] {
+            if let Some(rest) = sql_clean.strip_prefix(keyword) {
+                let rest = rest.trim();
+                // Extract the identifier (alphanumeric + underscore)
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    let prefix = keyword.split_whitespace().last().unwrap_or("job");
+                    return format!("{}_{}", prefix, name);
+                }
+            }
+        }
+
+        // Fallback for bare SELECT: extract FROM table name
+        if let Some(from_pos) = sql_clean.find(" from ") {
+            let after_from = &sql_clean[from_pos + 6..];
+            let table_name: String = after_from
+                .trim()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !table_name.is_empty() {
+                return format!("sel_{}", table_name);
+            }
+        }
+
+        // Last resort: take first 30 valid identifier chars
+        let fallback: String = sql_clean
             .chars()
             .filter(|c| c.is_alphanumeric() || *c == '_')
-            .collect::<String>()
-            .get(..30) // Increase limit to 30 chars for more descriptive names
-            .unwrap_or("job")
-            .to_string()
+            .take(30)
+            .collect();
+        if fallback.is_empty() {
+            "job".to_string()
+        } else {
+            fallback
+        }
     }
 
     /// Extract job processing configuration from query properties

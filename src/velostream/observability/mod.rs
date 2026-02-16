@@ -11,6 +11,7 @@
 pub mod async_queue;
 pub mod background_flusher;
 pub mod error_tracker;
+pub mod gzip_http_client;
 pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;
@@ -21,6 +22,7 @@ pub mod remote_write;
 pub mod resource_monitor;
 pub mod span_collector;
 pub mod telemetry;
+pub mod tokio_span_processor;
 pub mod trace_propagation;
 
 use crate::velostream::sql::error::SqlError;
@@ -193,6 +195,28 @@ impl ObservabilityManager {
     /// Get profiling provider if enabled
     pub fn profiling(&self) -> Option<&profiling::ProfilingProvider> {
         self.profiling.as_ref()
+    }
+
+    /// Get the configured sampling ratio for per-record head-based sampling.
+    ///
+    /// Returns the tracing config's sampling_ratio if tracing is enabled,
+    /// or 0.0 if tracing is not configured (no records will be sampled).
+    pub fn sampling_ratio(&self) -> f64 {
+        self.config
+            .tracing_config
+            .as_ref()
+            .map(|tc| tc.sampling_ratio)
+            .unwrap_or(0.0)
+    }
+
+    /// Get span export queue pressure ratio (0.0 = empty, 1.0 = full).
+    ///
+    /// Returns 0.0 when tracing is not enabled or no OTLP exporter is configured.
+    pub fn queue_pressure(&self) -> f64 {
+        self.telemetry
+            .as_ref()
+            .map(|t| t.queue_pressure())
+            .unwrap_or(0.0)
     }
 
     /// Set deployment context for error tracking (job-level customization)

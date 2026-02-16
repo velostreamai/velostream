@@ -79,7 +79,12 @@ enum Commands {
         #[arg(long)]
         enable_tracing: bool,
 
-        /// Tracing sampling ratio (0.0-1.0). Default: 1.0 (100%) for dev, 0.01 (1%) for prod
+        /// Tracing sampling mode: debug (100%), dev (50%), staging (25%), prod (1%).
+        /// Sets sampling ratio, flush interval, and export timeout together.
+        #[arg(long)]
+        sampling_mode: Option<String>,
+
+        /// Tracing sampling ratio (0.0-1.0) override. Takes precedence over --sampling-mode ratio.
         #[arg(long)]
         sampling_ratio: Option<f64>,
 
@@ -400,6 +405,7 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
             default_topic,
             no_monitor,
             enable_tracing,
+            sampling_mode,
             sampling_ratio,
             enable_metrics,
             metrics_port,
@@ -415,6 +421,7 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
                 default_topic,
                 no_monitor,
                 enable_tracing,
+                sampling_mode,
                 sampling_ratio,
                 enable_metrics,
                 metrics_port,
@@ -438,6 +445,7 @@ async fn deploy_sql_application_from_file(
     default_topic: Option<String>,
     no_monitor: bool,
     enable_tracing: bool,
+    sampling_mode: Option<String>,
     sampling_ratio: Option<f64>,
     enable_metrics: bool,
     metrics_port: u16,
@@ -450,11 +458,20 @@ async fn deploy_sql_application_from_file(
     if enable_tracing || enable_metrics || enable_profiling || enable_remote_write {
         info!("🔍 Observability Configuration:");
         if enable_tracing {
-            // Dev default: 100% sampling (1.0), Prod default: 1% sampling (0.01)
-            let actual_sampling = sampling_ratio.unwrap_or(1.0); // Default to dev mode
+            let mode_label = sampling_mode.as_deref().unwrap_or("staging");
+            let actual_sampling = sampling_ratio.unwrap_or_else(|| {
+                sampling_mode
+                    .as_deref()
+                    .and_then(|s| {
+                        s.parse::<velostream::velostream::sql::execution::config::SamplingMode>()
+                            .ok()
+                    })
+                    .unwrap_or_default()
+                    .sampling_ratio()
+            });
             info!(
-                "  • Distributed Tracing: ENABLED (sampling: {})",
-                actual_sampling
+                "  • Distributed Tracing: ENABLED (mode: {}, sampling: {})",
+                mode_label, actual_sampling
             );
             if let Some(ref endpoint) = otlp_endpoint {
                 info!("  • OTLP Endpoint: {}", endpoint);
@@ -652,23 +669,52 @@ async fn deploy_sql_application_from_file(
 
     // Configure distributed tracing if enabled
     if enable_tracing {
-        // Start with development defaults and override with CLI arguments
-        let mut tracing_config = TracingConfig::development();
+        use velostream::velostream::sql::execution::config::SamplingMode;
 
-        // Override with custom values from CLI
+        // Start from default (Staging mode) and apply CLI overrides
+        let mut tracing_config = TracingConfig::default();
+
+        // Apply sampling mode if specified
+        if let Some(ref mode_str) = sampling_mode {
+            match mode_str.parse::<SamplingMode>() {
+                Ok(mode) => {
+                    tracing_config = tracing_config.with_sampling_mode(mode);
+                }
+                Err(e) => {
+                    error!("Invalid --sampling-mode: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+
+        // Explicit --sampling-ratio overrides the mode's ratio
+        if let Some(ratio) = sampling_ratio {
+            tracing_config.sampling_ratio = ratio;
+        }
+
+        // Override service name
         tracing_config.service_name = format!(
             "velo-sql-{}",
             file_path.split('/').next_back().unwrap_or("app")
         );
-        tracing_config.sampling_ratio = sampling_ratio.unwrap_or(1.0); // Dev default: 100%, Prod: use --sampling-ratio 0.01
 
-        if let Some(endpoint) = otlp_endpoint.clone() {
-            tracing_config.otlp_endpoint = Some(endpoint);
+        // Set OTLP endpoint: explicit CLI arg > default localhost
+        tracing_config.otlp_endpoint = Some(
+            otlp_endpoint
+                .clone()
+                .unwrap_or_else(|| "http://localhost:4317".to_string()),
+        );
+
+        // Enable console output for Debug mode
+        if tracing_config.sampling_mode == SamplingMode::Debug {
+            tracing_config.enable_console_output = true;
         }
 
         info!(
-            "🔍 Initializing distributed tracing with service name: {}",
-            tracing_config.service_name
+            "🔍 Initializing distributed tracing with service name: {} (mode: {}, sampling: {})",
+            tracing_config.service_name,
+            tracing_config.sampling_mode,
+            tracing_config.sampling_ratio
         );
         streaming_config = streaming_config.with_tracing_config(tracing_config);
     }

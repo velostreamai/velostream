@@ -3,8 +3,8 @@
 //! Verifies end-to-end trace context propagation through the Velostream pipeline:
 //! - W3C traceparent header injection into output records
 //! - Trace context extraction from incoming Kafka headers
-//! - ObservabilityHelper batch span creation and injection
-//! - Round-trip: inject → serialize → extract → verify same trace
+//! - ObservabilityHelper per-record span creation and injection
+//! - Round-trip: inject -> serialize -> extract -> verify same trace
 
 use opentelemetry::trace::{SpanId, TraceId};
 use serial_test::serial;
@@ -46,8 +46,6 @@ fn get_telemetry() -> &'static TelemetryProvider {
     })
 }
 
-// create_test_record and create_test_record_with_traceparent imported from shared helpers
-
 // =============================================================================
 // W3C Trace Context Injection Tests
 // =============================================================================
@@ -56,8 +54,10 @@ fn get_telemetry() -> &'static TelemetryProvider {
 #[serial]
 async fn test_inject_trace_context_adds_traceparent_header() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
-    let span_ctx = batch_span.span_context().expect("Should have span context");
+    let record_span = telemetry.start_record_span("test-job", None);
+    let span_ctx = record_span
+        .span_context()
+        .expect("Should have span context");
 
     let mut headers = HashMap::new();
     trace_propagation::inject_trace_context(&span_ctx, &mut headers);
@@ -81,8 +81,10 @@ async fn test_inject_trace_context_adds_traceparent_header() {
 #[serial]
 async fn test_inject_trace_context_preserves_trace_id() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("test-job", 1, None);
-    let span_ctx = batch_span.span_context().expect("Should have span context");
+    let record_span = telemetry.start_record_span("test-job", None);
+    let span_ctx = record_span
+        .span_context()
+        .expect("Should have span context");
 
     let expected_trace_id = span_ctx.trace_id().to_string();
     let expected_span_id = span_ctx.span_id().to_string();
@@ -203,15 +205,17 @@ fn test_extract_trace_context_zero_span_id() {
 }
 
 // =============================================================================
-// Round-Trip: Inject → Extract Tests
+// Round-Trip: Inject -> Extract Tests
 // =============================================================================
 
 #[tokio::test]
 #[serial]
 async fn test_trace_context_round_trip() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("round-trip-test", 1, None);
-    let original_ctx = batch_span.span_context().expect("Should have span context");
+    let record_span = telemetry.start_record_span("round-trip-test", None);
+    let original_ctx = record_span
+        .span_context()
+        .expect("Should have span context");
 
     let original_trace_id = original_ctx.trace_id();
     let original_span_id = original_ctx.span_id();
@@ -241,8 +245,10 @@ async fn test_trace_context_round_trip() {
 #[serial]
 async fn test_trace_context_round_trip_preserves_flags() {
     let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("flags-test", 1, None);
-    let original_ctx = batch_span.span_context().expect("Should have span context");
+    let record_span = telemetry.start_record_span("flags-test", None);
+    let original_ctx = record_span
+        .span_context()
+        .expect("Should have span context");
 
     let original_flags = original_ctx.trace_flags();
 
@@ -260,72 +266,60 @@ async fn test_trace_context_round_trip_preserves_flags() {
 }
 
 // =============================================================================
-// ObservabilityHelper Integration Tests
+// ObservabilityHelper Per-Record Integration Tests
 // =============================================================================
 
 #[tokio::test]
 #[serial]
-async fn test_observability_helper_injects_trace_into_output_records() {
-    let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("inject-test", 1, None);
-    let batch_span_opt = Some(batch_span);
+async fn test_observability_helper_injects_trace_into_output_record() {
+    let obs_manager = create_test_observability_manager("tracing-test").await;
+    let obs: Option<SharedObservabilityManager> = Some(obs_manager);
 
-    // Create output records without headers
-    let mut output_records: Vec<Arc<StreamRecord>> = vec![
-        Arc::new(create_test_record()),
-        Arc::new(create_test_record()),
-    ];
+    let record_span = ObservabilityHelper::start_record_span(&obs, "inject-test", None);
+    assert!(record_span.is_some(), "Should create record span");
+    let record_span = record_span.unwrap();
 
-    // Inject trace context
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_opt,
-        &mut output_records,
-        "test-job",
-    );
+    // Create an output record without headers
+    let mut output_record = Arc::new(create_test_record());
 
-    // Verify all records have traceparent
-    for (i, record) in output_records.iter().enumerate() {
-        assert!(
-            record.headers.contains_key("traceparent"),
-            "Record {} should have traceparent header",
-            i
-        );
-        let traceparent = &record.headers["traceparent"];
-        assert!(
-            traceparent.starts_with("00-"),
-            "Record {} traceparent should start with '00-': {}",
-            i,
-            traceparent
-        );
-    }
-}
-
-#[tokio::test]
-#[serial]
-async fn test_observability_helper_no_injection_without_span() {
-    let batch_span_opt: Option<velostream::velostream::observability::telemetry::BatchSpan> = None;
-
-    let mut output_records: Vec<Arc<StreamRecord>> = vec![Arc::new(create_test_record())];
-
-    // Should not panic, and should not add headers
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_opt,
-        &mut output_records,
-        "test-job",
-    );
+    // Inject trace context into single record
+    ObservabilityHelper::inject_record_trace_context(&record_span, &mut output_record);
 
     assert!(
-        output_records[0].headers.is_empty(),
-        "Should not inject headers when no batch span"
+        output_record.headers.contains_key("traceparent"),
+        "Output record should have traceparent header"
+    );
+    let traceparent = &output_record.headers["traceparent"];
+    assert!(
+        traceparent.starts_with("00-"),
+        "traceparent should start with '00-': {}",
+        traceparent
     );
 }
 
 #[tokio::test]
 #[serial]
-async fn test_observability_helper_all_records_get_same_trace_id() {
-    let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("same-trace-test", 1, None);
-    let batch_span_opt = Some(batch_span);
+async fn test_observability_helper_no_span_without_observability() {
+    let obs: Option<SharedObservabilityManager> = None;
+
+    let record_span = ObservabilityHelper::start_record_span(&obs, "no-obs-job", None);
+
+    assert!(
+        record_span.is_none(),
+        "Should return None when no observability manager"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_observability_helper_multiple_records_get_same_trace_id() {
+    let obs_manager = create_test_observability_manager("tracing-test").await;
+    let obs: Option<SharedObservabilityManager> = Some(obs_manager);
+
+    // A single record span injected into multiple output records
+    let record_span = ObservabilityHelper::start_record_span(&obs, "same-trace-test", None);
+    assert!(record_span.is_some());
+    let record_span = record_span.unwrap();
 
     let mut output_records: Vec<Arc<StreamRecord>> = vec![
         Arc::new(create_test_record()),
@@ -333,11 +327,9 @@ async fn test_observability_helper_all_records_get_same_trace_id() {
         Arc::new(create_test_record()),
     ];
 
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_opt,
-        &mut output_records,
-        "test-job",
-    );
+    for record in &mut output_records {
+        ObservabilityHelper::inject_record_trace_context(&record_span, record);
+    }
 
     // Extract trace IDs from all records
     let trace_ids: Vec<String> = output_records
@@ -348,40 +340,37 @@ async fn test_observability_helper_all_records_get_same_trace_id() {
         })
         .collect();
 
-    // All records in a batch should share the same trace ID
+    // All records injected from the same span should share the same trace ID
     assert!(
         trace_ids.windows(2).all(|w| w[0] == w[1]),
-        "All records in batch should share same trace ID: {:?}",
+        "All records from same span should share same trace ID: {:?}",
         trace_ids
     );
 }
 
 // =============================================================================
-// Batch Span with Upstream Context Tests
+// Record Span with Upstream Context Tests
 // =============================================================================
 
 #[tokio::test]
 #[serial]
-async fn test_start_batch_span_extracts_upstream_context() {
+async fn test_start_record_span_extracts_upstream_context() {
     let telemetry = get_telemetry();
 
     // Create an upstream span and inject its context into a record
-    let upstream_span = telemetry.start_batch_span("upstream-job", 1, None);
+    let upstream_span = telemetry.start_record_span("upstream-job", None);
     let upstream_ctx = upstream_span.span_context().expect("Should have context");
-    let _upstream_trace_id = upstream_ctx.trace_id();
-
-    let mut record = create_test_record();
-    trace_propagation::inject_trace_context(&upstream_ctx, &mut record.headers);
 
     // Create observability manager with tracing enabled
     let obs_manager = create_test_observability_manager("tracing-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager);
 
-    // Start batch span with records containing upstream context
-    let batch_span = ObservabilityHelper::start_batch_span(&obs, "downstream-job", 1, &[record]);
+    // Start record span with upstream context
+    let record_span =
+        ObservabilityHelper::start_record_span(&obs, "downstream-job", Some(&upstream_ctx));
 
-    assert!(batch_span.is_some(), "Should create batch span");
-    let span = batch_span.unwrap();
+    assert!(record_span.is_some(), "Should create record span");
+    let span = record_span.unwrap();
     let span_ctx = span.span_context().expect("Should have span context");
 
     // The new span should have a valid context
@@ -392,17 +381,14 @@ async fn test_start_batch_span_extracts_upstream_context() {
 
 #[tokio::test]
 #[serial]
-async fn test_start_batch_span_creates_new_trace_without_upstream() {
+async fn test_start_record_span_creates_new_trace_without_upstream() {
     let obs_manager = create_test_observability_manager("tracing-test").await;
     let obs: Option<SharedObservabilityManager> = Some(obs_manager);
 
-    // Records without trace headers
-    let records = vec![create_test_record()];
+    let record_span = ObservabilityHelper::start_record_span(&obs, "new-trace-job", None);
 
-    let batch_span = ObservabilityHelper::start_batch_span(&obs, "new-trace-job", 1, &records);
-
-    assert!(batch_span.is_some(), "Should create batch span");
-    let span = batch_span.unwrap();
+    assert!(record_span.is_some(), "Should create record span");
+    let span = record_span.unwrap();
     let span_ctx = span.span_context().expect("Should have span context");
 
     assert!(span_ctx.is_valid(), "New trace should have valid context");
@@ -411,15 +397,13 @@ async fn test_start_batch_span_creates_new_trace_without_upstream() {
 
 #[tokio::test]
 #[serial]
-async fn test_start_batch_span_returns_none_without_observability() {
+async fn test_start_record_span_returns_none_without_observability() {
     let obs: Option<SharedObservabilityManager> = None;
 
-    let records = vec![create_test_record()];
-
-    let batch_span = ObservabilityHelper::start_batch_span(&obs, "no-obs-job", 1, &records);
+    let record_span = ObservabilityHelper::start_record_span(&obs, "no-obs-job", None);
 
     assert!(
-        batch_span.is_none(),
+        record_span.is_none(),
         "Should return None when no observability manager"
     );
 }
@@ -434,30 +418,34 @@ async fn test_end_to_end_trace_propagation_through_pipeline() {
     let telemetry = get_telemetry();
 
     // Stage 1: Upstream producer creates a trace
-    let upstream_span = telemetry.start_batch_span("producer", 1, None);
+    let upstream_span = telemetry.start_record_span("producer", None);
     let upstream_ctx = upstream_span.span_context().expect("Should have context");
 
     // Inject into "Kafka message"
     let mut input_record = create_test_record();
     trace_propagation::inject_trace_context(&upstream_ctx, &mut input_record.headers);
 
-    // Stage 2: Downstream consumer extracts and creates new span
+    // Stage 2: Downstream consumer extracts upstream context and creates new span
     let obs: Option<SharedObservabilityManager> =
         Some(create_test_observability_manager("tracing-test").await);
-    let batch_span =
-        ObservabilityHelper::start_batch_span(&obs, "consumer", 1, &[input_record.clone()]);
-    assert!(batch_span.is_some());
+
+    let extracted_ctx = trace_propagation::extract_trace_context(&input_record.headers);
+    assert!(extracted_ctx.is_some(), "Should extract upstream context");
+
+    let record_span =
+        ObservabilityHelper::start_record_span(&obs, "consumer", extracted_ctx.as_ref());
+    assert!(record_span.is_some());
+    let record_span = record_span.unwrap();
 
     // Stage 3: Inject into output records
     let mut output_records: Vec<Arc<StreamRecord>> = vec![
         Arc::new(create_test_record()),
         Arc::new(create_test_record()),
     ];
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut output_records,
-        "consumer",
-    );
+
+    for record in &mut output_records {
+        ObservabilityHelper::inject_record_trace_context(&record_span, record);
+    }
 
     // Verify: output records have traceparent headers
     for record in &output_records {
@@ -482,26 +470,21 @@ async fn test_end_to_end_trace_propagation_through_pipeline() {
 #[tokio::test]
 #[serial]
 async fn test_trace_context_injection_is_idempotent() {
-    let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("idempotent-test", 1, None);
-    let batch_span_opt = Some(batch_span);
+    let obs_manager = create_test_observability_manager("tracing-test").await;
+    let obs: Option<SharedObservabilityManager> = Some(obs_manager);
 
-    let mut output_records: Vec<Arc<StreamRecord>> = vec![Arc::new(create_test_record())];
+    let record_span = ObservabilityHelper::start_record_span(&obs, "idempotent-test", None);
+    assert!(record_span.is_some());
+    let record_span = record_span.unwrap();
+
+    let mut output_record = Arc::new(create_test_record());
 
     // Inject twice
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_opt,
-        &mut output_records,
-        "test-job",
-    );
-    let first_traceparent = output_records[0].headers["traceparent"].clone();
+    ObservabilityHelper::inject_record_trace_context(&record_span, &mut output_record);
+    let first_traceparent = output_record.headers["traceparent"].clone();
 
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_opt,
-        &mut output_records,
-        "test-job",
-    );
-    let second_traceparent = output_records[0].headers["traceparent"].clone();
+    ObservabilityHelper::inject_record_trace_context(&record_span, &mut output_record);
+    let second_traceparent = output_record.headers["traceparent"].clone();
 
     // Should overwrite with same value (idempotent)
     assert_eq!(
@@ -512,49 +495,29 @@ async fn test_trace_context_injection_is_idempotent() {
 
 #[tokio::test]
 #[serial]
-async fn test_empty_output_records_no_panic() {
-    let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("empty-test", 1, None);
-    let batch_span_opt = Some(batch_span);
+async fn test_record_with_existing_traceparent_gets_overwritten_by_inject() {
+    let obs_manager = create_test_observability_manager("tracing-test").await;
+    let obs: Option<SharedObservabilityManager> = Some(obs_manager);
 
-    let mut output_records: Vec<Arc<StreamRecord>> = vec![];
-
-    // Should not panic on empty vec
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_opt,
-        &mut output_records,
-        "test-job",
-    );
-}
-
-#[tokio::test]
-#[serial]
-async fn test_record_with_existing_traceparent_gets_overwritten() {
-    let telemetry = get_telemetry();
-    let batch_span = telemetry.start_batch_span("overwrite-test", 1, None);
-    let span_ctx = batch_span.span_context().expect("Should have context");
-    let expected_trace_id = span_ctx.trace_id().to_string();
-    let batch_span_opt = Some(batch_span);
+    let record_span = ObservabilityHelper::start_record_span(&obs, "overwrite-test", None);
+    assert!(record_span.is_some());
+    let record_span = record_span.unwrap();
 
     // Record with a pre-existing (different) traceparent
     let old_traceparent = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
-    let mut output_records: Vec<Arc<StreamRecord>> = vec![Arc::new(
-        create_test_record_with_traceparent(old_traceparent),
-    )];
+    let mut output_record = Arc::new(create_test_record_with_traceparent(old_traceparent));
 
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_opt,
-        &mut output_records,
-        "test-job",
-    );
+    // inject_record_trace_context always sets the span context
+    ObservabilityHelper::inject_record_trace_context(&record_span, &mut output_record);
 
-    let new_traceparent = &output_records[0].headers["traceparent"];
-    let new_trace_id: &str = new_traceparent.split('-').nth(1).unwrap();
+    let new_traceparent = &output_record.headers["traceparent"];
 
-    // Should be overwritten with the batch span's trace ID
-    assert_eq!(
-        new_trace_id, expected_trace_id,
-        "Should overwrite existing traceparent with batch span's trace"
+    // The record span's context is injected (overwriting the old one)
+    let span_ctx = record_span.span_context().unwrap();
+    let expected_trace_id = span_ctx.trace_id().to_string();
+    assert!(
+        new_traceparent.contains(&expected_trace_id),
+        "inject_record_trace_context should set the span's trace context"
     );
 }
 

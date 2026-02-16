@@ -124,7 +124,6 @@ fn test_create_stream_with_group_by() {
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Final),
         metric_annotations: Vec::new(),
-        job_name: None,
     };
     let cols = AdaptiveJobProcessor::extract_group_by_columns(&query);
     assert_eq!(cols, vec!["station"]);
@@ -139,7 +138,6 @@ fn test_create_stream_without_group_by() {
         properties: HashMap::new(),
         emit_mode: None,
         metric_annotations: Vec::new(),
-        job_name: None,
     };
     let cols = AdaptiveJobProcessor::extract_group_by_columns(&query);
     assert!(cols.is_empty());
@@ -216,7 +214,6 @@ fn test_create_stream_with_non_select_inner() {
         properties: HashMap::new(),
         emit_mode: None,
         metric_annotations: Vec::new(),
-        job_name: None,
     };
     let cols = AdaptiveJobProcessor::extract_group_by_columns(&query);
     assert!(cols.is_empty());
