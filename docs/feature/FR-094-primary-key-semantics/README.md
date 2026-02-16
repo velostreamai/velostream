@@ -122,9 +122,33 @@ These overlap when GROUP BY sets `record.key` from group column values, but they
 
 For non-Kafka sources, the transport key is meaningless. The semantic PK is source-independent - it always resolves column names against `record.fields`.
 
+### Adaptive/Hash Routing: NOT a Gap
+
+The adaptive processor's hash-based partition routing is a **third, independent mechanism** that does not depend on `record.key` or PRIMARY KEY:
+
+```
+File Source → record = {station: "Hamburg", temperature: 12.0}
+                        record.key = None  (irrelevant)
+                              ↓
+Hash Router: extracts record.fields["station"]  ← GROUP BY column from parsed query
+             FNV-1a hash("Hamburg") % 6 → partition 3
+                              ↓
+Partition 3's SQL Engine: independent GROUP BY aggregation
+```
+
+The routing strategy (`partitioning_strategy.rs:116-148`) extracts GROUP BY column values directly from `record.fields`, not from `record.key` or PK annotations. This works correctly for all source types (file, Kafka, batch) because `record.fields` is always populated.
+
+| Mechanism | Purpose | Key source | Depends on PK? |
+|-----------|---------|-----------|----------------|
+| **Hash routing** (adaptive) | Partition input records to parallel workers | `record.fields[group_by_column]` | No |
+| **GROUP BY key** (execution) | Set `record.key` on output records | Computed from group column values | No |
+| **PRIMARY KEY** (SQL annotation) | Configure Kafka message key field names | AST → DataSinkRequirement | Yes (is PK) |
+
+These three mechanisms are intentionally decoupled. The 1BRC demo (`demo/1brc/1brc.sql`) demonstrates this: it uses `@job_mode: adaptive` with `@partitioning_strategy: hash` on a file source with GROUP BY, no PRIMARY KEY annotation, and achieves 4.3x parallel speedup.
+
 ### Current Gaps
 
-**This is sufficient for the current use case** (Kafka message key routing). PK column names travel via configuration to the writer, and GROUP BY values travel via `record.key`.
+**This is sufficient for the current use case** (Kafka message key routing + parallel aggregation). PK column names travel via configuration to the writer, GROUP BY values travel via `record.key`, and hash routing works independently from `record.fields`.
 
 **What's missing is validation and semantics**, not data flow:
 - File sinks silently ignore PKs (should warn)
