@@ -18,27 +18,30 @@ measurements.txt ──▶ file_source_mmap ──▶ SQL Engine (GROUP BY + EMI
 ## Quick Start
 
 ```bash
-# Build (from project root)
-cargo build --release --bin velo-1brc --bin velo-test --no-default-features
+cd demo/1brc
 
 # Run with validation (default: 1M rows)
-./demo/1brc/run-1brc.sh
+./run-1brc.sh
 
 # Run with 100M rows
-./demo/1brc/run-1brc.sh 100
+./run-1brc.sh 100
 
 # Run with 1B rows
-./demo/1brc/run-1brc.sh 1000
+./run-1brc.sh 1000
 ```
+
+The script automatically finds `velo-1brc` and `velo-test` binaries from `target/release/` or your PATH.
+
+> **From source?** Build first: `cargo build --release --bin velo-1brc --bin velo-test --no-default-features`
 
 ## Step-by-Step
 
 ```bash
 # 1. Generate test data (1M rows) + expected results
-./target/release/velo-1brc generate --rows 1 --output measurements.txt --expected-output expected.csv --seed 42
+velo-1brc generate --rows 1 --output measurements.txt --expected-output expected.csv --seed 42
 
 # 2. Run SQL application with test harness validation
-./target/release/velo-test run demo/1brc/1brc.sql --spec demo/1brc/test_spec.yaml -y
+velo-test run demo/1brc/1brc.sql --spec demo/1brc/test_spec.yaml -y
 ```
 
 ## Files

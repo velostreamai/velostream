@@ -5,12 +5,9 @@ The Velostream SQL Application Test Harness (`velo-test`) is a comprehensive tes
 ## 5-Minute Quickstart (No Docker Required!)
 
 ```bash
-# Build velo-test (one-time)
-cargo build --release --bin velo-test
-
 # Run your first streaming SQL
 cd demo/quickstart
-../../target/release/velo-test run hello_world.sql -y
+velo-test run hello_world.sql -y
 
 # Check the output
 cat output/hello_world_output.csv
@@ -18,6 +15,8 @@ cat output/hello_world_output.csv
 # Or run ALL examples at once
 ./velo-test.sh
 ```
+
+> **First time?** Add binaries to PATH: `source setup-env.sh` (release archive) or build from source: `cargo build --release --bin velo-test`
 
 See [demo/quickstart/](../../demo/quickstart/) for progressive examples or [LEARNING_PATH.md](./LEARNING_PATH.md) for the full learning progression.
 

@@ -12,10 +12,7 @@ The test harness provides:
 
 ## Prerequisites
 
-1. **Build velo-test** (from project root):
-   ```bash
-   cargo build --release
-   ```
+1. **Ensure velo-test is available** (download from [Releases](https://github.com/velostreamai/velostream/releases/latest) or build from source with `cargo build --release`):
 
 2. **Docker** - Required for Kafka testcontainers (run mode only)
 
@@ -307,15 +304,15 @@ sudo systemctl start docker
 Error: velo-test not found
 ```
 
-Solution: Build from project root:
+Solution: Ensure `velo-test` is on your PATH or build from source:
 ```bash
-cd ../..
-cargo build --release
-cd demo/trading
-```
+# From release archive:
+source ../../setup-env.sh
 
-Or set the path explicitly:
-```bash
+# Or build from source:
+(cd ../.. && cargo build --release)
+
+# Or set the path explicitly:
 VELO_TEST=../../target/release/velo-test ./velo-test.sh
 ```
 

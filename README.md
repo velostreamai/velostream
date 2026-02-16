@@ -124,11 +124,11 @@ INTO high_value_orders;
 ### 4. Deploy
 
 ```bash
-# If downloaded binary (add to PATH first: source setup-env.sh)
-velo-sql deploy-app --file app.sql --brokers localhost:9092
+# Add binaries to PATH (one-time):
+#   Downloaded: source setup-env.sh
+#   From source: export PATH="$PATH:$(pwd)/target/release"
 
-# Or if built from source:
-./target/release/velo-sql deploy-app --file app.sql --brokers localhost:9092
+velo-sql deploy-app --file app.sql --brokers localhost:9092
 ```
 
 ### 5. Monitor
@@ -205,12 +205,14 @@ For hosting multiple applications, run `velo-sql server` and deploy apps to it:
 
 ```bash
 # Start the server
-./target/release/velo-sql server --brokers localhost:9092 --port 8080
+velo-sql server --brokers localhost:9092 --port 8080
 
 # Deploy apps to the server
-./target/release/velo-sql deploy-app --file app1.sql --server http://localhost:8080
-./target/release/velo-sql deploy-app --file app2.sql --server http://localhost:8080
+velo-sql deploy-app --file app1.sql --server http://localhost:8080
+velo-sql deploy-app --file app2.sql --server http://localhost:8080
 ```
+
+> **Tip**: If you haven't added `bin/` to your PATH, prefix commands with `./bin/` (release archive) or `./target/release/` (built from source).
 
 ### Docker Deployment
 
@@ -566,12 +568,12 @@ println!("Error rate: {:.2}%", metrics.error_rate);
 
 ```bash
 # Pre-deployment validation prevents invalid SQL from reaching production
-./velo-cli validate financial_pipeline.sql --strict
+velo-cli validate financial_pipeline.sql --strict
 
 # CI/CD pipeline integration
 - name: Validate SQL
   run: |
-    ./velo-cli validate sql/ --strict --format json > validation.json
+    velo-cli validate sql/ --strict --format json > validation.json
     if [ $? -ne 0 ]; then
       echo "❌ SQL validation failed"
       cat validation.json
@@ -1046,34 +1048,31 @@ Velostream includes a powerful CLI tool for monitoring, validation, and managing
 
 ### Quick Start
 ```bash
-# Build the CLI (creates convenient symlink)
-./demo/trading/build_cli.sh
-
 # SQL validation (prevents invalid deployments)
-./velo-cli validate sql/my_query.sql --verbose
-./velo-cli validate sql/ --strict --format json
-./velo-cli validate sql/financial_analytics.sql --config production.yaml
+velo-cli validate sql/my_query.sql --verbose
+velo-cli validate sql/ --strict --format json
+velo-cli validate sql/financial_analytics.sql --config production.yaml
 
 # Local monitoring
-./velo-cli health
-./velo-cli status --verbose
-./velo-cli jobs --sql --topics
+velo-cli health
+velo-cli status --verbose
+velo-cli jobs --sql --topics
 
 # Remote production monitoring
-./velo-cli --remote --sql-host prod-server.com health
-./velo-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
+velo-cli --remote --sql-host prod-server.com health
+velo-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
 ```
 
 ### SQL Validation (Pre-Deployment Safety)
 ```bash
 # Validate single file with detailed errors
-./velo-cli validate my_stream.sql --verbose
+velo-cli validate my_stream.sql --verbose
 
 # Validate entire directory (CI/CD integration)
-./velo-cli validate sql/ --strict --format json > validation-report.json
+velo-cli validate sql/ --strict --format json > validation-report.json
 
 # Validate with configuration context
-./velo-cli validate financial_pipeline.sql --config prod.yaml
+velo-cli validate financial_pipeline.sql --config prod.yaml
 
 # Exit codes: 0 (valid), 1 (invalid) - perfect for CI/CD gates
 ```
@@ -1340,10 +1339,8 @@ Each scenario measures both SQL Engine (direct execution) and Job Server (full p
 The `velo-test` binary runs declarative test specs (`.test.yaml`) against SQL applications with real Kafka infrastructure:
 
 ```bash
-cargo build --release --bin velo-test
-
 # Run a test spec against a SQL app (uses testcontainers for Kafka)
-./target/release/velo-test run demo/test_harness_examples/tier1_basic/ \
+velo-test run demo/test_harness_examples/tier1_basic/ \
   --use-testcontainers --reuse-containers
 ```
 

@@ -583,9 +583,11 @@ jobs:
 
       - name: Run SQL tests
         run: |
-          ./target/release/velo-test run sql/app.sql \
+          velo-test run sql/app.sql \
             --spec test_spec.yaml \
             --output junit > test-results.xml
+        env:
+          PATH: ${{ github.workspace }}/target/release:$PATH
 
       - name: Upload results
         uses: actions/upload-artifact@v3
@@ -604,7 +606,7 @@ pipeline {
         stage('Test') {
             steps {
                 sh 'cargo build --release'
-                sh './target/release/velo-test run sql/app.sql --spec test_spec.yaml --output junit > test-results.xml'
+                sh 'PATH=target/release:$PATH velo-test run sql/app.sql --spec test_spec.yaml --output junit > test-results.xml'
             }
         }
     }

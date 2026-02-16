@@ -4,23 +4,27 @@ Run your first streaming SQL query in 5 minutes. **No Docker. No Kafka.**
 
 ## Prerequisites
 
-- Rust toolchain (for building velo-test)
+- `velo-test` binary (download from [Releases](https://github.com/velostreamai/velostream/releases/latest) or build from source)
 - That's it!
 
 ## Quick Start
 
-### 1. Build velo-test (one-time, ~2 minutes)
+### 1. Setup (one-time)
 
 ```bash
-cd /path/to/velostream
+# Option A: Downloaded release — add binaries to PATH
+source setup-env.sh
+
+# Option B: Built from source
 cargo build --release --bin velo-test
+export PATH="$PATH:$(pwd)/target/release"
 ```
 
 ### 2. Run hello world
 
 ```bash
 cd demo/quickstart
-../../target/release/velo-test run hello_world.sql -y
+velo-test run hello_world.sql -y
 ```
 
 ### 3. Check the output
@@ -72,19 +76,19 @@ Work through these in order. Each adds ONE new concept:
 
 ```bash
 # Filter: only rows where value > 150
-../../target/release/velo-test run 01_filter.sql -y
+velo-test run 01_filter.sql -y
 cat output/01_filter_output.csv
 
 # Transform: add calculated columns
-../../target/release/velo-test run 02_transform.sql -y
+velo-test run 02_transform.sql -y
 cat output/02_transform_output.csv
 
 # Aggregate: count and sum by category
-../../target/release/velo-test run 03_aggregate.sql -y
+velo-test run 03_aggregate.sql -y
 cat output/03_aggregate_output.csv
 
 # Window: compare each row to previous value
-../../target/release/velo-test run 04_window.sql -y
+velo-test run 04_window.sql -y
 cat output/04_window_output.csv
 ```
 
@@ -125,7 +129,7 @@ See the [Learning Path](../../docs/test-harness/LEARNING_PATH.md) for a structur
 ## Troubleshooting
 
 ### "command not found: velo-test"
-Build it first: `cargo build --release --bin velo-test`
+Add binaries to PATH (`source setup-env.sh`) or build from source: `cargo build --release --bin velo-test`
 
 ### "file not found" error
 Make sure you're in the `demo/quickstart/` directory when running.

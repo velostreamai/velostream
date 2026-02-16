@@ -366,17 +366,16 @@ cd demo/1brc
 # ./target/release/velo-1brc: not found
 ```
 
-**Cause**: Should be fixed in recent releases (symlinks added)
+**Cause**: Demo scripts look for binaries in `target/release/` (symlinks to `bin/`) or on your PATH.
 
-**Solution**: Verify symlinks exist
+**Solution**: Add binaries to your PATH (recommended) or verify symlinks exist:
 ```bash
+# Recommended: add to PATH
+source setup-env.sh
+
+# Or verify symlinks
 ls -la target/release/
 # Should show: velo-* -> ../../bin/*
-
-# If missing, create manually:
-mkdir -p target/release
-cd target/release
-ln -s ../../bin/* .
 ```
 
 ---

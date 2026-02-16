@@ -33,9 +33,9 @@ demo/trading/
 ├── Makefile                     # Build system
 └── README.md                    # This file
 
-# Uses main project binaries:
-../../target/release/velo-test   # Test harness (data generation, testing, debugging)
-../../target/release/velo-sql    # Multi-job SQL server
+# Binaries (from PATH, target/release/, or release archive bin/):
+# velo-test   - Test harness (data generation, testing, debugging)
+# velo-sql    - Multi-job SQL server
 ```
 
 **Source vs Generated:** `apps/` contains the hand-written SQL source files. Running
@@ -49,7 +49,7 @@ directory is `.gitignored` — regenerate it after editing `apps/*.sql`.
 ### Prerequisites
 
 1. **Docker & Docker Compose** (for Kafka)
-2. **Rust toolchain** (latest stable) - Install from https://rustup.rs/
+2. **Rust toolchain** (only if building from source) - Install from https://rustup.rs/
 
 ### Start the Demo (Single Command!)
 
@@ -100,27 +100,23 @@ cd demo/trading
 
 ### 2. Monitor with Velostream CLI
 
-The CLI tool is automatically built by `start-demo.sh`. Use it to monitor all components:
+Use the CLI tool to monitor all components:
 
 ```bash
 # Check overall health
-../../target/debug/velo-cli health
+velo-cli health
 
 # Monitor in real-time (refreshes every 5 seconds)
-../../target/debug/velo-cli status --refresh 5
+velo-cli status --refresh 5
 
 # View Kafka topics and data
-../../target/debug/velo-cli kafka --topics
+velo-cli kafka --topics
 
 # Monitor jobs and tasks
-../../target/debug/velo-cli jobs
+velo-cli jobs
 ```
 
-**Tip**: Create a symlink for convenience:
-```bash
-ln -sf ../../target/debug/velo-cli velo-cli
-./velo-cli health
-```
+> **PATH setup**: Run `source ../../setup-env.sh` (release archive) or `export PATH="$PATH:../../target/release"` (built from source) to use bare command names.
 
 ### 3. Access Grafana Dashboards
 
@@ -440,43 +436,37 @@ The demo **automatically starts** comprehensive monitoring infrastructure via Do
 
 ### Velostream CLI Tool
 
-The `velo-cli` is automatically built when you run `start-demo.sh` and provides comprehensive monitoring:
+The `velo-cli` provides comprehensive monitoring:
 
 ```bash
 # Quick health check of all components
-../../target/debug/velo-cli health
+velo-cli health
 
 # Detailed status with verbose output
-../../target/debug/velo-cli status --verbose
+velo-cli status --verbose
 
 # Real-time monitoring (refresh every 5 seconds)
-../../target/debug/velo-cli status --refresh 5
+velo-cli status --refresh 5
 
 # Check Kafka cluster and topics
-../../target/debug/velo-cli kafka --topics --groups
+velo-cli kafka --topics --groups
 
 # Monitor Docker containers
-../../target/debug/velo-cli docker --velo-only
+velo-cli docker --velo-only
 
 # View Velostream processes
-../../target/debug/velo-cli processes
+velo-cli processes
 
 # Monitor active jobs and streaming tasks
-../../target/debug/velo-cli jobs
+velo-cli jobs
 
 # Check specific job types
-../../target/debug/velo-cli jobs --sql          # SQL processing jobs
-../../target/debug/velo-cli jobs --generators   # Data generators
-../../target/debug/velo-cli jobs --topics       # Topic activity & message counts
+velo-cli jobs --sql          # SQL processing jobs
+velo-cli jobs --generators   # Data generators
+velo-cli jobs --topics       # Topic activity & message counts
 
 # Get help for any command
-../../target/debug/velo-cli --help
-```
-
-**Tip**: Create a local symlink for shorter commands:
-```bash
-ln -sf ../../target/debug/velo-cli velo-cli
-./velo-cli health  # Much easier!
+velo-cli --help
 ```
 
 ### Kafka Topic Monitoring
@@ -496,7 +486,7 @@ docker exec $(docker-compose -f docker-compose.yml ps -q kafka) kafka-consumer-g
 # Multi-job server is completely app-agnostic - no hardcoded jobs
 # Trading demo deploys financial trading analytics via deploy-app command
 # Check server logs for job status
-../../target/release/velo-sql --help
+velo-sql --help
 
 # HTTP endpoints for job monitoring:
 # curl http://localhost:8080/jobs
@@ -578,9 +568,6 @@ Use the test harness when you want to:
 - Assert output schemas and record counts
 
 ```bash
-# Build velo-test first (from project root)
-cargo build --release --bin velo-test
-
 # Navigate to trading demo
 cd demo/trading
 
@@ -630,7 +617,7 @@ Use `velo-test stress` for data generation when you want to:
 ./start-demo.sh
 
 # Or run data generation manually after starting Kafka
-../../target/release/velo-test stress apps/app_market_data.sql \
+velo-test stress apps/app_market_data.sql \
   --records 60000 --duration 600 --kafka localhost:9092 -y
 ```
 

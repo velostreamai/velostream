@@ -8,7 +8,7 @@ Instead of writing test specs by hand, use `velo-test init`:
 
 ```bash
 # Generate a test spec for hello_world.sql
-../../target/release/velo-test init hello_world.sql -y
+velo-test init hello_world.sql -y
 ```
 
 This creates `hello_world.test.yaml` with:
@@ -45,8 +45,8 @@ queries:
 
 ```bash
 # Generate spec for each example
-../../target/release/velo-test init 01_filter.sql -y
-../../target/release/velo-test init 02_transform.sql -y
+velo-test init 01_filter.sql -y
+velo-test init 02_transform.sql -y
 
 # View the generated specs
 cat 01_filter.test.yaml
@@ -58,7 +58,7 @@ cat 02_transform.test.yaml
 Without `-y`, the wizard asks questions:
 
 ```bash
-../../target/release/velo-test init 03_aggregate.sql
+velo-test init 03_aggregate.sql
 
 # Prompts:
 # - Record count for test data?
@@ -72,7 +72,7 @@ If you have sample data, infer schemas:
 
 ```bash
 # Infer schema from CSV
-../../target/release/velo-test infer-schema hello_world_input.csv
+velo-test infer-schema hello_world_input.csv
 
 # Output: hello_world_input.schema.yaml with field types
 ```

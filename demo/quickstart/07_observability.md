@@ -6,7 +6,7 @@ Production streaming applications need monitoring. The `annotate` command adds o
 
 ```bash
 # Generate annotated SQL with metrics
-../../target/release/velo-test annotate hello_world.sql -y
+velo-test annotate hello_world.sql -y
 ```
 
 This creates `hello_world.annotated.sql` with:
@@ -53,7 +53,7 @@ WITH (...);
 
 ```bash
 # Annotate a SQL file
-../../target/release/velo-test annotate 03_aggregate.sql -y
+velo-test annotate 03_aggregate.sql -y
 
 # View the annotated version
 cat 03_aggregate.annotated.sql
@@ -68,7 +68,7 @@ Add `--monitoring` to generate Prometheus/Grafana configs:
 mkdir -p monitoring
 
 # Generate annotated SQL + monitoring stack
-../../target/release/velo-test annotate 03_aggregate.sql \
+velo-test annotate 03_aggregate.sql \
   --monitoring ./monitoring \
   -y
 
@@ -118,7 +118,7 @@ open http://localhost:9090  # Prometheus
 Without `-y`, the annotate command asks questions:
 
 ```bash
-../../target/release/velo-test annotate 04_window.sql
+velo-test annotate 04_window.sql
 
 # Prompts:
 # - Application name?

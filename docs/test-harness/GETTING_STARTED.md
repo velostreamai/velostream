@@ -17,12 +17,9 @@ This tutorial walks you through creating and running your first test for a Velos
 The fastest way to see Velostream in action:
 
 ```bash
-# Build velo-test (one-time)
-cargo build --release --bin velo-test
-
 # Run the hello world example
 cd demo/quickstart
-../../target/release/velo-test run hello_world.sql -y
+velo-test run hello_world.sql -y
 
 # See the output
 cat output/hello_world_output.csv
@@ -30,6 +27,8 @@ cat output/hello_world_output.csv
 # Or run ALL examples at once
 ./velo-test.sh
 ```
+
+> **First time?** Add binaries to PATH: `source setup-env.sh` (release archive) or build from source: `cargo build --release --bin velo-test`
 
 **Next steps:** Work through the progressive examples in `demo/quickstart/` (filter → transform → aggregate → window).
 
@@ -43,7 +42,7 @@ For testing without Kafka infrastructure:
 
 ```bash
 cd demo/test_harness_examples/file_io
-../../target/release/velo-test run passthrough.sql
+velo-test run passthrough.sql
 ```
 
 **Best for:** CI/CD pipelines, offline development, quick iteration.
@@ -372,7 +371,7 @@ Complete working examples are in `demo/test_harness_examples/`:
 
 ```bash
 cd demo/test_harness_examples/getting_started
-../../../target/release/velo-test run ./sql/market_aggregation.sql --spec ./test_spec.yaml
+../velo-test run ./sql/market_aggregation.sql --spec ./test_spec.yaml
 ```
 
 ## Generate a Runner Script

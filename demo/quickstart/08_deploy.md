@@ -29,7 +29,7 @@ Deploy a SQL file directly to Kafka:
 
 ```bash
 # Deploy your annotated app
-../../target/release/velo-sql deploy-app \
+velo-sql deploy-app \
   --file 03_aggregate.annotated.sql \
   --brokers localhost:9092 \
   --enable-metrics
@@ -47,7 +47,7 @@ For multiple apps, run the StreamJobServer:
 
 ```bash
 # Start the server
-../../target/release/velo-sql server \
+velo-sql server \
   --brokers localhost:9092 \
   --port 8080 \
   --max-jobs 10 \
@@ -65,29 +65,29 @@ Once deployed, use `velo-cli` to monitor:
 
 ```bash
 # Quick health check
-../../target/release/velo-cli health
+velo-cli health
 
 # Show all component status
-../../target/release/velo-cli status
+velo-cli status
 
 # Show running jobs
-../../target/release/velo-cli jobs
+velo-cli jobs
 
 # Show Kafka cluster info
-../../target/release/velo-cli kafka
+velo-cli kafka
 
 # Show SQL server info
-../../target/release/velo-cli sql
+velo-cli sql
 ```
 
 ## Example: Full Deployment Workflow
 
 ```bash
 # 1. Validate SQL
-../../target/release/velo-test validate 03_aggregate.sql
+velo-test validate 03_aggregate.sql
 
 # 2. Generate annotated version with monitoring
-../../target/release/velo-test annotate 03_aggregate.sql \
+velo-test annotate 03_aggregate.sql \
   --monitoring ./monitoring \
   -y
 
@@ -95,14 +95,14 @@ Once deployed, use `velo-cli` to monitor:
 docker-compose up -d kafka
 
 # 4. Deploy the app
-../../target/release/velo-sql deploy-app \
+velo-sql deploy-app \
   --file 03_aggregate.annotated.sql \
   --brokers localhost:9092 \
   --enable-metrics \
   --enable-tracing
 
 # 5. Monitor
-../../target/release/velo-cli jobs
+velo-cli jobs
 ```
 
 ## Deployment Options
