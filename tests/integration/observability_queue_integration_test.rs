@@ -79,11 +79,11 @@ async fn test_queue_based_telemetry_integration() {
         .await
         .expect("Failed to create telemetry provider");
 
-    // Create and emit a span
-    let batch_span = telemetry.start_batch_span("test_job", 1, None, Vec::new());
+    // Create and emit a per-record span
+    let record_span = telemetry.start_record_span("test_job", None);
 
     // Verify span was created
-    drop(batch_span); // Span ends on drop
+    drop(record_span); // Span ends on drop
 
     // Give time for queue to process
     tokio::time::sleep(Duration::from_millis(50)).await;

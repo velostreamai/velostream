@@ -1,21 +1,22 @@
-//! Diagnostic test: Compare span creation and logging across all 4 processor types
+//! Diagnostic test: Per-record span API verification
 //!
-//! This test initializes env_logger and exercises each processor type's trace pattern,
-//! printing detailed span creation logs so we can compare behavior.
+//! Tests that the per-record head-based sampling API works correctly:
+//! - create observability manager
+//! - start_record_span for sampled records
+//! - record_deserialization / record_serialization_success with 4 args (metrics-only)
+//! - verify spans collected via in-memory collector
 //!
 //! Run with: RUST_LOG=debug cargo test --tests --no-default-features -- processor_span_diagnostic --nocapture
 
 use serial_test::serial;
 use std::sync::Arc;
-use std::time::Instant;
-
-use velostream::velostream::server::processors::observability_helper::ObservabilityHelper;
-use velostream::velostream::sql::execution::types::StreamRecord;
+use std::time::Duration;
 
 use crate::unit::observability_test_helpers::{
     UPSTREAM_TRACEPARENT, create_test_observability_manager, create_test_record,
-    create_test_record_with_traceparent,
 };
+use velostream::velostream::server::processors::common::BatchProcessingResultWithOutput;
+use velostream::velostream::server::processors::observability_helper::ObservabilityHelper;
 
 fn init_logger() {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -29,383 +30,159 @@ async fn get_span_count(
     lock.telemetry().map(|t| t.span_count()).unwrap_or(0)
 }
 
-/// Run all 4 processor types through 5 batch cycles and compare collected span counts
+/// Helper to create a success batch result for sql_processing
+fn make_success_batch_result(records_processed: usize) -> BatchProcessingResultWithOutput {
+    BatchProcessingResultWithOutput {
+        records_processed,
+        records_failed: 0,
+        processing_time: Duration::from_millis(10),
+        batch_size: records_processed,
+        error_details: vec![],
+        output_records: vec![],
+    }
+}
+
+/// Test per-record API: sampled records create process spans, metrics calls are 4-arg
 #[tokio::test]
 #[serial]
-async fn test_processor_span_diagnostic_all_types() {
+async fn test_per_record_api_sampled_and_metrics() {
     init_logger();
 
-    let obs_manager = create_test_observability_manager("processor-diagnostic").await;
+    let obs_manager = create_test_observability_manager("per-record-diagnostic").await;
     let obs = Some(obs_manager.clone());
 
     let batch_count = 5u64;
-    let records_per_batch = 3;
+    let sampled_records_per_batch = 3;
 
-    // =========================================================================
-    // Processor 1: SimpleJobProcessor pattern
-    // =========================================================================
-    println!("\n========== SIMPLE JOB PROCESSOR ==========");
+    println!("\n========== PER-RECORD API DIAGNOSTIC ==========");
     let initial_count = get_span_count(&obs_manager).await;
+
     for batch_id in 0..batch_count {
-        let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
+        // For each batch, create record spans for sampled records
+        for record_idx in 0..sampled_records_per_batch {
+            let mut record_span =
+                ObservabilityHelper::start_record_span(&obs, "per-record-job", None);
+            assert!(
+                record_span.is_some(),
+                "Batch #{}, Record #{}: record span should be Some",
+                batch_id,
+                record_idx
+            );
 
-        // Parent batch span
-        let parent_span =
-            ObservabilityHelper::start_batch_span(&obs, "simple-job", batch_id, &input_batch);
-        assert!(
-            parent_span.is_some(),
-            "Simple: batch #{} parent span should be Some",
-            batch_id
-        );
+            let span = record_span.as_mut().unwrap();
+            span.set_output_count(1);
+            span.set_success();
 
-        // Per-source child span
-        let source_span = ObservabilityHelper::start_batch_span(
-            &obs,
-            "simple-job (source: input_topic)",
-            batch_id,
-            &input_batch,
-        );
-        assert!(
-            source_span.is_some(),
-            "Simple: batch #{} source span should be Some",
-            batch_id
-        );
+            // Inject into output record
+            let mut output_record = Arc::new(create_test_record());
+            ObservabilityHelper::inject_record_trace_context(
+                record_span.as_ref().unwrap(),
+                &mut output_record,
+            );
 
-        // Child spans: deserialization, SQL, serialization
+            assert!(
+                output_record.headers.contains_key("traceparent"),
+                "Batch #{}, Record #{}: output should have traceparent",
+                batch_id,
+                record_idx
+            );
+
+            drop(record_span);
+        }
+
+        // Metrics-only calls (4 args, no spans)
         ObservabilityHelper::record_deserialization(
             &obs,
-            "simple-job",
-            &parent_span,
-            records_per_batch,
+            "per-record-job",
+            sampled_records_per_batch,
             2,
-            Some(("input_topic", 0, batch_id as i64)),
         );
+
+        let batch_result = make_success_batch_result(sampled_records_per_batch);
+        ObservabilityHelper::record_sql_processing(&obs, "per-record-job", &batch_result, 5);
 
         ObservabilityHelper::record_serialization_success(
             &obs,
-            "simple-job",
-            &parent_span,
-            records_per_batch,
+            "per-record-job",
+            sampled_records_per_batch,
             1,
-            None,
         );
-
-        // Inject trace context into output records
-        let mut output_records: Vec<Arc<StreamRecord>> = (0..records_per_batch)
-            .map(|_| Arc::new(create_test_record()))
-            .collect();
-        ObservabilityHelper::inject_trace_context_into_records(
-            &parent_span,
-            &mut output_records,
-            "simple-job",
-        );
-
-        // Complete batch span
-        let batch_start = Instant::now();
-        let mut parent_span = parent_span;
-        ObservabilityHelper::complete_batch_span_success(
-            &mut parent_span,
-            &batch_start,
-            records_per_batch as u64,
-        );
-
-        // Verify output records got traceparent
-        for record in &output_records {
-            assert!(
-                record.headers.contains_key("traceparent"),
-                "Simple: batch #{} output should have traceparent",
-                batch_id
-            );
-        }
-
-        drop(parent_span);
-        drop(source_span);
     }
-    let simple_spans = get_span_count(&obs_manager).await - initial_count;
+
+    let total_spans = get_span_count(&obs_manager).await - initial_count;
+    let expected_spans = (batch_count as usize) * sampled_records_per_batch;
     println!(
-        "Simple: {} spans created across {} batches ({} per batch)",
-        simple_spans,
+        "Per-record API: {} spans created across {} batches ({} per batch)",
+        total_spans,
         batch_count,
-        simple_spans as f64 / batch_count as f64
+        total_spans as f64 / batch_count as f64
     );
 
-    // =========================================================================
-    // Processor 2: TransactionalJobProcessor pattern
-    // =========================================================================
-    println!("\n========== TRANSACTIONAL JOB PROCESSOR ==========");
-    let initial_count = get_span_count(&obs_manager).await;
-    for batch_id in 0..batch_count {
-        let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
-
-        // Single batch span for entire transaction
-        let mut batch_span =
-            ObservabilityHelper::start_batch_span(&obs, "txn-job", batch_id, &input_batch);
-        assert!(
-            batch_span.is_some(),
-            "Txn: batch #{} span should be Some",
-            batch_id
-        );
-
-        // Child spans
-        ObservabilityHelper::record_deserialization(
-            &obs,
-            "txn-job",
-            &batch_span,
-            records_per_batch,
-            2,
-            None,
-        );
-
-        ObservabilityHelper::record_serialization_success(
-            &obs,
-            "txn-job",
-            &batch_span,
-            records_per_batch,
-            1,
-            None,
-        );
-
-        // Inject trace context
-        let mut output_records: Vec<Arc<StreamRecord>> = (0..records_per_batch)
-            .map(|_| Arc::new(create_test_record()))
-            .collect();
-        ObservabilityHelper::inject_trace_context_into_records(
-            &batch_span,
-            &mut output_records,
-            "txn-job",
-        );
-
-        // Complete after commit
-        let batch_start = Instant::now();
-        ObservabilityHelper::complete_batch_span_success(
-            &mut batch_span,
-            &batch_start,
-            records_per_batch as u64,
-        );
-
-        for record in &output_records {
-            assert!(
-                record.headers.contains_key("traceparent"),
-                "Txn: batch #{} output should have traceparent",
-                batch_id
-            );
-        }
-
-        drop(batch_span);
-    }
-    let txn_spans = get_span_count(&obs_manager).await - initial_count;
-    println!(
-        "Transactional: {} spans created across {} batches ({} per batch)",
-        txn_spans,
-        batch_count,
-        txn_spans as f64 / batch_count as f64
-    );
-
-    // =========================================================================
-    // Processor 3: JoinJobProcessor pattern
-    // =========================================================================
-    println!("\n========== JOIN JOB PROCESSOR ==========");
-    let initial_count = get_span_count(&obs_manager).await;
-    for batch_id in 0..batch_count {
-        // Join uses OUTPUT records to extract trace context
-        let mut output_buffer: Vec<Arc<StreamRecord>> = vec![
-            Arc::new(create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)),
-            Arc::new(create_test_record()),
-            Arc::new(create_test_record()),
-        ];
-
-        // Clone first output record for span creation
-        let first_records: Vec<StreamRecord> = output_buffer
-            .first()
-            .map(|r| vec![(**r).clone()])
-            .unwrap_or_default();
-
-        // Batch span from first output record
-        let mut batch_span =
-            ObservabilityHelper::start_batch_span(&obs, "join-job", batch_id, &first_records);
-        assert!(
-            batch_span.is_some(),
-            "Join: batch #{} span should be Some",
-            batch_id
-        );
-
-        // Inject into ALL output records
-        ObservabilityHelper::inject_trace_context_into_records(
-            &batch_span,
-            &mut output_buffer,
-            "join-job",
-        );
-
-        // Serialization child span
-        ObservabilityHelper::record_serialization_success(
-            &obs,
-            "join-job",
-            &batch_span,
-            output_buffer.len(),
-            1,
-            None,
-        );
-
-        // Complete
-        let batch_start = Instant::now();
-        ObservabilityHelper::complete_batch_span_success(
-            &mut batch_span,
-            &batch_start,
-            output_buffer.len() as u64,
-        );
-
-        for record in &output_buffer {
-            assert!(
-                record.headers.contains_key("traceparent"),
-                "Join: batch #{} output should have traceparent",
-                batch_id
-            );
-        }
-
-        drop(batch_span);
-    }
-    let join_spans = get_span_count(&obs_manager).await - initial_count;
-    println!(
-        "Join: {} spans created across {} batches ({} per batch)",
-        join_spans,
-        batch_count,
-        join_spans as f64 / batch_count as f64
-    );
-
-    // =========================================================================
-    // Processor 4: PartitionReceiver pattern
-    // =========================================================================
-    println!("\n========== PARTITION RECEIVER ==========");
-    let initial_count = get_span_count(&obs_manager).await;
-    for batch_id in 0..batch_count {
-        let input_batch = vec![
-            create_test_record_with_traceparent(UPSTREAM_TRACEPARENT),
-            create_test_record(),
-            create_test_record(),
-        ];
-
-        // Batch span from input batch
-        let mut batch_span =
-            ObservabilityHelper::start_batch_span(&obs, "partition-job", batch_id, &input_batch);
-        assert!(
-            batch_span.is_some(),
-            "Partition: batch #{} span should be Some",
-            batch_id
-        );
-
-        // SQL processing child span
-        // (PartitionReceiver records SQL but not deserialization)
-        ObservabilityHelper::record_serialization_success(
-            &obs,
-            "partition-job",
-            &batch_span,
-            records_per_batch,
-            1,
-            None,
-        );
-
-        // Inject trace context into output
-        let mut output_records: Vec<Arc<StreamRecord>> = (0..records_per_batch)
-            .map(|_| Arc::new(create_test_record()))
-            .collect();
-        ObservabilityHelper::inject_trace_context_into_records(
-            &batch_span,
-            &mut output_records,
-            "partition-job",
-        );
-
-        // Complete
-        let batch_start = Instant::now();
-        ObservabilityHelper::complete_batch_span_success(
-            &mut batch_span,
-            &batch_start,
-            records_per_batch as u64,
-        );
-
-        for record in &output_records {
-            assert!(
-                record.headers.contains_key("traceparent"),
-                "Partition: batch #{} output should have traceparent",
-                batch_id
-            );
-        }
-
-        drop(batch_span);
-    }
-    let partition_spans = get_span_count(&obs_manager).await - initial_count;
-    println!(
-        "Partition: {} spans created across {} batches ({} per batch)",
-        partition_spans,
-        batch_count,
-        partition_spans as f64 / batch_count as f64
-    );
-
-    // =========================================================================
-    // Summary comparison
-    // =========================================================================
-    let total = get_span_count(&obs_manager).await;
-    println!("\n========== SUMMARY ==========");
-    println!(
-        "Simple:        {} spans ({} per batch)",
-        simple_spans,
-        simple_spans as f64 / batch_count as f64
-    );
-    println!(
-        "Transactional: {} spans ({} per batch)",
-        txn_spans,
-        txn_spans as f64 / batch_count as f64
-    );
-    println!(
-        "Join:          {} spans ({} per batch)",
-        join_spans,
-        join_spans as f64 / batch_count as f64
-    );
-    println!(
-        "Partition:     {} spans ({} per batch)",
-        partition_spans,
-        partition_spans as f64 / batch_count as f64
-    );
-    println!("Total collected: {} spans", total);
-    println!("=============================\n");
-
-    // All processor types should create spans for every batch
-    assert!(simple_spans > 0, "Simple processor should create spans");
-    assert!(txn_spans > 0, "Transactional processor should create spans");
-    assert!(join_spans > 0, "Join processor should create spans");
-    assert!(
-        partition_spans > 0,
-        "Partition processor should create spans"
-    );
-
-    // Each processor should create at least 2 spans per batch (parent + at least 1 child)
-    assert!(
-        simple_spans >= batch_count as usize * 2,
-        "Simple: expected at least {} spans, got {}",
-        batch_count * 2,
-        simple_spans
-    );
-    assert!(
-        txn_spans >= batch_count as usize * 2,
-        "Txn: expected at least {} spans, got {}",
-        batch_count * 2,
-        txn_spans
-    );
-    assert!(
-        join_spans >= batch_count as usize * 2,
-        "Join: expected at least {} spans, got {}",
-        batch_count * 2,
-        join_spans
-    );
-    assert!(
-        partition_spans >= batch_count as usize * 2,
-        "Partition: expected at least {} spans, got {}",
-        batch_count * 2,
-        partition_spans
+    assert_eq!(
+        total_spans, expected_spans,
+        "Expected {} record spans ({} per batch * {} batches), got {}",
+        expected_spans, sampled_records_per_batch, batch_count, total_spans
     );
 }
 
-/// Test that span creation is consistent across batches for each processor type
-/// (no span creation dropoff after the first batch)
+/// Test per-record API with upstream context: child spans inherit trace ID
+#[tokio::test]
+#[serial]
+async fn test_per_record_api_with_upstream_context() {
+    init_logger();
+
+    let obs_manager = create_test_observability_manager("upstream-diagnostic").await;
+    let obs = Some(obs_manager.clone());
+
+    println!("\n========== UPSTREAM CONTEXT DIAGNOSTIC ==========");
+
+    // Extract upstream context from well-known traceparent
+    let upstream_ctx =
+        velostream::velostream::observability::trace_propagation::extract_trace_context(&{
+            let mut h = std::collections::HashMap::new();
+            h.insert("traceparent".to_string(), UPSTREAM_TRACEPARENT.to_string());
+            h
+        })
+        .expect("Should extract upstream context");
+
+    let batch_count = 5u64;
+
+    for batch_id in 0..batch_count {
+        let record_span =
+            ObservabilityHelper::start_record_span(&obs, "upstream-job", Some(&upstream_ctx));
+        assert!(
+            record_span.is_some(),
+            "Batch #{}: record span should be Some with upstream context",
+            batch_id
+        );
+
+        let span = record_span.unwrap();
+        let ctx = span.span_context().unwrap();
+
+        // Child span should inherit the parent's trace_id
+        assert_eq!(
+            format!("{}", ctx.trace_id()),
+            "4bf92f3577b34da6a3ce929d0e0e4736",
+            "Batch #{}: child should have parent's trace_id",
+            batch_id
+        );
+
+        drop(span);
+    }
+
+    let total_spans = get_span_count(&obs_manager).await;
+    println!(
+        "Upstream context: {} spans created across {} batches",
+        total_spans, batch_count
+    );
+    assert_eq!(
+        total_spans, batch_count as usize,
+        "Expected {} spans, got {}",
+        batch_count, total_spans
+    );
+}
+
+/// Test that span creation is consistent across batches (no dropoff)
 #[tokio::test]
 #[serial]
 async fn test_no_span_dropoff_across_batches() {
@@ -415,16 +192,14 @@ async fn test_no_span_dropoff_across_batches() {
     let obs = Some(obs_manager.clone());
 
     let batch_count = 10u64;
-    let records = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
 
     let mut spans_per_batch: Vec<bool> = Vec::new();
 
     for batch_id in 0..batch_count {
-        let batch_span =
-            ObservabilityHelper::start_batch_span(&obs, "dropoff-test-job", batch_id, &records);
+        let record_span = ObservabilityHelper::start_record_span(&obs, "dropoff-test-job", None);
 
-        let created = batch_span.is_some();
-        if let Some(span) = &batch_span {
+        let created = record_span.is_some();
+        if let Some(span) = &record_span {
             let ctx = span.span_context();
             let valid = ctx.map(|c| c.is_valid()).unwrap_or(false);
             spans_per_batch.push(created && valid);
@@ -438,38 +213,29 @@ async fn test_no_span_dropoff_across_batches() {
         } else {
             spans_per_batch.push(false);
             println!(
-                "WARNING: Batch #{} - start_batch_span returned None!",
+                "WARNING: Batch #{} - start_record_span returned None!",
                 batch_id
             );
         }
 
-        // Also test child span creation (deserialization)
-        ObservabilityHelper::record_deserialization(
-            &obs,
-            "dropoff-test-job",
-            &batch_span,
-            3,
-            1,
-            None,
-        );
+        // Also record metrics (4 args)
+        ObservabilityHelper::record_deserialization(&obs, "dropoff-test-job", 3, 1);
 
-        // Inject trace context
-        let mut output: Vec<Arc<StreamRecord>> = vec![Arc::new(create_test_record())];
-        ObservabilityHelper::inject_trace_context_into_records(
-            &batch_span,
-            &mut output,
-            "dropoff-test-job",
-        );
+        // Inject trace context into output
+        if let Some(span) = &record_span {
+            let mut output = Arc::new(create_test_record());
+            ObservabilityHelper::inject_record_trace_context(span, &mut output);
 
-        let injected = output[0].headers.contains_key("traceparent");
-        if !injected {
-            println!(
-                "WARNING: Batch #{} - trace context NOT injected into output",
-                batch_id
-            );
+            let injected = output.headers.contains_key("traceparent");
+            if !injected {
+                println!(
+                    "WARNING: Batch #{} - trace context NOT injected into output",
+                    batch_id
+                );
+            }
         }
 
-        drop(batch_span);
+        drop(record_span);
     }
 
     // Print per-batch results

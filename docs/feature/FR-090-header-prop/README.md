@@ -19,7 +19,7 @@ propose a design for Velostream.
 | JOIN (inner)                         | Left-side default  | **DONE** | `join.rs` — `left_record.headers.clone()`                         |
 | SET_HEADER / REMOVE_HEADER           | Apply mutations    | **DONE** | `engine.rs` — `apply_header_mutations_to_record()`                |
 | `_event_time` header inject          | On write           | **DONE** | `writer.rs` — injected by KafkaDataWriter                         |
-| Distributed tracing injection        | Post-SQL overwrite | **DONE** | `observability_helper.rs` — `inject_trace_context_into_records()` |
+| Distributed tracing injection        | Per-record sampling | **DONE** | `observability_helper.rs` — per-record `inject_record_trace_context()` |
 | `_event_time` safety in aggregations | Strip stale header | **DONE** | `with_headers_from()` removes `_event_time`                       |
 | `@propagate_headers` annotation      | Configurable       | DEFERRED | Phase 2                                                           |
 | `@join_header_source` annotation     | Configurable       | DEFERRED | Phase 2                                                           |
@@ -27,8 +27,8 @@ propose a design for Velostream.
 
 **Key safety guarantees**:
 
-- Distributed tracing NOT broken: `inject_trace_context_into_records()` overwrites `traceparent`/`tracestate` after SQL
-  execution
+- Distributed tracing NOT broken: per-record head-based sampling updates `traceparent` for sampled records; non-sampled
+  records propagate the existing flag=00 naturally through SQL
 - `_event_time` NOT broken: `with_headers_from()` strips stale `_event_time` header, allowing KafkaDataWriter to inject
   correct output event_time
 - GROUP BY correctness preserved: all records in a group share GROUP BY key values, so last-vs-first doesn't affect key
@@ -313,11 +313,14 @@ pub fn extract_trace_context(headers: &HashMap<String, String>) -> Option<SpanCo
 pub fn inject_trace_context(span_context: &SpanContext, headers: &mut HashMap<String, String>)
 ```
 
-And we inject trace context in processors:
+And we inject trace context per-record in processors:
 
 ```rust
 // src/velostream/server/processors/observability_helper.rs
-ObservabilityHelper::inject_trace_context_into_records(...)
+// For sampled records:
+ObservabilityHelper::inject_record_trace_context(&span, &mut output_record)
+// For non-sampled records with no upstream traceparent:
+ObservabilityHelper::inject_not_sampled_context(&mut output_record)
 ```
 
 ### 3.3 The Problem (RESOLVED)

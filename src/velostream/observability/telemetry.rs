@@ -1,6 +1,5 @@
 // === PHASE 4: OPENTELEMETRY DISTRIBUTED TRACING ===
 
-use crate::velostream::observability::query_metadata::QuerySpanMetadata;
 use crate::velostream::observability::span_collector::CollectingSpanProcessor;
 use crate::velostream::observability::tokio_span_processor::{
     TokioSpanProcessor, TokioSpanProcessorConfig,
@@ -9,7 +8,7 @@ use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::TracingConfig;
 use opentelemetry::{
     KeyValue, global,
-    trace::{Link, Span, SpanKind, Status, Tracer, TracerProvider as _},
+    trace::{Span, SpanKind, Status, Tracer, TracerProvider as _},
 };
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
@@ -78,37 +77,6 @@ impl BaseSpan {
             span.set_attribute(KeyValue::new("error", error.to_string()));
             let duration = self.start_time.elapsed();
             log::warn!("🔍 Span failed after {:?}: {}", duration, error);
-        }
-    }
-
-    /// Set pre-computed query metadata as span attributes for streaming intelligence.
-    /// Shared implementation used by both BatchSpan and QuerySpan.
-    pub(crate) fn set_query_metadata(&mut self, metadata: &QuerySpanMetadata) {
-        if let Some(span) = self.span.as_mut() {
-            span.set_attribute(KeyValue::new("sql.has_join", metadata.has_join));
-            if let Some(jt) = &metadata.join_type {
-                span.set_attribute(KeyValue::new("sql.join_type", jt.clone()));
-            }
-            if let Some(js) = &metadata.join_sources {
-                span.set_attribute(KeyValue::new("sql.join_sources", js.clone()));
-            }
-            if let Some(jk) = &metadata.join_key_fields {
-                span.set_attribute(KeyValue::new("sql.join_key_fields", jk.clone()));
-            }
-            span.set_attribute(KeyValue::new("sql.has_window", metadata.has_window));
-            if let Some(wt) = &metadata.window_type {
-                span.set_attribute(KeyValue::new("sql.window_type", wt.clone()));
-            }
-            if let Some(ws) = &metadata.window_size_ms {
-                span.set_attribute(KeyValue::new("sql.window_size_ms", *ws));
-            }
-            span.set_attribute(KeyValue::new("sql.has_group_by", metadata.has_group_by));
-            if let Some(gf) = &metadata.group_by_fields {
-                span.set_attribute(KeyValue::new("sql.group_by_fields", gf.clone()));
-            }
-            if let Some(em) = &metadata.emit_mode {
-                span.set_attribute(KeyValue::new("sql.emit_mode", em.clone()));
-            }
         }
     }
 }
@@ -509,278 +477,53 @@ impl TelemetryProvider {
         Ok(())
     }
 
-    /// Create a new trace span for batch processing (parent span for entire batch)
+    /// Create a per-record processing span for head-based sampling.
+    ///
+    /// This span is created only for records that pass the sampling decision
+    /// (`should_sample_record()`). If `upstream_context` is provided, the span
+    /// becomes a child of the upstream trace; otherwise a new root trace starts.
     ///
     /// # Arguments
     /// * `job_name` - Name of the job/query
-    /// * `batch_id` - Batch sequence number
-    /// * `upstream_context` - Optional trace context from upstream Kafka headers
-    ///
-    /// If upstream_context is provided, this batch becomes a child of the upstream trace.
-    /// Otherwise, a new trace is started.
-    pub fn start_batch_span(
+    /// * `upstream_context` - Optional upstream span context from traceparent header
+    pub fn start_record_span(
         &self,
         job_name: &str,
-        batch_id: u64,
-        upstream_context: Option<opentelemetry::trace::SpanContext>,
-        linked_contexts: Vec<opentelemetry::trace::SpanContext>,
-    ) -> BatchSpan {
+        upstream_context: Option<&opentelemetry::trace::SpanContext>,
+    ) -> RecordSpan {
         if !self.active {
-            return BatchSpan::new_inactive();
+            return RecordSpan {
+                base: BaseSpan::new_inactive(),
+            };
         }
 
         let tracer = global::tracer(self.config.service_name.clone());
 
-        // Build attributes with deployment context
-        let mut attributes = vec![
+        let attributes = vec![
             KeyValue::new("job.name", job_name.to_string()),
-            KeyValue::new("batch.id", batch_id as i64),
             KeyValue::new("messaging.system", "kafka"),
-            KeyValue::new("messaging.operation", "process"),
         ];
 
-        // Add deployment context attributes if set
-        if let Some(node_id) = &self.deployment_node_id {
-            attributes.push(KeyValue::new(
-                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
-                node_id.clone(),
-            ));
-        }
-        if let Some(node_name) = &self.deployment_node_name {
-            attributes.push(KeyValue::new(
-                opentelemetry_semantic_conventions::resource::HOST_NAME,
-                node_name.clone(),
-            ));
-        }
-        if let Some(region) = &self.deployment_region {
-            attributes.push(KeyValue::new(
-                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
-                region.clone(),
-            ));
-        }
-
-        // Build span links from additional upstream trace contexts
-        let links: Vec<Link> = linked_contexts
-            .into_iter()
-            .map(|ctx| Link::new(ctx, Vec::new()))
-            .collect();
-
-        // Create span with upstream context if available for distributed tracing
         let span = if let Some(parent_ctx) = upstream_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
 
-            log::debug!(
-                "Starting batch span as child of upstream trace: {} (parent_span={})",
-                parent_ctx.trace_id(),
-                parent_ctx.span_id()
-            );
-
-            // Use Context::new() instead of Context::current() to avoid interference
-            // from any existing spans in the thread-local context. This ensures the
-            // remote span context is the sole parent for the new child span.
             let parent_cx =
                 opentelemetry::Context::new().with_remote_span_context(parent_ctx.clone());
 
-            let mut builder = tracer
-                .span_builder(format!("batch:{}", job_name))
-                .with_kind(SpanKind::Consumer)
-                .with_attributes(attributes);
-            if !links.is_empty() {
-                builder = builder.with_links(links);
-            }
-            let child_span = builder.start_with_context(&tracer, &parent_cx);
-
-            // Verify child span was properly linked to parent
-            let child_ctx = child_span.span_context();
-            if child_ctx.trace_id() != parent_ctx.trace_id() {
-                log::warn!(
-                    "Child span NOT linked to parent: child_trace={} != parent_trace={}",
-                    child_ctx.trace_id(),
-                    parent_ctx.trace_id()
-                );
-            } else {
-                log::debug!(
-                    "Child span linked: trace_id={}, child_span_id={}, parent_span_id={}",
-                    child_ctx.trace_id(),
-                    child_ctx.span_id(),
-                    parent_ctx.span_id(),
-                );
-            }
-
-            child_span
-        } else {
-            log::debug!("Starting new trace for batch (no upstream context)");
-
-            let mut builder = tracer
-                .span_builder(format!("batch:{}", job_name))
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes);
-            if !links.is_empty() {
-                builder = builder.with_links(links);
-            }
-            builder.start(&tracer)
-        };
-
-        log::debug!("Batch span created: {} (batch #{})", job_name, batch_id,);
-
-        BatchSpan::new_active(span)
-    }
-
-    /// Create a child span for tracking a specific pipeline processing stage
-    ///
-    /// This method creates a child span with proper parent-child relationships for tracking
-    /// individual stages of the processing pipeline (e.g., deserialization, execution, serialization).
-    ///
-    /// # Arguments
-    /// * `stage_name` - Name of the pipeline stage (e.g., "deserialization", "sql_execution", "serialization")
-    /// * `parent_context` - Optional parent span context (typically from a BatchSpan)
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// let mut batch_span = telemetry.start_batch_span("job", 123, None, Vec::new());
-    /// let mut deser_span = telemetry.start_pipeline_stage_span(
-    ///     "deserialization",
-    ///     batch_span.span_context()
-    /// );
-    /// // ... perform deserialization
-    /// deser_span.set_stage_attributes("deserialization", 1000, 15);
-    /// deser_span.set_success();
-    /// ```
-    pub fn start_pipeline_stage_span(
-        &self,
-        stage_name: &str,
-        parent_context: Option<opentelemetry::trace::SpanContext>,
-    ) -> PipelineStageSpan {
-        if !self.active {
-            return PipelineStageSpan::new_inactive();
-        }
-
-        let tracer = global::tracer(self.config.service_name.clone());
-
-        // Build attributes for the pipeline stage
-        let attributes = vec![KeyValue::new(
-            "velostream.pipeline.stage",
-            stage_name.to_string(),
-        )];
-
-        // Create span as child of parent if parent_context provided
-        let span = if let Some(parent_ctx) = parent_context {
-            use opentelemetry::trace::{TraceContextExt, Tracer as _};
-
-            log::debug!(
-                "🔗 Starting pipeline stage '{}' as child of parent trace: {}",
-                stage_name,
-                parent_ctx.trace_id()
-            );
-
-            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
-
             tracer
-                .span_builder(format!("pipeline:{}", stage_name))
-                .with_kind(SpanKind::Internal) // Internal span for processing stages
+                .span_builder(format!("process:{}", job_name))
+                .with_kind(SpanKind::Consumer)
                 .with_attributes(attributes)
                 .start_with_context(&tracer, &parent_cx)
         } else {
-            log::debug!(
-                "🆕 Starting pipeline stage '{}' (no parent context)",
-                stage_name
-            );
-
             tracer
-                .span_builder(format!("pipeline:{}", stage_name))
+                .span_builder(format!("process:{}", job_name))
                 .with_kind(SpanKind::Internal)
                 .with_attributes(attributes)
                 .start(&tracer)
         };
 
-        log::debug!("🔍 Started pipeline stage span: {}", stage_name);
-
-        PipelineStageSpan::new_active(span)
-    }
-
-    /// Create a new trace span for SQL query execution
-    pub fn start_sql_query_span(
-        &self,
-        job_name: &str,
-        query: &str,
-        source: &str,
-        parent_context: Option<opentelemetry::trace::SpanContext>,
-    ) -> QuerySpan {
-        if !self.active {
-            return QuerySpan::new_inactive();
-        }
-
-        let operation_name = Self::extract_operation_name(query);
-        let tracer = global::tracer(self.config.service_name.clone());
-
-        let span_name = format!("sql_query:{}", operation_name);
-
-        // Build attributes with deployment context
-        let mut attributes = vec![
-            KeyValue::new("job.name", job_name.to_string()),
-            KeyValue::new("db.system", "velostream"),
-            KeyValue::new("db.operation", operation_name.to_string()),
-            KeyValue::new("db.statement", query.chars().take(200).collect::<String>()),
-            KeyValue::new("source", source.to_string()),
-        ];
-
-        // Add deployment context attributes if set
-        if let Some(node_id) = &self.deployment_node_id {
-            attributes.push(KeyValue::new(
-                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
-                node_id.clone(),
-            ));
-        }
-        if let Some(node_name) = &self.deployment_node_name {
-            attributes.push(KeyValue::new(
-                opentelemetry_semantic_conventions::resource::HOST_NAME,
-                node_name.clone(),
-            ));
-        }
-        if let Some(region) = &self.deployment_region {
-            attributes.push(KeyValue::new(
-                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
-                region.clone(),
-            ));
-        }
-
-        // Create child span under parent context for proper span hierarchy
-        let span = if let Some(parent_ctx) = parent_context {
-            if parent_ctx.is_valid() {
-                use opentelemetry::trace::{TraceContextExt, Tracer as _};
-                log::debug!(
-                    "🔗 Creating SQL query child span under parent trace: {}",
-                    parent_ctx.trace_id()
-                );
-                let parent_cx =
-                    opentelemetry::Context::current().with_remote_span_context(parent_ctx);
-                tracer
-                    .span_builder(span_name)
-                    .with_kind(SpanKind::Internal)
-                    .with_attributes(attributes)
-                    .start_with_context(&tracer, &parent_cx)
-            } else {
-                tracer
-                    .span_builder(span_name)
-                    .with_kind(SpanKind::Internal)
-                    .with_attributes(attributes)
-                    .start(&tracer)
-            }
-        } else {
-            tracer
-                .span_builder(span_name)
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start(&tracer)
-        };
-
-        log::debug!(
-            "🔍 Started SQL query span: {} from source: {} (child of parent, exporting to Tempo)",
-            operation_name,
-            source
-        );
-
-        QuerySpan::new_active(span)
+        RecordSpan::new_active(span)
     }
 
     /// Create a new trace span for streaming operations
@@ -951,39 +694,6 @@ impl TelemetryProvider {
         StreamingSpan::new_active(span)
     }
 
-    /// Extract operation name from SQL query for span naming
-    ///
-    /// For streaming queries like `CREATE STREAM ... AS SELECT ...`, extracts the
-    /// inner operation ("select") rather than the outer DDL wrapper ("create"),
-    /// since the SELECT is the meaningful operation for observability.
-    fn extract_operation_name(query: &str) -> &str {
-        let upper = query.trim_start().to_uppercase();
-        if upper.starts_with("SELECT") {
-            "select"
-        } else if upper.starts_with("CREATE") {
-            // For CREATE STREAM ... AS SELECT, the meaningful operation is the inner SELECT
-            // Handle various whitespace patterns between AS and SELECT
-            if let Some(as_pos) = upper.find(" AS ") {
-                let after_as = upper[as_pos + 4..].trim_start();
-                if after_as.starts_with("SELECT") {
-                    "select"
-                } else {
-                    "create"
-                }
-            } else {
-                "create"
-            }
-        } else if upper.starts_with("INSERT") {
-            "insert"
-        } else if upper.starts_with("UPDATE") {
-            "update"
-        } else if upper.starts_with("DELETE") {
-            "delete"
-        } else {
-            "unknown"
-        }
-    }
-
     /// Get the current trace ID if available
     pub fn current_trace_id(&self) -> Option<String> {
         if self.active {
@@ -1037,53 +747,43 @@ impl TelemetryProvider {
     }
 }
 
-/// SQL query execution span wrapper
-pub struct QuerySpan {
+/// Per-record processing span for head-based sampling.
+///
+/// Lightweight wrapper around a single span that tracks the processing of one
+/// input record. Created only for sampled records (via `should_sample_record()`).
+///
+/// On drop, the underlying OpenTelemetry span ends automatically.
+pub struct RecordSpan {
     base: BaseSpan,
 }
 
-impl QuerySpan {
+impl RecordSpan {
     fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
         Self {
             base: BaseSpan::new_active(span),
         }
     }
 
-    fn new_inactive() -> Self {
-        Self {
-            base: BaseSpan::new_inactive(),
-        }
+    /// Get the span context for injecting into output records.
+    pub fn span_context(&self) -> Option<opentelemetry::trace::SpanContext> {
+        self.base.span().map(|span| span.span_context().clone())
     }
 
-    /// Set pre-computed query metadata as span attributes for streaming intelligence
-    pub fn set_query_metadata(&mut self, metadata: &QuerySpanMetadata) {
-        self.base.set_query_metadata(metadata);
-    }
-
-    /// Add execution time to the span
-    pub fn set_execution_time(&mut self, duration_ms: u64) {
+    /// Track how many output records this input produced.
+    pub fn set_output_count(&mut self, count: usize) {
         if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("execution_time_ms", duration_ms as i64));
-            log::trace!("🔍 SQL span execution time: {}ms", duration_ms);
+            span.set_attribute(KeyValue::new("record.output_count", count as i64));
         }
     }
 
-    /// Add record count to the span
-    pub fn set_record_count(&mut self, count: u64) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("record_count", count as i64));
-            log::trace!("🔍 SQL span processed {} records", count);
-        }
-    }
-
-    /// Mark the query as successful
-    pub fn set_success(&mut self) {
-        self.base.set_success();
-    }
-
-    /// Mark the query as failed with error information
+    /// Mark the record processing as failed.
     pub fn set_error(&mut self, error: &str) {
         self.base.set_error(error);
+    }
+
+    /// Mark the record processing as successful.
+    pub fn set_success(&mut self) {
+        self.base.set_success();
     }
 }
 
@@ -1150,440 +850,9 @@ impl StreamingSpan {
     }
 }
 
-/// Batch processing span wrapper (parent span for all operations in a batch)
-///
-/// Child spans (deserialization, SQL processing, serialization) are created as true
-/// parent-child relationships using `start_with_context()`. The batch span context
-/// is extracted via `span_context()` and passed to child span creation methods.
-pub struct BatchSpan {
-    base: BaseSpan,
-}
-
-impl BatchSpan {
-    fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
-        Self {
-            base: BaseSpan::new_active(span),
-        }
-    }
-
-    fn new_inactive() -> Self {
-        Self {
-            base: BaseSpan::new_inactive(),
-        }
-    }
-
-    /// Add total records processed to the span
-    pub fn set_total_records(&mut self, count: u64) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("total_records", count as i64));
-            log::trace!("🔍 Batch span processed {} total records", count);
-        }
-    }
-
-    /// Add batch duration to the span
-    pub fn set_batch_duration(&mut self, duration_ms: u64) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("batch_duration_ms", duration_ms as i64));
-            log::trace!("🔍 Batch span duration: {}ms", duration_ms);
-        }
-    }
-
-    /// Mark the batch as successful
-    pub fn set_success(&mut self) {
-        self.base.set_success();
-    }
-
-    /// Mark the batch as failed with error information
-    pub fn set_error(&mut self, error: &str) {
-        self.base.set_error(error);
-    }
-
-    /// Set pre-computed query metadata as span attributes for streaming intelligence
-    pub fn set_query_metadata(&mut self, metadata: &QuerySpanMetadata) {
-        self.base.set_query_metadata(metadata);
-    }
-
-    /// Set input Kafka topic on the span
-    pub fn set_input_topic(&mut self, topic: &str) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("kafka.input_topic", topic.to_string()));
-        }
-    }
-
-    /// Set input Kafka partition on the span
-    pub fn set_input_partition(&mut self, partition: i32) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("kafka.input_partition", partition as i64));
-        }
-    }
-
-    /// Set Kafka message key on the span
-    pub fn set_message_key(&mut self, key: &str) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("kafka.message_key", key.to_string()));
-        }
-    }
-
-    /// Set OpenTelemetry messaging semantic conventions for Kafka operations
-    ///
-    /// Note: messaging.system and messaging.operation are already set during
-    /// batch span creation in start_batch_span(). This method adds the
-    /// Kafka-specific context attributes (destination, partition, offset, etc.).
-    pub fn set_messaging_attributes(
-        &mut self,
-        topic: &str,
-        partition: i32,
-        offset: i64,
-        consumer_group: Option<&str>,
-        message_key: Option<&str>,
-    ) {
-        if let Some(span) = self.base.span_mut() {
-            // Kafka-specific messaging semantic conventions
-            // (messaging.system and messaging.operation already set in start_batch_span)
-            span.set_attribute(KeyValue::new(
-                "messaging.destination.name",
-                topic.to_string(),
-            ));
-            span.set_attribute(KeyValue::new("messaging.kafka.partition", partition as i64));
-            span.set_attribute(KeyValue::new("messaging.kafka.offset", offset));
-
-            if let Some(group) = consumer_group {
-                span.set_attribute(KeyValue::new(
-                    "messaging.kafka.consumer.group",
-                    group.to_string(),
-                ));
-            }
-
-            if let Some(key) = message_key {
-                span.set_attribute(KeyValue::new(
-                    "messaging.kafka.message.key",
-                    key.to_string(),
-                ));
-            }
-        }
-    }
-
-    /// Set application-specific attributes (velostream namespace)
-    pub fn set_application_attributes(
-        &mut self,
-        job_name: &str,
-        app_name: Option<&str>,
-        app_version: Option<&str>,
-        job_mode: Option<&str>,
-    ) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("velostream.job_name", job_name.to_string()));
-
-            if let Some(name) = app_name {
-                span.set_attribute(KeyValue::new("velostream.app_name", name.to_string()));
-            }
-
-            if let Some(version) = app_version {
-                span.set_attribute(KeyValue::new("velostream.app_version", version.to_string()));
-            }
-
-            if let Some(mode) = job_mode {
-                span.set_attribute(KeyValue::new("velostream.job_mode", mode.to_string()));
-            }
-        }
-    }
-
-    /// Set performance timing breakdown (in milliseconds)
-    pub fn set_performance_timings(
-        &mut self,
-        deserialization_ms: u64,
-        execution_ms: u64,
-        serialization_ms: u64,
-    ) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new(
-                "velostream.timing.deserialization_ms",
-                deserialization_ms as i64,
-            ));
-            span.set_attribute(KeyValue::new(
-                "velostream.timing.execution_ms",
-                execution_ms as i64,
-            ));
-            span.set_attribute(KeyValue::new(
-                "velostream.timing.serialization_ms",
-                serialization_ms as i64,
-            ));
-
-            // Calculate percentage breakdown
-            let total = deserialization_ms + execution_ms + serialization_ms;
-            if total > 0 {
-                let deser_pct = (deserialization_ms as f64 / total as f64) * 100.0;
-                let exec_pct = (execution_ms as f64 / total as f64) * 100.0;
-                let ser_pct = (serialization_ms as f64 / total as f64) * 100.0;
-
-                span.set_attribute(KeyValue::new(
-                    "velostream.timing.deserialization_pct",
-                    deser_pct,
-                ));
-                span.set_attribute(KeyValue::new("velostream.timing.execution_pct", exec_pct));
-                span.set_attribute(KeyValue::new(
-                    "velostream.timing.serialization_pct",
-                    ser_pct,
-                ));
-            }
-        }
-    }
-
-    /// Set throughput metrics
-    pub fn set_throughput_metrics(
-        &mut self,
-        records_per_second: f64,
-        bytes_per_second: Option<f64>,
-    ) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new(
-                "velostream.throughput.records_per_sec",
-                records_per_second,
-            ));
-
-            if let Some(bps) = bytes_per_second {
-                span.set_attribute(KeyValue::new("velostream.throughput.bytes_per_sec", bps));
-            }
-        }
-    }
-
-    /// Set error rate metrics
-    pub fn set_error_rate(&mut self, errors: u64, total: u64) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("velostream.errors.count", errors as i64));
-
-            if total > 0 {
-                let error_rate = (errors as f64 / total as f64) * 100.0;
-                span.set_attribute(KeyValue::new("velostream.errors.rate_pct", error_rate));
-            }
-        }
-    }
-
-    /// Set window-specific metrics (for windowed queries)
-    pub fn set_window_metrics(
-        &mut self,
-        window_start_ms: i64,
-        window_end_ms: i64,
-        records_in_window: u64,
-        windows_emitted: u64,
-    ) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("velostream.window.start_ms", window_start_ms));
-            span.set_attribute(KeyValue::new("velostream.window.end_ms", window_end_ms));
-            span.set_attribute(KeyValue::new(
-                "velostream.window.records_in_window",
-                records_in_window as i64,
-            ));
-            span.set_attribute(KeyValue::new(
-                "velostream.window.windows_emitted",
-                windows_emitted as i64,
-            ));
-        }
-    }
-
-    /// Set join-specific metrics
-    pub fn set_join_metrics(
-        &mut self,
-        left_records: u64,
-        right_records: u64,
-        joined_records: u64,
-        join_hit_rate: f64,
-    ) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new(
-                "velostream.join.left_records",
-                left_records as i64,
-            ));
-            span.set_attribute(KeyValue::new(
-                "velostream.join.right_records",
-                right_records as i64,
-            ));
-            span.set_attribute(KeyValue::new(
-                "velostream.join.joined_records",
-                joined_records as i64,
-            ));
-            span.set_attribute(KeyValue::new("velostream.join.hit_rate", join_hit_rate));
-        }
-    }
-
-    /// Get the span context for creating child spans with parent relationship
-    pub fn span_context(&self) -> Option<opentelemetry::trace::SpanContext> {
-        self.base.span().map(|span| span.span_context().clone())
-    }
-}
-
-/// Pipeline stage span for tracking individual processing stages with parent-child relationships
-///
-/// This span type is used to create child spans that track specific stages of the processing
-/// pipeline (e.g., deserialization, execution, serialization, kafka produce).
-///
-/// # Example
-/// ```rust,ignore
-/// // Create parent batch span
-/// let mut batch_span = telemetry.start_batch_span("job_name", 123, None, Vec::new());
-///
-/// // Create child span for deserialization stage
-/// let mut deser_span = telemetry.start_pipeline_stage_span(
-///     "deserialization",
-///     batch_span.span_context()
-/// );
-/// // ... perform deserialization
-/// deser_span.set_stage_attributes("deserialization", 1000, 15);
-/// deser_span.set_success();
-/// ```
-pub struct PipelineStageSpan {
-    base: BaseSpan,
-}
-
-impl PipelineStageSpan {
-    fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
-        Self {
-            base: BaseSpan::new_active(span),
-        }
-    }
-
-    fn new_inactive() -> Self {
-        Self {
-            base: BaseSpan::new_inactive(),
-        }
-    }
-
-    /// Set attributes specific to a pipeline processing stage
-    ///
-    /// # Arguments
-    /// * `stage_name` - Name of the pipeline stage (e.g., "deserialization", "execution", "serialization")
-    /// * `record_count` - Number of records processed in this stage
-    /// * `duration_ms` - Duration of this stage in milliseconds
-    pub fn set_stage_attributes(
-        &mut self,
-        stage_name: &str,
-        record_count: usize,
-        duration_ms: u64,
-    ) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new(
-                "velostream.pipeline.stage",
-                stage_name.to_string(),
-            ));
-            span.set_attribute(KeyValue::new(
-                "velostream.pipeline.records",
-                record_count as i64,
-            ));
-            span.set_attribute(KeyValue::new(
-                "velostream.pipeline.duration_ms",
-                duration_ms as i64,
-            ));
-
-            // Calculate throughput for this stage
-            if duration_ms > 0 {
-                let throughput = (record_count as f64) / (duration_ms as f64 / 1000.0);
-                span.set_attribute(KeyValue::new(
-                    "velostream.pipeline.throughput_records_per_sec",
-                    throughput,
-                ));
-            }
-        }
-    }
-
-    /// Set additional timing breakdown for the stage
-    ///
-    /// # Arguments
-    /// * `cpu_ms` - CPU time spent in this stage
-    /// * `wait_ms` - Wait/idle time in this stage
-    pub fn set_timing_breakdown(&mut self, cpu_ms: u64, wait_ms: u64) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new("velostream.pipeline.cpu_ms", cpu_ms as i64));
-            span.set_attribute(KeyValue::new("velostream.pipeline.wait_ms", wait_ms as i64));
-        }
-    }
-
-    /// Set bytes processed in this stage (for serialization/deserialization stages)
-    pub fn set_bytes_processed(&mut self, bytes: u64) {
-        if let Some(span) = self.base.span_mut() {
-            span.set_attribute(KeyValue::new(
-                "velostream.pipeline.bytes_processed",
-                bytes as i64,
-            ));
-        }
-    }
-
-    /// Mark the stage as successfully completed
-    pub fn set_success(&mut self) {
-        self.base.set_success();
-    }
-
-    /// Mark the stage as failed with an error message
-    pub fn set_error(&mut self, error: &str) {
-        self.base.set_error(error);
-    }
-
-    /// Get the span context for creating nested child spans
-    pub fn span_context(&self) -> Option<opentelemetry::trace::SpanContext> {
-        self.base.span().map(|span| span.span_context().clone())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_extract_operation_name() {
-        // Basic operation types
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("SELECT * FROM table"),
-            "select"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("  select id from users"),
-            "select"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("INSERT INTO table"),
-            "insert"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("UPDATE table SET"),
-            "update"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("DELETE FROM table"),
-            "delete"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("UNKNOWN QUERY"),
-            "unknown"
-        );
-
-        // Plain CREATE (no inner SELECT) → "create"
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("CREATE STREAM test"),
-            "create"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("CREATE TABLE foo (id INT)"),
-            "create"
-        );
-
-        // CREATE STREAM ... AS SELECT → "select" (the meaningful operation)
-        assert_eq!(
-            TelemetryProvider::extract_operation_name(
-                "CREATE STREAM market_data_ts AS SELECT * FROM in_market_data_stream"
-            ),
-            "select"
-        );
-        assert_eq!(
-            TelemetryProvider::extract_operation_name(
-                "create stream tick_buckets as select symbol, count(*) from market_data_ts group by symbol"
-            ),
-            "select"
-        );
-        // Extra whitespace between AS and SELECT
-        assert_eq!(
-            TelemetryProvider::extract_operation_name("CREATE STREAM foo AS   SELECT id FROM bar"),
-            "select"
-        );
-    }
 
     #[tokio::test]
     async fn test_telemetry_provider_creation() {

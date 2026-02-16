@@ -1,32 +1,31 @@
-//! Comprehensive functional tests for distributed tracing span structure
+//! Comprehensive functional tests for per-record distributed tracing span structure
 //!
-//! These tests exercise the complete ObservabilityHelper pipeline with full assertions
-//! on every field of every span, ensuring any regression in span hierarchy, attributes,
-//! status, kind, or trace context injection is immediately caught.
+//! These tests exercise the complete ObservabilityHelper per-record pipeline with full
+//! assertions on every field of every span, ensuring any regression in span hierarchy,
+//! attributes, status, kind, or trace context injection is immediately caught.
 //!
-//! What this covers that existing tests don't:
-//! - Span attributes (key-value pairs like `job.name`, `record_count`, etc.)
+//! What this covers:
+//! - RecordSpan attributes (key-value pairs like `job.name`, `record.output_count`)
 //! - Span status (`Status::Ok` vs `Status::Error { description }`)
-//! - Span kind (`SpanKind::Consumer` vs `SpanKind::Internal`)
+//! - Span kind (`SpanKind::Consumer` with upstream vs `SpanKind::Internal` without)
 //! - Span timing (`start_time < end_time`)
 //! - Error attribute on failure spans
 //! - Trace context injection into output records (traceparent format validation)
-//! - Complete multi-hop pipeline with inner phase spans at each hop
+//! - Multi-hop pipeline with per-record spans at each hop
+//! - Concurrent record spans maintain isolation
 
 use opentelemetry::trace::{SpanId, SpanKind, Status};
 use opentelemetry_sdk::export::trace::SpanData;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
-use velostream::velostream::server::processors::common::BatchProcessingResultWithOutput;
+use velostream::velostream::observability::trace_propagation;
 use velostream::velostream::server::processors::observability_helper::ObservabilityHelper;
 
 // Re-use shared test helpers
 use crate::unit::observability_test_helpers::{
     UPSTREAM_TRACEPARENT, assert_traceparent_injected, create_test_observability_manager,
-    create_test_record, create_test_record_with_headers, create_test_record_with_traceparent,
-    extract_span_id, extract_trace_id,
+    create_test_record, create_test_record_with_traceparent, extract_span_id, extract_trace_id,
 };
 
 // ---------------------------------------------------------------------------
@@ -62,36 +61,6 @@ fn assert_attr_eq(span: &SpanData, key: &str, expected: &str) {
     );
 }
 
-/// Create a success BatchProcessingResultWithOutput for testing
-fn make_success_batch_result(
-    records_processed: usize,
-    output_records: Vec<Arc<velostream::velostream::sql::execution::types::StreamRecord>>,
-) -> BatchProcessingResultWithOutput {
-    BatchProcessingResultWithOutput {
-        records_processed,
-        records_failed: 0,
-        processing_time: std::time::Duration::from_millis(10),
-        batch_size: records_processed,
-        error_details: vec![],
-        output_records,
-    }
-}
-
-/// Create a failure BatchProcessingResultWithOutput for testing
-fn make_failure_batch_result(
-    records_processed: usize,
-    records_failed: usize,
-) -> BatchProcessingResultWithOutput {
-    BatchProcessingResultWithOutput {
-        records_processed,
-        records_failed,
-        processing_time: std::time::Duration::from_millis(10),
-        batch_size: records_processed,
-        error_details: vec![],
-        output_records: vec![],
-    }
-}
-
 /// Collect spans from observability manager, waiting for async processing
 async fn collect_spans(
     obs: &velostream::velostream::observability::SharedObservabilityManager,
@@ -118,14 +87,6 @@ fn find_span<'a>(spans: &'a [SpanData], name_contains: &str) -> &'a SpanData {
         })
 }
 
-/// Find all spans matching a name substring
-fn find_spans<'a>(spans: &'a [SpanData], name_contains: &str) -> Vec<&'a SpanData> {
-    spans
-        .iter()
-        .filter(|s| s.name.contains(name_contains))
-        .collect()
-}
-
 /// Assert that a span's status is Ok
 fn assert_status_ok(span: &SpanData) {
     match &span.status {
@@ -135,251 +96,127 @@ fn assert_status_ok(span: &SpanData) {
 }
 
 // ===========================================================================
-// Test 1: Single-hop full span tree with upstream context
+// Test 1: Single RecordSpan with upstream context -- full attribute validation
 // ===========================================================================
 
 #[tokio::test]
 #[serial]
-async fn test_single_hop_full_span_tree_structure() {
-    let obs = create_test_observability_manager("span-structure-single-hop").await;
+async fn test_record_span_with_upstream_full_attributes() {
+    let obs = create_test_observability_manager("span-structure-record").await;
     let observability = Some(obs.clone());
     let job_name = "test_pipeline";
 
-    // Create input records with upstream traceparent
-    let input_records = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
+    // Create input record with upstream traceparent
+    let input_record = create_test_record_with_traceparent(UPSTREAM_TRACEPARENT);
 
-    // --- Step 1: Start batch span (extracts upstream context from headers) ---
-    let mut batch_span =
-        ObservabilityHelper::start_batch_span(&observability, job_name, 1, &input_records);
-    let batch_start = Instant::now();
+    // Extract upstream context
+    let upstream_ctx = trace_propagation::extract_trace_context(&input_record.headers);
+    assert!(upstream_ctx.is_some(), "Should extract upstream context");
 
-    // Capture batch span context for later assertions
-    let batch_ctx = batch_span
+    // Start record span with upstream context
+    let mut record_span =
+        ObservabilityHelper::start_record_span(&observability, job_name, upstream_ctx.as_ref());
+    assert!(record_span.is_some(), "Record span should be created");
+
+    let span_ctx = record_span
         .as_ref()
-        .expect("batch span should be created")
+        .unwrap()
         .span_context()
-        .expect("batch span should have valid context");
-    let batch_trace_id = batch_ctx.trace_id();
-    let batch_span_id = batch_ctx.span_id();
+        .expect("Record span should have valid context");
+    let record_trace_id = span_ctx.trace_id();
+    let record_span_id = span_ctx.span_id();
 
-    // --- Step 2: Record deserialization ---
-    ObservabilityHelper::record_deserialization(
-        &observability,
-        job_name,
-        &batch_span,
-        1,                            // record_count
-        5,                            // duration_ms
-        Some(("input-topic", 0, 42)), // Kafka metadata
+    // Inject into output record
+    let mut output_record = Arc::new(create_test_record());
+    ObservabilityHelper::inject_record_trace_context(
+        record_span.as_ref().unwrap(),
+        &mut output_record,
     );
 
-    // --- Step 3: Record SQL processing (success) ---
-    let mut output_records: Vec<Arc<_>> = vec![Arc::new(create_test_record())];
-    let batch_result = make_success_batch_result(1, output_records.clone());
-    ObservabilityHelper::record_sql_processing(
-        &observability,
-        job_name,
-        &batch_span,
-        &batch_result,
-        10, // duration_ms
-        None,
-        "SELECT * FROM test",
-    );
+    // Mark success with output count
+    record_span.as_mut().unwrap().set_output_count(1);
+    record_span.as_mut().unwrap().set_success();
+    drop(record_span);
 
-    // --- Step 4: Inject trace context into output records ---
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span,
-        &mut output_records,
-        job_name,
-    );
-
-    // --- Step 5: Record serialization success ---
-    ObservabilityHelper::record_serialization_success(
-        &observability,
-        job_name,
-        &batch_span,
-        1,                              // record_count
-        3,                              // duration_ms
-        Some(("output-topic", 0, 100)), // Kafka metadata
-    );
-
-    // --- Step 6: Complete batch span ---
-    ObservabilityHelper::complete_batch_span_success(&mut batch_span, &batch_start, 1);
-    drop(batch_span);
-
-    // === COLLECT AND VERIFY SPANS ===
+    // === COLLECT AND VERIFY SPAN ===
     let spans = collect_spans(&obs).await;
 
     assert_eq!(
         spans.len(),
-        4,
-        "Expected 4 spans (batch + deser + sql + ser), got {}. Spans: {:?}",
+        1,
+        "Expected 1 span (per-record), got {}. Spans: {:?}",
         spans.len(),
         spans.iter().map(|s| s.name.to_string()).collect::<Vec<_>>()
     );
 
-    // --- Batch span assertions ---
-    let batch = find_span(&spans, "batch:");
+    let span = &spans[0];
 
     // Trace identity: should continue upstream trace
     let upstream_trace_id = extract_trace_id(UPSTREAM_TRACEPARENT);
     let upstream_span_id = extract_span_id(UPSTREAM_TRACEPARENT);
     assert_eq!(
-        batch.span_context.trace_id().to_string(),
+        span.span_context.trace_id().to_string(),
         upstream_trace_id,
-        "Batch span trace_id should match upstream"
+        "Record span trace_id should match upstream"
     );
     assert!(
-        batch.span_context.span_id() != SpanId::INVALID,
-        "Batch span should have a valid span_id"
+        span.span_context.span_id() != SpanId::INVALID,
+        "Record span should have a valid span_id"
     );
     assert_eq!(
-        batch.parent_span_id.to_string(),
+        span.parent_span_id.to_string(),
         upstream_span_id,
-        "Batch span parent_span_id should match upstream span_id"
+        "Record span parent_span_id should match upstream span_id"
     );
 
     // Span kind: Consumer when upstream context exists
     assert_eq!(
-        batch.span_kind,
+        span.span_kind,
         SpanKind::Consumer,
-        "Batch span with upstream context should be SpanKind::Consumer"
+        "Record span with upstream context should be SpanKind::Consumer"
     );
 
     // Status
-    assert_status_ok(batch);
+    assert_status_ok(span);
 
-    // Name
+    // Name: "process:{job_name}"
     assert!(
-        batch.name.contains(job_name),
-        "Batch span name should contain job name"
+        span.name.contains(job_name),
+        "Span name should contain job name"
+    );
+    assert!(
+        span.name.starts_with("process:"),
+        "Span name should start with 'process:'"
     );
 
     // Timing
     assert!(
-        batch.start_time <= batch.end_time,
-        "Batch span start_time should be <= end_time"
+        span.start_time <= span.end_time,
+        "Span start_time should be <= end_time"
     );
 
     // Attributes
-    assert_attr_eq(batch, "job.name", job_name);
-    assert_attr_exists(batch, "batch.id");
-    assert_attr_eq(batch, "messaging.system", "kafka");
-    assert_attr_eq(batch, "messaging.operation", "process");
-    assert_attr_exists(batch, "total_records");
-    assert_attr_exists(batch, "batch_duration_ms");
-
-    // --- Deserialization span assertions ---
-    let deser = find_span(&spans, "streaming:deserialization");
-
-    assert_eq!(
-        deser.span_context.trace_id(),
-        batch_trace_id,
-        "Deser span should share batch trace_id"
-    );
-    assert_eq!(
-        deser.parent_span_id, batch_span_id,
-        "Deser span parent should be batch span"
-    );
-    assert_eq!(
-        deser.span_kind,
-        SpanKind::Internal,
-        "Deser span should be SpanKind::Internal"
-    );
-    assert_status_ok(deser);
-    assert!(
-        deser.start_time <= deser.end_time,
-        "Deser span timing should be valid"
-    );
-
-    // Attributes
-    assert_attr_eq(deser, "job.name", job_name);
-    assert_attr_eq(deser, "operation", "deserialization");
-    assert_attr_exists(deser, "record_count");
-    assert_attr_exists(deser, "processing_time_ms");
-    assert_attr_eq(deser, "kafka.topic", "input-topic");
-    assert_attr_exists(deser, "kafka.partition");
-    assert_attr_exists(deser, "kafka.offset");
-
-    // --- SQL processing span assertions ---
-    let sql = find_span(&spans, "sql_query:");
-
-    assert_eq!(
-        sql.span_context.trace_id(),
-        batch_trace_id,
-        "SQL span should share batch trace_id"
-    );
-    assert_eq!(
-        sql.parent_span_id, batch_span_id,
-        "SQL span parent should be batch span"
-    );
-    assert_eq!(
-        sql.span_kind,
-        SpanKind::Internal,
-        "SQL span should be SpanKind::Internal"
-    );
-    assert_status_ok(sql);
-    assert!(
-        sql.start_time <= sql.end_time,
-        "SQL span timing should be valid"
-    );
-
-    // Attributes
-    assert_attr_eq(sql, "job.name", job_name);
-    assert_attr_eq(sql, "db.system", "velostream");
-    assert_attr_exists(sql, "db.operation");
-    assert_attr_eq(sql, "source", "stream_processor");
-    assert_attr_exists(sql, "execution_time_ms");
-    assert_attr_exists(sql, "record_count");
-
-    // --- Serialization span assertions ---
-    let ser = find_span(&spans, "streaming:serialization");
-
-    assert_eq!(
-        ser.span_context.trace_id(),
-        batch_trace_id,
-        "Ser span should share batch trace_id"
-    );
-    assert_eq!(
-        ser.parent_span_id, batch_span_id,
-        "Ser span parent should be batch span"
-    );
-    assert_eq!(
-        ser.span_kind,
-        SpanKind::Internal,
-        "Ser span should be SpanKind::Internal"
-    );
-    assert_status_ok(ser);
-    assert!(
-        ser.start_time <= ser.end_time,
-        "Ser span timing should be valid"
-    );
-
-    // Attributes
-    assert_attr_eq(ser, "job.name", job_name);
-    assert_attr_eq(ser, "operation", "serialization");
-    assert_attr_exists(ser, "record_count");
-    assert_attr_exists(ser, "processing_time_ms");
-    assert_attr_eq(ser, "kafka.topic", "output-topic");
-    assert_attr_exists(ser, "kafka.partition");
-    assert_attr_exists(ser, "kafka.offset");
+    assert_attr_eq(span, "job.name", job_name);
+    assert_attr_eq(span, "messaging.system", "kafka");
+    assert_attr_exists(span, "record.output_count");
 
     // --- Output record trace context injection assertions ---
-    let output_record = output_records[0].as_ref();
-    assert_traceparent_injected(output_record, "Output record");
+    let output = output_record.as_ref();
+    assert_traceparent_injected(output, "Output record");
 
-    let injected_traceparent = output_record.headers.get("traceparent").unwrap();
+    let injected_traceparent = output.headers.get("traceparent").unwrap();
     let injected_trace_id = extract_trace_id(injected_traceparent);
     let injected_span_id = extract_span_id(injected_traceparent);
 
     assert_eq!(
         injected_trace_id,
-        batch_trace_id.to_string(),
-        "Injected traceparent trace_id should match batch span's trace_id"
+        record_trace_id.to_string(),
+        "Injected traceparent trace_id should match record span's trace_id"
     );
     assert_eq!(
         injected_span_id,
-        batch_span_id.to_string(),
-        "Injected traceparent span_id should match batch span's span_id"
+        record_span_id.to_string(),
+        "Injected traceparent span_id should match record span's span_id"
     );
 
     // Verify traceparent format: 00-{trace_id}-{span_id}-01
@@ -394,166 +231,76 @@ async fn test_single_hop_full_span_tree_structure() {
 }
 
 // ===========================================================================
-// Test 2: Single-hop error path span structure
+// Test 2: RecordSpan error path
 // ===========================================================================
 
-/// Note on OTel status behavior:
-///
-/// All span types in telemetry.rs call `span.set_status(Status::Ok)` at creation time.
-/// Per the OpenTelemetry specification, once a span status is set to `Ok`, subsequent
-/// `set_status` calls are ignored. This means `set_error()` will set the `error`
-/// attribute on the span but cannot override the `Ok` status.
-///
-/// This test verifies:
-/// - Error attributes ARE set on failure spans (the `error` key-value pair)
-/// - Root span hierarchy and kind are correct
-/// - All spans share trace_id and correct parent relationships
 #[tokio::test]
 #[serial]
-async fn test_single_hop_error_path_span_structure() {
+async fn test_record_span_error_path_structure() {
     let obs = create_test_observability_manager("span-structure-error-path").await;
     let observability = Some(obs.clone());
     let job_name = "error_pipeline";
 
-    // Create records WITHOUT upstream traceparent (root span)
-    let input_records = vec![create_test_record()];
+    // Create record WITHOUT upstream traceparent (root span)
+    let mut record_span = ObservabilityHelper::start_record_span(&observability, job_name, None);
 
-    // --- Step 1: Start batch span (no upstream context -> root span) ---
-    let mut batch_span =
-        ObservabilityHelper::start_batch_span(&observability, job_name, 1, &input_records);
-    let batch_start = Instant::now();
-
-    let batch_ctx = batch_span
+    let span_ctx = record_span
         .as_ref()
         .unwrap()
         .span_context()
-        .expect("batch should have context");
-    let batch_trace_id = batch_ctx.trace_id();
-    let batch_span_id = batch_ctx.span_id();
+        .expect("Should have context");
+    let _record_trace_id = span_ctx.trace_id();
 
-    // --- Step 2: Deserialization success ---
-    ObservabilityHelper::record_deserialization(&observability, job_name, &batch_span, 1, 5, None);
-
-    // --- Step 3: SQL processing with failures ---
-    let batch_result = make_failure_batch_result(10, 3);
-    ObservabilityHelper::record_sql_processing(
-        &observability,
-        job_name,
-        &batch_span,
-        &batch_result,
-        15,
-        None,
-        "SELECT * FROM test",
-    );
-
-    // --- Step 4: Serialization failure ---
-    ObservabilityHelper::record_serialization_failure(
-        &observability,
-        job_name,
-        &batch_span,
-        0,
-        2,
-        "Serialization codec error: invalid schema",
-        None,
-    );
-
-    // --- Step 5: Complete batch span with error ---
-    ObservabilityHelper::complete_batch_span_error(&mut batch_span, &batch_start, 10, 3);
-    drop(batch_span);
+    // Mark as error
+    record_span
+        .as_mut()
+        .unwrap()
+        .set_error("Processing failed: invalid schema");
+    drop(record_span);
 
     // === COLLECT AND VERIFY SPANS ===
     let spans = collect_spans(&obs).await;
 
-    assert_eq!(
-        spans.len(),
-        4,
-        "Expected 4 spans, got {}. Spans: {:?}",
-        spans.len(),
-        spans.iter().map(|s| s.name.to_string()).collect::<Vec<_>>()
-    );
+    assert_eq!(spans.len(), 1, "Expected 1 span, got {}", spans.len());
 
-    // --- Batch span: root, Internal kind ---
-    let batch = find_span(&spans, "batch:");
+    let span = &spans[0];
 
+    // Root span: no parent, Internal kind
     assert_eq!(
-        batch.parent_span_id,
+        span.parent_span_id,
         SpanId::INVALID,
-        "Batch span without upstream context should be root (INVALID parent)"
+        "Record span without upstream context should be root (INVALID parent)"
     );
     assert_eq!(
-        batch.span_kind,
+        span.span_kind,
         SpanKind::Internal,
-        "Batch span without upstream context should be SpanKind::Internal"
-    );
-    // Batch span has error attribute set (via set_error in complete_batch_span_error)
-    assert_attr_exists(batch, "error");
-
-    // All spans share same trace_id
-    for span in &spans {
-        assert_eq!(
-            span.span_context.trace_id(),
-            batch_trace_id,
-            "Span '{}' should share batch trace_id",
-            span.name
-        );
-    }
-
-    // All child spans parent to batch
-    let children: Vec<_> = spans
-        .iter()
-        .filter(|s| !s.name.contains("batch:"))
-        .collect();
-    for child in &children {
-        assert_eq!(
-            child.parent_span_id, batch_span_id,
-            "Child span '{}' should have batch as parent",
-            child.name
-        );
-    }
-
-    // --- SQL span: error attribute present (set via set_error for failed records) ---
-    let sql = find_span(&spans, "sql_query:");
-    assert_attr_exists(sql, "error");
-    // Verify the error message references the failure
-    let sql_error = find_attr(sql, "error").unwrap();
-    assert!(
-        sql_error.contains("records failed"),
-        "SQL span error attribute should mention 'records failed', got '{}'",
-        sql_error
+        "Record span without upstream context should be SpanKind::Internal"
     );
 
-    // --- Serialization span: error attribute present ---
-    let ser = find_span(&spans, "streaming:serialization");
-    assert_attr_exists(ser, "error");
-    let ser_error = find_attr(ser, "error").unwrap();
+    // Error attribute set
+    assert_attr_exists(span, "error");
+    let error_val = find_attr(span, "error").unwrap();
     assert!(
-        ser_error.contains("Serialization codec error"),
-        "Serialization span error attribute should contain the error message, got '{}'",
-        ser_error
-    );
-
-    // --- Deserialization span: no error attribute (was successful) ---
-    let deser = find_span(&spans, "streaming:deserialization");
-    assert!(
-        find_attr(deser, "error").is_none(),
-        "Deserialization span should NOT have error attribute (it was successful)"
+        error_val.contains("Processing failed"),
+        "Error attribute should contain the error message, got '{}'",
+        error_val
     );
 }
 
 // ===========================================================================
-// Test 3: Multi-hop full span tree with inner phases
+// Test 3: Multi-hop per-record span tree
 // ===========================================================================
 
 #[tokio::test]
 #[serial]
-async fn test_multi_hop_full_span_tree_with_inner_phases() {
+async fn test_multi_hop_per_record_span_tree() {
     let obs = create_test_observability_manager("span-structure-multi-hop").await;
     let observability = Some(obs.clone());
 
-    // Storage for per-hop batch span IDs and trace IDs
+    // Storage for per-hop results
     struct HopResult {
-        batch_trace_id: opentelemetry::trace::TraceId,
-        batch_span_id: opentelemetry::trace::SpanId,
+        record_trace_id: opentelemetry::trace::TraceId,
+        record_span_id: opentelemetry::trace::SpanId,
         output_headers: HashMap<String, String>,
     }
 
@@ -562,78 +309,44 @@ async fn test_multi_hop_full_span_tree_with_inner_phases() {
     for hop in 0..3u64 {
         let job_name = &format!("hop_{}", hop);
 
-        // Create input records:
-        // - Hop 0: no upstream (root trace)
-        // - Hop 1+: use output headers from previous hop
-        let input_records = if hop == 0 {
-            vec![create_test_record()]
+        // Extract upstream context from previous hop's output
+        let upstream_ctx = if hop == 0 {
+            None
         } else {
             let prev = &hop_results[(hop - 1) as usize];
-            vec![create_test_record_with_headers(prev.output_headers.clone())]
+            trace_propagation::extract_trace_context(&prev.output_headers)
         };
 
-        let mut batch_span =
-            ObservabilityHelper::start_batch_span(&observability, job_name, hop, &input_records);
-        let batch_start = Instant::now();
+        // Create per-record span
+        let mut record_span =
+            ObservabilityHelper::start_record_span(&observability, job_name, upstream_ctx.as_ref());
 
-        let batch_ctx = batch_span
+        let span_ctx = record_span
             .as_ref()
             .unwrap()
             .span_context()
-            .expect("batch should have context");
-        let batch_trace_id = batch_ctx.trace_id();
-        let batch_span_id = batch_ctx.span_id();
+            .expect("Should have context");
+        let record_trace_id = span_ctx.trace_id();
+        let record_span_id = span_ctx.span_id();
 
-        // Deserialization
-        ObservabilityHelper::record_deserialization(
-            &observability,
-            job_name,
-            &batch_span,
-            1,
-            5,
-            None,
+        // Inject trace context into output record
+        let mut output_record = Arc::new(create_test_record());
+        ObservabilityHelper::inject_record_trace_context(
+            record_span.as_ref().unwrap(),
+            &mut output_record,
         );
 
-        // SQL processing
-        let mut output_records: Vec<Arc<_>> = vec![Arc::new(create_test_record())];
-        let batch_result = make_success_batch_result(1, output_records.clone());
-        ObservabilityHelper::record_sql_processing(
-            &observability,
-            job_name,
-            &batch_span,
-            &batch_result,
-            10,
-            None,
-            "SELECT * FROM test",
-        );
-
-        // Inject trace context
-        ObservabilityHelper::inject_trace_context_into_records(
-            &batch_span,
-            &mut output_records,
-            job_name,
-        );
-
-        // Serialization
-        ObservabilityHelper::record_serialization_success(
-            &observability,
-            job_name,
-            &batch_span,
-            1,
-            3,
-            None,
-        );
-
-        // Complete batch
-        ObservabilityHelper::complete_batch_span_success(&mut batch_span, &batch_start, 1);
-        drop(batch_span);
+        // Complete span
+        record_span.as_mut().unwrap().set_output_count(1);
+        record_span.as_mut().unwrap().set_success();
+        drop(record_span);
 
         // Save headers from output for next hop
-        let output_headers = output_records[0].headers.clone();
+        let output_headers = output_record.headers.clone();
 
         hop_results.push(HopResult {
-            batch_trace_id,
-            batch_span_id,
+            record_trace_id,
+            record_span_id,
             output_headers,
         });
     }
@@ -641,17 +354,17 @@ async fn test_multi_hop_full_span_tree_with_inner_phases() {
     // === COLLECT AND VERIFY SPANS ===
     let spans = collect_spans(&obs).await;
 
-    // 3 hops x 4 spans each = 12 spans
+    // 3 hops x 1 span each = 3 spans
     assert_eq!(
         spans.len(),
-        12,
-        "Expected 12 spans (3 hops x 4), got {}. Spans: {:?}",
+        3,
+        "Expected 3 spans (1 per hop), got {}. Spans: {:?}",
         spans.len(),
         spans.iter().map(|s| s.name.to_string()).collect::<Vec<_>>()
     );
 
-    // All 12 spans should share the SAME trace_id (single distributed trace)
-    let expected_trace_id = hop_results[0].batch_trace_id;
+    // All 3 spans should share the SAME trace_id (single distributed trace)
+    let expected_trace_id = hop_results[0].record_trace_id;
     for span in &spans {
         assert_eq!(
             span.span_context.trace_id(),
@@ -661,85 +374,44 @@ async fn test_multi_hop_full_span_tree_with_inner_phases() {
         );
     }
 
-    // Verify hop-level batch span hierarchy
-    let batch_spans: Vec<_> = find_spans(&spans, "batch:");
-    assert_eq!(batch_spans.len(), 3, "Should have 3 batch spans");
+    // Find spans by name
+    let hop0_span = find_span(&spans, "hop_0");
+    let hop1_span = find_span(&spans, "hop_1");
+    let hop2_span = find_span(&spans, "hop_2");
 
-    // Hop 0 batch span: root (no parent)
-    let hop0_batch = batch_spans
-        .iter()
-        .find(|s| s.name.contains("hop_0"))
-        .expect("Should find hop_0 batch span");
+    // Hop 0: root (no parent)
     assert_eq!(
-        hop0_batch.parent_span_id,
+        hop0_span.parent_span_id,
         SpanId::INVALID,
-        "Hop 0 batch should be root span"
+        "Hop 0 should be root span"
     );
     assert_eq!(
-        hop0_batch.span_kind,
+        hop0_span.span_kind,
         SpanKind::Internal,
-        "Hop 0 batch (no upstream) should be Internal"
+        "Hop 0 (no upstream) should be Internal"
     );
 
-    // Hop 1 batch span: child of hop 0
-    let hop1_batch = batch_spans
-        .iter()
-        .find(|s| s.name.contains("hop_1"))
-        .expect("Should find hop_1 batch span");
+    // Hop 1: child of hop 0
     assert_eq!(
-        hop1_batch.parent_span_id, hop_results[0].batch_span_id,
-        "Hop 1 batch parent should be hop 0 batch span"
+        hop1_span.parent_span_id, hop_results[0].record_span_id,
+        "Hop 1 parent should be hop 0's span"
     );
     assert_eq!(
-        hop1_batch.span_kind,
+        hop1_span.span_kind,
         SpanKind::Consumer,
-        "Hop 1 batch (has upstream) should be Consumer"
+        "Hop 1 (has upstream) should be Consumer"
     );
 
-    // Hop 2 batch span: child of hop 1
-    let hop2_batch = batch_spans
-        .iter()
-        .find(|s| s.name.contains("hop_2"))
-        .expect("Should find hop_2 batch span");
+    // Hop 2: child of hop 1
     assert_eq!(
-        hop2_batch.parent_span_id, hop_results[1].batch_span_id,
-        "Hop 2 batch parent should be hop 1 batch span"
+        hop2_span.parent_span_id, hop_results[1].record_span_id,
+        "Hop 2 parent should be hop 1's span"
     );
     assert_eq!(
-        hop2_batch.span_kind,
+        hop2_span.span_kind,
         SpanKind::Consumer,
-        "Hop 2 batch (has upstream) should be Consumer"
+        "Hop 2 (has upstream) should be Consumer"
     );
-
-    // Within each hop: inner spans parent to that hop's batch span
-    for (hop_idx, hop_result) in hop_results.iter().enumerate() {
-        let hop_name = format!("hop_{}", hop_idx);
-
-        // Find inner spans for this hop by matching trace-id AND parent_span_id
-        let inner_spans: Vec<_> = spans
-            .iter()
-            .filter(|s| s.parent_span_id == hop_result.batch_span_id && !s.name.contains("batch:"))
-            .collect();
-
-        assert_eq!(
-            inner_spans.len(),
-            3,
-            "Hop {} should have 3 inner spans (deser + sql + ser), got {}",
-            hop_name,
-            inner_spans.len()
-        );
-
-        for inner in &inner_spans {
-            assert_eq!(
-                inner.span_kind,
-                SpanKind::Internal,
-                "Inner span '{}' in {} should be Internal",
-                inner.name,
-                hop_name
-            );
-            assert_status_ok(inner);
-        }
-    }
 
     // All spans should have Status::Ok
     for span in &spans {
@@ -755,14 +427,14 @@ async fn test_multi_hop_full_span_tree_with_inner_phases() {
         let tp_trace_id = extract_trace_id(traceparent);
         assert_eq!(
             tp_trace_id,
-            hop_result.batch_trace_id.to_string(),
+            hop_result.record_trace_id.to_string(),
             "Hop {} injected traceparent trace_id mismatch",
             hop_idx
         );
         let tp_span_id = extract_span_id(traceparent);
         assert_eq!(
             tp_span_id,
-            hop_result.batch_span_id.to_string(),
+            hop_result.record_span_id.to_string(),
             "Hop {} injected traceparent span_id mismatch",
             hop_idx
         );
@@ -770,125 +442,61 @@ async fn test_multi_hop_full_span_tree_with_inner_phases() {
 }
 
 // ===========================================================================
-// Test 4: Broken chain creates independent trace with full tree
+// Test 4: Broken chain creates independent trace
 // ===========================================================================
 
 #[tokio::test]
 #[serial]
-async fn test_broken_chain_creates_independent_trace_with_full_tree() {
+async fn test_broken_chain_creates_independent_trace() {
     let obs = create_test_observability_manager("span-structure-broken-chain").await;
     let observability = Some(obs.clone());
 
-    // --- Hop 1: Root trace with full pipeline ---
+    // --- Hop 1: Root trace ---
     let job_name_1 = "chain_hop_1";
-    let input_records_1 = vec![create_test_record()];
+    let mut record_span_1 =
+        ObservabilityHelper::start_record_span(&observability, job_name_1, None);
 
-    let mut batch_span_1 =
-        ObservabilityHelper::start_batch_span(&observability, job_name_1, 1, &input_records_1);
-    let batch_start_1 = Instant::now();
-
-    let hop1_ctx = batch_span_1
+    let hop1_ctx = record_span_1
         .as_ref()
         .unwrap()
         .span_context()
-        .expect("hop1 batch should have context");
+        .expect("hop1 should have context");
     let hop1_trace_id = hop1_ctx.trace_id();
-    let hop1_batch_span_id = hop1_ctx.span_id();
 
-    ObservabilityHelper::record_deserialization(
-        &observability,
-        job_name_1,
-        &batch_span_1,
-        1,
-        5,
-        None,
+    let mut output_1 = Arc::new(create_test_record());
+    ObservabilityHelper::inject_record_trace_context(
+        record_span_1.as_ref().unwrap(),
+        &mut output_1,
     );
 
-    let mut output_records_1: Vec<Arc<_>> = vec![Arc::new(create_test_record())];
-    let batch_result_1 = make_success_batch_result(1, output_records_1.clone());
-    ObservabilityHelper::record_sql_processing(
-        &observability,
-        job_name_1,
-        &batch_span_1,
-        &batch_result_1,
-        10,
-        None,
-        "SELECT * FROM test",
-    );
+    record_span_1.as_mut().unwrap().set_output_count(1);
+    record_span_1.as_mut().unwrap().set_success();
+    drop(record_span_1);
 
-    ObservabilityHelper::inject_trace_context_into_records(
-        &batch_span_1,
-        &mut output_records_1,
-        job_name_1,
-    );
-
-    ObservabilityHelper::record_serialization_success(
-        &observability,
-        job_name_1,
-        &batch_span_1,
-        1,
-        3,
-        None,
-    );
-
-    ObservabilityHelper::complete_batch_span_success(&mut batch_span_1, &batch_start_1, 1);
-    drop(batch_span_1);
-
-    // --- Hop 2: Broken chain — records WITHOUT headers (simulating header loss) ---
+    // --- Hop 2: Broken chain -- records WITHOUT headers (simulating header loss) ---
     let job_name_2 = "chain_hop_2";
-    let input_records_2 = vec![create_test_record()]; // No headers!
+    // No upstream context (broken chain)
+    let mut record_span_2 =
+        ObservabilityHelper::start_record_span(&observability, job_name_2, None);
 
-    let mut batch_span_2 =
-        ObservabilityHelper::start_batch_span(&observability, job_name_2, 2, &input_records_2);
-    let batch_start_2 = Instant::now();
-
-    let hop2_ctx = batch_span_2
+    let hop2_ctx = record_span_2
         .as_ref()
         .unwrap()
         .span_context()
-        .expect("hop2 batch should have context");
+        .expect("hop2 should have context");
     let hop2_trace_id = hop2_ctx.trace_id();
-    let hop2_batch_span_id = hop2_ctx.span_id();
 
-    ObservabilityHelper::record_deserialization(
-        &observability,
-        job_name_2,
-        &batch_span_2,
-        1,
-        5,
-        None,
-    );
-
-    let batch_result_2 = make_success_batch_result(1, vec![Arc::new(create_test_record())]);
-    ObservabilityHelper::record_sql_processing(
-        &observability,
-        job_name_2,
-        &batch_span_2,
-        &batch_result_2,
-        10,
-        None,
-        "SELECT * FROM test",
-    );
-
-    ObservabilityHelper::record_serialization_success(
-        &observability,
-        job_name_2,
-        &batch_span_2,
-        1,
-        3,
-        None,
-    );
-
-    ObservabilityHelper::complete_batch_span_success(&mut batch_span_2, &batch_start_2, 1);
-    drop(batch_span_2);
+    record_span_2.as_mut().unwrap().set_output_count(1);
+    record_span_2.as_mut().unwrap().set_success();
+    drop(record_span_2);
 
     // === COLLECT AND VERIFY SPANS ===
     let spans = collect_spans(&obs).await;
 
     assert_eq!(
         spans.len(),
-        8,
-        "Expected 8 spans (2 hops x 4), got {}",
+        2,
+        "Expected 2 spans (1 per hop), got {}",
         spans.len()
     );
 
@@ -898,15 +506,15 @@ async fn test_broken_chain_creates_independent_trace_with_full_tree() {
         "Broken chain should create independent traces with different trace_ids"
     );
 
-    // Within each hop, all 4 spans share that hop's trace_id
+    // Verify each hop's span has its own trace_id
     let hop1_spans: Vec<_> = spans
         .iter()
         .filter(|s| s.span_context.trace_id() == hop1_trace_id)
         .collect();
     assert_eq!(
         hop1_spans.len(),
-        4,
-        "Hop 1 should have 4 spans with its trace_id"
+        1,
+        "Hop 1 should have 1 span with its trace_id"
     );
 
     let hop2_spans: Vec<_> = spans
@@ -915,157 +523,62 @@ async fn test_broken_chain_creates_independent_trace_with_full_tree() {
         .collect();
     assert_eq!(
         hop2_spans.len(),
-        4,
-        "Hop 2 should have 4 spans with its trace_id"
+        1,
+        "Hop 2 should have 1 span with its trace_id"
     );
-
-    // Within each hop, inner spans parent to their batch span
-    let hop1_children: Vec<_> = hop1_spans
-        .iter()
-        .filter(|s| !s.name.contains("batch:"))
-        .collect();
-    for child in &hop1_children {
-        assert_eq!(
-            child.parent_span_id, hop1_batch_span_id,
-            "Hop 1 child '{}' should parent to hop 1 batch",
-            child.name
-        );
-    }
-
-    let hop2_children: Vec<_> = hop2_spans
-        .iter()
-        .filter(|s| !s.name.contains("batch:"))
-        .collect();
-    for child in &hop2_children {
-        assert_eq!(
-            child.parent_span_id, hop2_batch_span_id,
-            "Hop 2 child '{}' should parent to hop 2 batch",
-            child.name
-        );
-    }
 }
 
 // ===========================================================================
-// Test 5: Concurrent batches span isolation
+// Test 5: Concurrent record spans isolation
 // ===========================================================================
 
 #[tokio::test]
 #[serial]
-async fn test_concurrent_batches_span_isolation() {
+async fn test_concurrent_record_spans_isolation() {
     let obs = create_test_observability_manager("span-structure-concurrent").await;
     let observability = Some(obs.clone());
 
-    // Create two independent batches with different job names
-    let input_a = vec![create_test_record()];
-    let input_b = vec![create_test_record()];
-
-    // --- Start both batch spans (interleaved) ---
-    let mut batch_span_a =
-        ObservabilityHelper::start_batch_span(&observability, "job_alpha", 1, &input_a);
-    let batch_start_a = Instant::now();
-    let ctx_a = batch_span_a
+    // --- Start two independent record spans (interleaved) ---
+    let mut record_span_a =
+        ObservabilityHelper::start_record_span(&observability, "job_alpha", None);
+    let ctx_a = record_span_a
         .as_ref()
         .unwrap()
         .span_context()
-        .expect("batch A context");
+        .expect("span A context");
     let trace_id_a = ctx_a.trace_id();
-    let span_id_a = ctx_a.span_id();
 
-    let mut batch_span_b =
-        ObservabilityHelper::start_batch_span(&observability, "job_beta", 1, &input_b);
-    let batch_start_b = Instant::now();
-    let ctx_b = batch_span_b
+    let mut record_span_b =
+        ObservabilityHelper::start_record_span(&observability, "job_beta", None);
+    let ctx_b = record_span_b
         .as_ref()
         .unwrap()
         .span_context()
-        .expect("batch B context");
+        .expect("span B context");
     let trace_id_b = ctx_b.trace_id();
-    let span_id_b = ctx_b.span_id();
 
     // Different traces
     assert_ne!(
         trace_id_a, trace_id_b,
-        "Independent batches should have different trace_ids"
+        "Independent record spans should have different trace_ids"
     );
 
-    // --- Interleave inner operations ---
-    // Deser for A
-    ObservabilityHelper::record_deserialization(
-        &observability,
-        "job_alpha",
-        &batch_span_a,
-        1,
-        5,
-        None,
-    );
+    // Complete both (interleaved -- B before A)
+    record_span_b.as_mut().unwrap().set_output_count(1);
+    record_span_b.as_mut().unwrap().set_success();
+    drop(record_span_b);
 
-    // Deser for B
-    ObservabilityHelper::record_deserialization(
-        &observability,
-        "job_beta",
-        &batch_span_b,
-        1,
-        5,
-        None,
-    );
-
-    // SQL for A
-    let result_a = make_success_batch_result(1, vec![Arc::new(create_test_record())]);
-    ObservabilityHelper::record_sql_processing(
-        &observability,
-        "job_alpha",
-        &batch_span_a,
-        &result_a,
-        10,
-        None,
-        "SELECT * FROM test",
-    );
-
-    // SQL for B
-    let result_b = make_success_batch_result(1, vec![Arc::new(create_test_record())]);
-    ObservabilityHelper::record_sql_processing(
-        &observability,
-        "job_beta",
-        &batch_span_b,
-        &result_b,
-        10,
-        None,
-        "SELECT * FROM test",
-    );
-
-    // Serialization for B first (out of order)
-    ObservabilityHelper::record_serialization_success(
-        &observability,
-        "job_beta",
-        &batch_span_b,
-        1,
-        3,
-        None,
-    );
-
-    // Serialization for A
-    ObservabilityHelper::record_serialization_success(
-        &observability,
-        "job_alpha",
-        &batch_span_a,
-        1,
-        3,
-        None,
-    );
-
-    // Complete both
-    ObservabilityHelper::complete_batch_span_success(&mut batch_span_a, &batch_start_a, 1);
-    ObservabilityHelper::complete_batch_span_success(&mut batch_span_b, &batch_start_b, 1);
-    drop(batch_span_a);
-    drop(batch_span_b);
+    record_span_a.as_mut().unwrap().set_output_count(1);
+    record_span_a.as_mut().unwrap().set_success();
+    drop(record_span_a);
 
     // === COLLECT AND VERIFY SPANS ===
     let spans = collect_spans(&obs).await;
 
     assert_eq!(
         spans.len(),
-        8,
-        "Expected 8 spans (2 batches x 4), got {}",
+        2,
+        "Expected 2 spans (1 per record), got {}",
         spans.len()
     );
 
@@ -1079,44 +592,12 @@ async fn test_concurrent_batches_span_isolation() {
         .filter(|s| s.span_context.trace_id() == trace_id_b)
         .collect();
 
-    assert_eq!(spans_a.len(), 4, "Batch A should have 4 spans");
-    assert_eq!(spans_b.len(), 4, "Batch B should have 4 spans");
+    assert_eq!(spans_a.len(), 1, "Span A should have 1 span");
+    assert_eq!(spans_b.len(), 1, "Span B should have 1 span");
 
-    // Batch A's inner spans parent to batch A (not batch B)
-    let children_a: Vec<_> = spans_a
-        .iter()
-        .filter(|s| !s.name.contains("batch:"))
-        .collect();
-    for child in &children_a {
-        assert_eq!(
-            child.parent_span_id, span_id_a,
-            "Batch A child '{}' should parent to batch A, not batch B",
-            child.name
-        );
-        assert_ne!(
-            child.parent_span_id, span_id_b,
-            "Batch A child '{}' must NOT parent to batch B",
-            child.name
-        );
-    }
-
-    // Batch B's inner spans parent to batch B (not batch A)
-    let children_b: Vec<_> = spans_b
-        .iter()
-        .filter(|s| !s.name.contains("batch:"))
-        .collect();
-    for child in &children_b {
-        assert_eq!(
-            child.parent_span_id, span_id_b,
-            "Batch B child '{}' should parent to batch B, not batch A",
-            child.name
-        );
-        assert_ne!(
-            child.parent_span_id, span_id_a,
-            "Batch B child '{}' must NOT parent to batch A",
-            child.name
-        );
-    }
+    // Verify correct job names
+    assert_attr_eq(spans_a[0], "job.name", "job_alpha");
+    assert_attr_eq(spans_b[0], "job.name", "job_beta");
 
     // All spans should have Status::Ok
     for span in &spans {

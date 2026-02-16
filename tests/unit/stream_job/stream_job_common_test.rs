@@ -196,7 +196,7 @@ async fn test_process_batch_success() {
     let query = create_simple_query();
     let job_name = "test_batch_processing";
 
-    let result = process_batch(records, &engine, &query, job_name).await;
+    let result = process_batch(records, &engine, &query, job_name, &None).await;
 
     assert_eq!(result.batch_size, 3);
     assert_eq!(result.records_processed, 3);

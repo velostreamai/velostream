@@ -1509,17 +1509,14 @@ impl QueryExecutor {
         }
     }
 
-    /// Generate a W3C traceparent header value with a unique trace ID and span ID.
-    ///
-    /// Format: `00-{32 hex trace_id}-{16 hex span_id}-01`
-    /// Each call generates a new random trace, enabling per-record distributed
-    /// trace lineage through the pipeline.
-    fn generate_traceparent() -> String {
-        use rand::random;
-        let trace_id: u128 = random();
-        let span_id: u64 = random();
-        format!("00-{:032x}-{:016x}-01", trace_id, span_id)
-    }
+    // NOTE: The test harness does NOT inject traceparent headers into input records.
+    // As the first hop in the pipeline, there is no upstream span to reference.
+    // Injecting a fake traceparent with flag=01 would create orphaned traces in Tempo
+    // (child spans pointing to a parent that doesn't exist).
+    //
+    // Instead, the processor's `sampling_ratio` controls the head-based sampling
+    // decision for first-hop records (no traceparent → dice roll). Downstream
+    // processors then respect the flag propagated by the first processor.
 
     /// Send a single record to a producer (non-blocking)
     fn send_record(
@@ -1540,13 +1537,11 @@ impl QueryExecutor {
             base_record
         };
 
-        // Build Kafka headers: _event_time + traceparent for distributed tracing
+        // Build Kafka headers: _event_time only.
+        // No traceparent injected — the processor's sampling_ratio controls
+        // head-based per-record sampling for first-hop records.
         let et_str;
-        let traceparent = Self::generate_traceparent();
-        let mut headers = rdkafka::message::OwnedHeaders::new().insert(rdkafka::message::Header {
-            key: "traceparent",
-            value: Some(traceparent.as_bytes()),
-        });
+        let mut headers = rdkafka::message::OwnedHeaders::new();
 
         if let Some(et) = event_time_ms {
             et_str = et.to_string();

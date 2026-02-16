@@ -1,27 +1,25 @@
-//! Tests for span completeness
+//! Tests for per-record span completeness
 //!
-//! Validates that child spans (deserialization, sql_query, serialization)
-//! are correctly created by all processor types and that the span tree is
-//! complete across multiple batches.
+//! Validates that the per-record head-based sampling API works correctly:
+//! - Sampled record -> 1 `process:job_name` span created
+//! - Non-sampled record -> 0 spans
+//! - record_deserialization / record_sql_processing / record_serialization_success
+//!   now take 4 args and work with metrics-only (no spans)
+//! - Graceful degradation under write lock with the new 4-arg API
 //!
 //! `with_observability_try_lock()` uses a single `try_read()` call.
 //! During normal runtime, only read locks are acquired (metrics emission,
 //! span creation), so `try_read()` virtually always succeeds. The only
-//! write lock is held during initialization — before any spans are created.
+//! write lock is held during initialization -- before any spans are created.
 //! If `try_read()` fails, the span is gracefully dropped with a warning log.
 
 use serial_test::serial;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use velostream::velostream::server::processors::common::BatchProcessingResultWithOutput;
 use velostream::velostream::server::processors::observability_helper::ObservabilityHelper;
-use velostream::velostream::sql::execution::types::StreamRecord;
 
-use crate::unit::observability_test_helpers::{
-    UPSTREAM_TRACEPARENT, create_test_observability_manager, create_test_record,
-    create_test_record_with_traceparent,
-};
+use crate::unit::observability_test_helpers::create_test_observability_manager;
 
 /// Helper to collect span names from the observability manager
 async fn collect_span_names(
@@ -51,178 +49,157 @@ fn make_success_batch_result(records_processed: usize) -> BatchProcessingResultW
     }
 }
 
-/// Test that a simple processor creates ALL expected child spans
-/// Expected: batch + source + deserialization + sql_query + serialization = 5 spans
+/// Test that a sampled record creates exactly 1 `process:job_name` span
 #[tokio::test]
 #[serial]
-async fn test_simple_processor_span_completeness() {
-    let obs_manager = create_test_observability_manager("simple-completeness").await;
+async fn test_sampled_record_creates_one_process_span() {
+    let obs_manager = create_test_observability_manager("sampled-completeness").await;
     let obs = Some(obs_manager.clone());
 
-    let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
-    let job_name = "test_simple_job";
+    let job_name = "test_sampled_job";
 
-    // Parent batch span
-    let mut parent_span = ObservabilityHelper::start_batch_span(&obs, job_name, 0, &input_batch);
-    assert!(parent_span.is_some(), "Parent batch span should be created");
+    // Create a record span (simulates a sampled record)
+    let record_span = ObservabilityHelper::start_record_span(&obs, job_name, None);
+    assert!(record_span.is_some(), "Record span should be created");
 
-    // Source child span
-    let _source_span = ObservabilityHelper::start_batch_span(
-        &obs,
-        &format!("{} (source: input_topic)", job_name),
-        0,
-        &input_batch,
-    );
+    let mut span = record_span.unwrap();
+    span.set_output_count(5);
+    span.set_success();
 
-    // Deserialization child span
-    ObservabilityHelper::record_deserialization(
-        &obs,
-        job_name,
-        &parent_span,
-        10,
-        5,
-        Some(("input_topic", 0, 0)),
-    );
+    // Drop span to trigger export to collector
+    drop(span);
 
-    // SQL processing child span
-    let batch_result = make_success_batch_result(10);
-    ObservabilityHelper::record_sql_processing(
-        &obs,
-        job_name,
-        &parent_span,
-        &batch_result,
-        8,
-        None,
-        "SELECT * FROM test",
-    );
-
-    // Serialization child span
-    ObservabilityHelper::record_serialization_success(&obs, job_name, &parent_span, 10, 3, None);
-
-    // Inject trace context into output
-    let mut output_records: Vec<Arc<StreamRecord>> =
-        (0..10).map(|_| Arc::new(create_test_record())).collect();
-    ObservabilityHelper::inject_trace_context_into_records(
-        &parent_span,
-        &mut output_records,
-        job_name,
-    );
-
-    // Complete batch span
-    let batch_start = Instant::now();
-    ObservabilityHelper::complete_batch_span_success(&mut parent_span, &batch_start, 10);
-
-    // Drop spans to trigger export to collector
-    drop(parent_span);
-    drop(_source_span);
-
-    // Verify all expected spans were created
+    // Verify exactly 1 process span was created
     let span_names = collect_span_names(&obs_manager).await;
 
-    assert!(
-        span_names
-            .iter()
-            .any(|n| n.contains("batch:test_simple_job")),
-        "Missing parent batch span. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("source: input_topic")),
-        "Missing source child span. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("deserialization")),
-        "Missing deserialization span. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("sql_query")),
-        "Missing sql_query span. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("serialization")),
-        "Missing serialization span. Spans: {:?}",
-        span_names
-    );
+    let process_spans: Vec<_> = span_names
+        .iter()
+        .filter(|n| n.contains("process:test_sampled_job"))
+        .collect();
 
-    // Verify output records got traceparent
-    for record in &output_records {
-        assert!(
-            record.headers.contains_key("traceparent"),
-            "Output record should have traceparent header"
-        );
-    }
+    assert_eq!(
+        process_spans.len(),
+        1,
+        "Should have exactly 1 process span for sampled record. Spans: {:?}",
+        span_names
+    );
 }
 
-/// Test that a transactional processor creates ALL expected child spans
-/// Expected: batch + deserialization + sql_query + serialization = 4 spans
+/// Test that a non-sampled record creates 0 spans
+/// (start_record_span is only called for sampled records, so this tests
+///  that no spans appear when we simply don't call start_record_span)
 #[tokio::test]
 #[serial]
-async fn test_transactional_processor_span_completeness() {
-    let obs_manager = create_test_observability_manager("txn-completeness").await;
+async fn test_non_sampled_record_creates_zero_spans() {
+    let obs_manager = create_test_observability_manager("non-sampled-completeness").await;
     let obs = Some(obs_manager.clone());
 
-    let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
-    let job_name = "test_txn_job";
+    let job_name = "test_non_sampled_job";
 
-    // Batch span
-    let mut batch_span = ObservabilityHelper::start_batch_span(&obs, job_name, 0, &input_batch);
-    assert!(batch_span.is_some(), "Batch span should be created");
+    // For a non-sampled record, we do NOT call start_record_span.
+    // We only call the metrics-only functions.
+    ObservabilityHelper::record_deserialization(&obs, job_name, 10, 5);
 
-    // Deserialization
-    ObservabilityHelper::record_deserialization(&obs, job_name, &batch_span, 10, 5, None);
-
-    // SQL processing
     let batch_result = make_success_batch_result(10);
-    ObservabilityHelper::record_sql_processing(
-        &obs,
-        job_name,
-        &batch_span,
-        &batch_result,
-        8,
-        None,
-        "SELECT * FROM test",
-    );
+    ObservabilityHelper::record_sql_processing(&obs, job_name, &batch_result, 8);
 
-    // Serialization
-    ObservabilityHelper::record_serialization_success(&obs, job_name, &batch_span, 10, 3, None);
+    ObservabilityHelper::record_serialization_success(&obs, job_name, 10, 3);
 
-    // Complete
-    let batch_start = Instant::now();
-    ObservabilityHelper::complete_batch_span_success(&mut batch_span, &batch_start, 10);
-    drop(batch_span);
-
-    // Verify all spans
+    // Verify 0 process spans were created
     let span_names = collect_span_names(&obs_manager).await;
 
-    assert!(
-        span_names.iter().any(|n| n.contains("batch:test_txn_job")),
-        "Missing batch span. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("deserialization")),
-        "Missing deserialization span. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("sql_query")),
-        "Missing sql_query span. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("serialization")),
-        "Missing serialization span. Spans: {:?}",
-        span_names
-    );
+    let process_spans: Vec<_> = span_names
+        .iter()
+        .filter(|n| n.contains("process:test_non_sampled_job"))
+        .collect();
 
-    assert!(
-        span_names.len() >= 4,
-        "Expected at least 4 spans (batch + deser + sql + ser), got {}. Spans: {:?}",
-        span_names.len(),
+    assert_eq!(
+        process_spans.len(),
+        0,
+        "Should have 0 process spans for non-sampled record. Spans: {:?}",
         span_names
+    );
+}
+
+/// Test that record_deserialization takes 4 args (obs, job_name, record_count, duration_ms)
+/// and does NOT create spans (metrics-only)
+#[tokio::test]
+#[serial]
+async fn test_record_deserialization_4_args_metrics_only() {
+    let obs_manager = create_test_observability_manager("deser-4-args").await;
+    let obs = Some(obs_manager.clone());
+
+    let initial_span_count = {
+        let lock = obs_manager.read().await;
+        lock.telemetry().map(|t| t.span_count()).unwrap_or(0)
+    };
+
+    // Call with 4 args: obs, job_name, record_count, duration_ms
+    ObservabilityHelper::record_deserialization(&obs, "deser-test", 100, 10);
+
+    let final_span_count = {
+        let lock = obs_manager.read().await;
+        lock.telemetry().map(|t| t.span_count()).unwrap_or(0)
+    };
+
+    assert_eq!(
+        initial_span_count, final_span_count,
+        "record_deserialization should not create any spans (metrics-only)"
+    );
+}
+
+/// Test that record_sql_processing takes 4 args (obs, job_name, batch_result, duration_ms)
+/// and does NOT create spans (metrics-only)
+#[tokio::test]
+#[serial]
+async fn test_record_sql_processing_4_args_metrics_only() {
+    let obs_manager = create_test_observability_manager("sql-4-args").await;
+    let obs = Some(obs_manager.clone());
+
+    let initial_span_count = {
+        let lock = obs_manager.read().await;
+        lock.telemetry().map(|t| t.span_count()).unwrap_or(0)
+    };
+
+    let batch_result = make_success_batch_result(50);
+    // Call with 4 args: obs, job_name, batch_result, duration_ms
+    ObservabilityHelper::record_sql_processing(&obs, "sql-test", &batch_result, 15);
+
+    let final_span_count = {
+        let lock = obs_manager.read().await;
+        lock.telemetry().map(|t| t.span_count()).unwrap_or(0)
+    };
+
+    assert_eq!(
+        initial_span_count, final_span_count,
+        "record_sql_processing should not create any spans (metrics-only)"
+    );
+}
+
+/// Test that record_serialization_success takes 4 args (obs, job_name, record_count, duration_ms)
+/// and does NOT create spans (metrics-only)
+#[tokio::test]
+#[serial]
+async fn test_record_serialization_success_4_args_metrics_only() {
+    let obs_manager = create_test_observability_manager("ser-4-args").await;
+    let obs = Some(obs_manager.clone());
+
+    let initial_span_count = {
+        let lock = obs_manager.read().await;
+        lock.telemetry().map(|t| t.span_count()).unwrap_or(0)
+    };
+
+    // Call with 4 args: obs, job_name, record_count, duration_ms
+    ObservabilityHelper::record_serialization_success(&obs, "ser-test", 100, 5);
+
+    let final_span_count = {
+        let lock = obs_manager.read().await;
+        lock.telemetry().map(|t| t.span_count()).unwrap_or(0)
+    };
+
+    assert_eq!(
+        initial_span_count, final_span_count,
+        "record_serialization_success should not create any spans (metrics-only)"
     );
 }
 
@@ -239,14 +216,12 @@ async fn test_graceful_degradation_under_write_lock() {
     let obs_manager = create_test_observability_manager("lock-contention").await;
     let obs = Some(obs_manager.clone());
 
-    let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
     let job_name = "contention_test";
 
     // Hold a write lock and attempt span creation from a blocking thread.
     // try_read() should fail and return None gracefully.
     let obs_clone = obs_manager.clone();
     let obs_for_spans = obs.clone();
-    let input_batch_clone = input_batch.clone();
 
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -255,28 +230,20 @@ async fn test_graceful_degradation_under_write_lock() {
         rx.blocking_recv().unwrap();
 
         // try_read() will fail because a write lock is held.
-        // start_batch_span should return None gracefully.
-        let batch_span =
-            ObservabilityHelper::start_batch_span(&obs_for_spans, job_name, 0, &input_batch_clone);
+        // start_record_span should return None gracefully.
+        let record_span = ObservabilityHelper::start_record_span(&obs_for_spans, job_name, None);
         assert!(
-            batch_span.is_none(),
-            "start_batch_span should return None when write lock is held"
+            record_span.is_none(),
+            "start_record_span should return None when write lock is held"
         );
 
-        // record_deserialization should also handle the failure gracefully
-        ObservabilityHelper::record_deserialization(&obs_for_spans, job_name, &None, 10, 5, None);
+        // 4-arg metrics-only calls should also handle the failure gracefully
+        ObservabilityHelper::record_deserialization(&obs_for_spans, job_name, 10, 5);
 
-        // record_sql_processing should handle gracefully too
         let batch_result = make_success_batch_result(10);
-        ObservabilityHelper::record_sql_processing(
-            &obs_for_spans,
-            job_name,
-            &None,
-            &batch_result,
-            8,
-            None,
-            "SELECT * FROM test",
-        );
+        ObservabilityHelper::record_sql_processing(&obs_for_spans, job_name, &batch_result, 8);
+
+        ObservabilityHelper::record_serialization_success(&obs_for_spans, job_name, 10, 3);
     });
 
     // Hold write lock while the blocking thread attempts span creation
@@ -293,92 +260,44 @@ async fn test_graceful_degradation_under_write_lock() {
     // No panics or hangs = test passes. Spans were gracefully skipped.
 }
 
-/// Test that multiple batches all produce complete span trees
-/// (no span dropoff after the first batch)
+/// Test that multiple sampled records each produce their own process span
 #[tokio::test]
 #[serial]
-async fn test_span_completeness_across_multiple_batches() {
-    let obs_manager = create_test_observability_manager("multi-batch-completeness").await;
+async fn test_span_completeness_across_multiple_sampled_records() {
+    let obs_manager = create_test_observability_manager("multi-record-completeness").await;
     let obs = Some(obs_manager.clone());
 
-    let job_name = "multi_batch_test";
-    let batch_count = 10;
+    let job_name = "multi_record_test";
+    let record_count = 10;
 
-    for batch_id in 0..batch_count {
-        let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
-
-        let mut batch_span =
-            ObservabilityHelper::start_batch_span(&obs, job_name, batch_id, &input_batch);
+    for i in 0..record_count {
+        let mut record_span = ObservabilityHelper::start_record_span(&obs, job_name, None);
         assert!(
-            batch_span.is_some(),
-            "Batch #{}: span should be created",
-            batch_id
+            record_span.is_some(),
+            "Record #{}: span should be created",
+            i
         );
 
-        ObservabilityHelper::record_deserialization(&obs, job_name, &batch_span, 10, 2, None);
-
-        let batch_result = make_success_batch_result(10);
-        ObservabilityHelper::record_sql_processing(
-            &obs,
-            job_name,
-            &batch_span,
-            &batch_result,
-            5,
-            None,
-            "SELECT * FROM test",
-        );
-
-        ObservabilityHelper::record_serialization_success(&obs, job_name, &batch_span, 10, 1, None);
-
-        let batch_start = Instant::now();
-        ObservabilityHelper::complete_batch_span_success(&mut batch_span, &batch_start, 10);
-        drop(batch_span);
+        let span = record_span.as_mut().unwrap();
+        span.set_output_count(1);
+        span.set_success();
+        drop(record_span);
     }
 
     let span_names = collect_span_names(&obs_manager).await;
 
-    // Each batch should produce 4 spans: batch + deser + sql + ser
-    let batch_spans: Vec<_> = span_names.iter().filter(|n| n.contains("batch:")).collect();
-    let deser_spans: Vec<_> = span_names
+    let process_spans: Vec<_> = span_names
         .iter()
-        .filter(|n| n.as_str() == "streaming:deserialization")
-        .collect();
-    let sql_spans: Vec<_> = span_names
-        .iter()
-        .filter(|n| n.contains("sql_query"))
-        .collect();
-    let ser_spans: Vec<_> = span_names
-        .iter()
-        .filter(|n| n.as_str() == "streaming:serialization")
+        .filter(|n| n.contains("process:multi_record_test"))
         .collect();
 
     assert_eq!(
-        batch_spans.len(),
-        batch_count as usize,
-        "Expected {} batch spans, got {}",
-        batch_count,
-        batch_spans.len()
-    );
-    assert_eq!(
-        deser_spans.len(),
-        batch_count as usize,
-        "Expected {} deserialization spans, got {} (dropoff!)",
-        batch_count,
-        deser_spans.len()
-    );
-    assert_eq!(
-        sql_spans.len(),
-        batch_count as usize,
-        "Expected {} sql_query spans, got {} (dropoff!)",
-        batch_count,
-        sql_spans.len()
-    );
-    assert_eq!(
-        ser_spans.len(),
-        batch_count as usize,
-        "Expected {} serialization spans, got {} (dropoff!)",
-        batch_count,
-        ser_spans.len()
+        process_spans.len(),
+        record_count,
+        "Expected {} process spans (one per sampled record), got {}. Spans: {:?}",
+        record_count,
+        process_spans.len(),
+        span_names
     );
 }
 
@@ -397,72 +316,36 @@ async fn test_concurrent_read_locks_all_succeed() {
     // Hold a read lock from the main task (simulating another processor reading)
     let _read_guard = obs_manager.read().await;
 
-    // Create spans while the read lock is held — try_read() should succeed
+    // Create spans while the read lock is held -- try_read() should succeed
     // because RwLock allows multiple concurrent readers.
-    let input_batch = vec![create_test_record_with_traceparent(UPSTREAM_TRACEPARENT)];
     let obs_for_blocking = obs.clone();
-    let input_batch_clone = input_batch.clone();
 
     let span_task = tokio::task::spawn_blocking(move || {
-        let batch_span = ObservabilityHelper::start_batch_span(
-            &obs_for_blocking,
-            job_name,
-            0,
-            &input_batch_clone,
-        );
+        let record_span = ObservabilityHelper::start_record_span(&obs_for_blocking, job_name, None);
         assert!(
-            batch_span.is_some(),
-            "Batch span should succeed with concurrent read locks"
+            record_span.is_some(),
+            "Record span should succeed with concurrent read locks"
         );
 
-        ObservabilityHelper::record_deserialization(
-            &obs_for_blocking,
-            job_name,
-            &batch_span,
-            10,
-            5,
-            None,
-        );
+        // 4-arg metrics calls should also work
+        ObservabilityHelper::record_deserialization(&obs_for_blocking, job_name, 10, 5);
 
         let batch_result = make_success_batch_result(10);
-        ObservabilityHelper::record_sql_processing(
-            &obs_for_blocking,
-            job_name,
-            &batch_span,
-            &batch_result,
-            8,
-            None,
-            "SELECT * FROM test",
-        );
+        ObservabilityHelper::record_sql_processing(&obs_for_blocking, job_name, &batch_result, 8);
 
-        ObservabilityHelper::record_serialization_success(
-            &obs_for_blocking,
-            job_name,
-            &batch_span,
-            10,
-            3,
-            None,
-        );
+        ObservabilityHelper::record_serialization_success(&obs_for_blocking, job_name, 10, 3);
     });
 
     span_task.await.unwrap();
     drop(_read_guard);
 
-    // Verify all spans were created successfully
+    // Verify the record span was created successfully
     let span_names = collect_span_names(&obs_manager).await;
     assert!(
-        span_names.iter().any(|n| n.contains("deserialization")),
-        "Deserialization span should be created with concurrent reads. Spans: {:?}",
         span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("sql_query")),
-        "sql_query span should be created with concurrent reads. Spans: {:?}",
-        span_names
-    );
-    assert!(
-        span_names.iter().any(|n| n.contains("serialization")),
-        "Serialization span should be created with concurrent reads. Spans: {:?}",
+            .iter()
+            .any(|n| n.contains("process:concurrent_read_test")),
+        "Record span should be created with concurrent reads. Spans: {:?}",
         span_names
     );
 }

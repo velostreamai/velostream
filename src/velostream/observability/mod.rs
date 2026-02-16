@@ -196,6 +196,18 @@ impl ObservabilityManager {
         self.profiling.as_ref()
     }
 
+    /// Get the configured sampling ratio for per-record head-based sampling.
+    ///
+    /// Returns the tracing config's sampling_ratio if tracing is enabled,
+    /// or 0.0 if tracing is not configured (no records will be sampled).
+    pub fn sampling_ratio(&self) -> f64 {
+        self.config
+            .tracing_config
+            .as_ref()
+            .map(|tc| tc.sampling_ratio)
+            .unwrap_or(0.0)
+    }
+
     /// Set deployment context for error tracking (job-level customization)
     ///
     /// This allows setting or updating deployment context after initialization,

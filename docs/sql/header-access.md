@@ -214,9 +214,11 @@ The `_event_time` header is **automatically stripped** from aggregation output t
 
 ### Distributed Tracing Headers
 
-`traceparent` and `tracestate` headers propagate through SQL but are **overwritten** after SQL execution by the trace context injector (`inject_trace_context_into_records()`). This means:
-- Input trace context is preserved through SQL processing
-- Output records get a fresh span from the Velostream processor
+`traceparent` and `tracestate` headers propagate through SQL automatically (FR-090). Velostream uses **head-based per-record sampling**: the `traceparent` flag byte (`01` = sampled, `00` = not sampled) controls whether a span is created for each record.
+
+- **Sampled records** (flag `01`): A `RecordSpan` is created and the output `traceparent` is updated with the new span's context
+- **Not-sampled records** (flag `00`): No span created, the header propagates naturally through SQL with zero tracing overhead
+- **No traceparent**: A probabilistic dice roll decides sampling; if not sampled, a `traceparent` with flag `00` is injected to prevent downstream re-rolling
 - Manual `SET_HEADER('traceparent', ...)` is not needed for standard tracing
 
 ### Explicit Header Mutations

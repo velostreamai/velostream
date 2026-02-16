@@ -526,7 +526,7 @@ pub struct BatchProcessingResultWithOutput {
     pub output_records: Vec<Arc<StreamRecord>>, // PERF: Arc for zero-copy multi-sink writes
 }
 
-/// Process a batch of records through the SQL execution engine
+/// Process a batch of records through the SQL execution engine with per-record tracing.
 ///
 /// Uses engine.execute_with_record_sync() for proper abstraction layer and architecture.
 /// This approach:
@@ -534,6 +534,7 @@ pub struct BatchProcessingResultWithOutput {
 /// - Engine handles windowing, GROUP BY, state management, EMIT CHANGES
 /// - Returns actual SQL query results (0 or more per input record)
 /// - Consistent with PartitionReceiver (V2 architecture)
+/// - Per-record head-based sampling: only sampled records get OpenTelemetry spans
 ///
 /// The engine manages all complexity: context initialization, state persistence,
 /// window emission, GROUP BY queue draining, EMIT CHANGES routing.
@@ -542,7 +543,11 @@ pub async fn process_batch(
     engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
     query: &StreamingQuery,
     job_name: &str,
+    observability: &Option<crate::velostream::observability::SharedObservabilityManager>,
 ) -> BatchProcessingResultWithOutput {
+    use crate::velostream::observability::trace_propagation::{self, SamplingDecision};
+    use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
+
     let batch_start = Instant::now();
     let batch_size = batch.len();
     let mut records_processed = 0;
@@ -555,12 +560,37 @@ pub async fn process_batch(
         job_name, batch_size
     );
 
-    // NOTE: Query execution is already initialized once at job startup by SimpleJobProcessor.process_multi_job()
-    // Calling init_query_execution here is redundant and causes unnecessary write locks
-    // The engine maintains persistent QueryExecution state across all batches
+    // Get sampling ratio once per batch (not per record).
+    // Only run sampling/injection when tracing is enabled — otherwise output
+    // records should not get traceparent headers injected.
+    let tracing_enabled = observability.is_some();
+    let sampling_ratio = ObservabilityHelper::sampling_ratio(observability);
 
     // Process all records through engine abstraction layer
     for (index, record) in batch.into_iter().enumerate() {
+        // Per-record sampling: check traceparent flag or roll dice
+        let (mut record_span, not_sampled_new) = if tracing_enabled {
+            let sampling_decision = trace_propagation::extract_trace_context_if_sampled(
+                &record.headers,
+                sampling_ratio,
+            );
+
+            let not_sampled_new = matches!(&sampling_decision, SamplingDecision::NotSampledNew);
+
+            let span = match &sampling_decision {
+                SamplingDecision::Sampled(upstream_ctx) => ObservabilityHelper::start_record_span(
+                    observability,
+                    job_name,
+                    upstream_ctx.as_ref(),
+                ),
+                SamplingDecision::NotSampled | SamplingDecision::NotSampledNew => None,
+            };
+
+            (span, not_sampled_new)
+        } else {
+            (None, false)
+        };
+
         match engine
             .write()
             .await
@@ -569,10 +599,23 @@ pub async fn process_batch(
             Ok(outputs) => {
                 records_processed += 1;
 
+                // Track output count on the span
+                if let Some(ref mut span) = record_span {
+                    span.set_output_count(outputs.len());
+                }
+
                 // Collect results (0 or more per input record)
-                // Engine handles windows, GROUP BY, EMIT CHANGES internally
                 for output in outputs {
-                    output_records.push(Arc::new(output));
+                    let mut out = Arc::new(output);
+                    if let Some(ref span) = record_span {
+                        // Inject sampled span context into output record
+                        ObservabilityHelper::inject_record_trace_context(span, &mut out);
+                    } else if not_sampled_new {
+                        // No traceparent existed upstream and dice roll failed —
+                        // inject flag=00 to prevent downstream from re-rolling
+                        ObservabilityHelper::inject_not_sampled_context(&mut out);
+                    }
+                    output_records.push(out);
                 }
             }
             Err(e) => {
@@ -587,9 +630,12 @@ pub async fn process_batch(
                     recoverable,
                 });
 
+                // Mark span as error if sampled
+                if let Some(ref mut span) = record_span {
+                    span.set_error(&detailed_msg);
+                }
+
                 // Log first 3 errors to avoid log spam
-                // Use error! for non-recoverable errors (schema issues, field not found, etc.)
-                // Use warn! for recoverable errors (transient network issues, etc.)
                 if index < 3 {
                     if recoverable {
                         warn!(
@@ -618,6 +664,7 @@ pub async fn process_batch(
                 }
             }
         }
+        // record_span drops here -> span ends
     }
 
     debug!(
@@ -626,7 +673,6 @@ pub async fn process_batch(
     );
 
     // Phase 5: Apply ORDER BY sorting to batch results (FR-084 extension)
-    // This sorts records within each batch according to ORDER BY expressions.
     let output_records = apply_order_by_sorting(output_records, query);
 
     BatchProcessingResultWithOutput {

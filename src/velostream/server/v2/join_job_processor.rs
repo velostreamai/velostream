@@ -12,12 +12,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use log::{debug, info, warn};
+use log::{debug, info};
 use tokio::sync::Mutex;
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
-use crate::velostream::observability::query_metadata::QuerySpanMetadata;
+use crate::velostream::observability::trace_propagation;
+use crate::velostream::observability::trace_propagation::SamplingDecision;
 use crate::velostream::server::processors::SharedJobStats;
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::metrics_helper::{
@@ -166,7 +167,10 @@ impl JoinJobProcessor {
         })
     }
 
-    /// Flush the output buffer: emit metrics, inject traces, write records, optionally flush the writer.
+    /// Flush the output buffer: emit metrics, write records, optionally flush the writer.
+    ///
+    /// Join outputs already carry traceparent headers via FR-090 (join processor uses
+    /// `with_headers_from`), so no span creation or injection is needed at flush time.
     async fn flush_output_buffer(
         output_buffer: &mut Vec<Arc<StreamRecord>>,
         writer: &Option<Arc<Mutex<Box<dyn DataWriter>>>>,
@@ -179,8 +183,6 @@ impl JoinJobProcessor {
         job_name_for_metrics: &Option<String>,
         stats: &mut JoinJobStats,
         flush_writer: bool,
-        flush_count: u64,
-        query_metadata: &QuerySpanMetadata,
     ) -> Result<(), SqlError> {
         // Emit metrics for the batch
         if let (Some(q), Some(jn)) = (query.as_ref(), job_name_for_metrics.as_ref()) {
@@ -189,32 +191,8 @@ impl JoinJobProcessor {
                 .await;
         }
 
-        // Inject distributed trace context into output records.
-        // Creates a batch span that downstream consumers can link to.
-        let mut batch_span = if !output_buffer.is_empty() {
-            let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
-            // Use first output record to extract any upstream trace context
-            let first_records: Vec<StreamRecord> = output_buffer
-                .first()
-                .map(|r| vec![(**r).clone()])
-                .unwrap_or_default();
-            let mut span = ObservabilityHelper::start_batch_span(
-                observability,
-                job_name,
-                flush_count,
-                &first_records,
-            );
-            ObservabilityHelper::enrich_batch_span_with_query_metadata(&mut span, query_metadata);
-            ObservabilityHelper::enrich_batch_span_with_record_metadata(&mut span, &first_records);
-            ObservabilityHelper::inject_trace_context_into_records(&span, output_buffer, job_name);
-            span
-        } else {
-            None
-        };
-
         let record_count = output_buffer.len();
         let job_name = job_name_for_metrics.as_deref().unwrap_or("join");
-        let mut ser_ms: u64 = 0;
 
         if let Some(writer) = writer {
             let ser_start = Instant::now();
@@ -234,44 +212,18 @@ impl JoinJobProcessor {
                 })?;
             }
             let ser_elapsed = ser_start.elapsed();
-            ser_ms = ser_elapsed.as_millis() as u64;
-            // Record serialization span as child of batch span
+            // Record serialization metrics
             if record_count > 0 {
                 ObservabilityHelper::record_serialization_success(
                     observability,
                     job_name,
-                    &batch_span,
                     record_count,
                     ser_elapsed.as_millis() as u64,
-                    None,
                 );
             }
         } else {
             stats.records_written += output_buffer.len() as u64;
             output_buffer.clear();
-        }
-
-        // Enrich and complete batch span after all phases (including serialization)
-        // Set application attributes for join processor
-        ObservabilityHelper::set_application_attributes(
-            &mut batch_span,
-            job_name,
-            None, // app_name
-            None, // app_version
-            Some("join"),
-        );
-
-        // Set performance timings (join doesn't track separate deser/exec/ser phases)
-        ObservabilityHelper::set_performance_timings(
-            &mut batch_span,
-            0, // deser_ms - not separately tracked
-            0, // exec_ms - not separately tracked
-            ser_ms,
-        );
-
-        if let Some(ref mut span) = batch_span {
-            span.set_total_records(record_count as u64);
-            span.set_success();
         }
 
         Ok(())
@@ -309,12 +261,6 @@ impl JoinJobProcessor {
             "JoinJobProcessor: Starting join between '{}' and '{}'",
             left_name, right_name
         );
-
-        // Pre-compute query metadata once for span enrichment
-        let query_metadata = query
-            .as_ref()
-            .map(|q| QuerySpanMetadata::from_query(q))
-            .unwrap_or_else(QuerySpanMetadata::empty);
 
         // Set up metrics helper and register SQL-annotated metrics if query is provided
         let mut metrics_helper = ProcessorMetricsHelper::new();
@@ -363,7 +309,12 @@ impl JoinJobProcessor {
         // Output buffer for batching writes — stored as Arc to avoid cloning for metrics emission
         let mut output_buffer: Vec<Arc<StreamRecord>> =
             Vec::with_capacity(self.config.output_batch_size);
-        let mut flush_count: u64 = 0;
+
+        // Get sampling ratio once for the entire join job.
+        // Only run sampling/injection when tracing is enabled.
+        let tracing_enabled = observability.is_some();
+        let sampling_ratio = ObservabilityHelper::sampling_ratio(&observability);
+        let job_name_for_spans = job_name_for_metrics.as_deref().unwrap_or("join");
 
         // Process records as they arrive
         loop {
@@ -412,13 +363,46 @@ impl JoinJobProcessor {
 
                     stats.join_matches += joined.len() as u64;
 
-                    // Buffer output (wrap in Arc once — avoids clone for metrics emission)
+                    // Buffer output with per-record sampling
                     for record in joined {
-                        output_buffer.push(Arc::new(record));
+                        let mut out = Arc::new(record);
+
+                        if tracing_enabled {
+                            // Per-record sampling on join output: check merged traceparent
+                            let sampling_decision =
+                                trace_propagation::extract_trace_context_if_sampled(
+                                    &out.headers,
+                                    sampling_ratio,
+                                );
+
+                            match &sampling_decision {
+                                SamplingDecision::Sampled(upstream_ctx) => {
+                                    // Create a per-record span and inject sampled context
+                                    if let Some(span) = ObservabilityHelper::start_record_span(
+                                        &observability,
+                                        job_name_for_spans,
+                                        upstream_ctx.as_ref(),
+                                    ) {
+                                        ObservabilityHelper::inject_record_trace_context(
+                                            &span, &mut out,
+                                        );
+                                        // span drops here → ends the span
+                                    }
+                                }
+                                SamplingDecision::NotSampledNew => {
+                                    // No traceparent after header merge — inject flag=00
+                                    ObservabilityHelper::inject_not_sampled_context(&mut out);
+                                }
+                                SamplingDecision::NotSampled => {
+                                    // Upstream traceparent already has flag=00, no action needed
+                                }
+                            }
+                        }
+
+                        output_buffer.push(out);
 
                         // Flush when buffer is full
                         if output_buffer.len() >= self.config.output_batch_size {
-                            flush_count += 1;
                             // Note: JoinJobProcessor doesn't have access to ObservabilityWrapper,
                             // so queue is not available here. Pass None for now.
                             let queue: Option<std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>> = None;
@@ -432,8 +416,6 @@ impl JoinJobProcessor {
                                 &job_name_for_metrics,
                                 &mut stats,
                                 false,
-                                flush_count,
-                                &query_metadata,
                             )
                             .await?;
                         }
@@ -452,7 +434,6 @@ impl JoinJobProcessor {
                             "JoinJobProcessor: Flushing {} buffered records on idle",
                             output_buffer.len()
                         );
-                        flush_count += 1;
                         let queue: Option<
                             std::sync::Arc<
                                 crate::velostream::observability::async_queue::ObservabilityQueue,
@@ -468,8 +449,6 @@ impl JoinJobProcessor {
                             &job_name_for_metrics,
                             &mut stats,
                             true,
-                            flush_count,
-                            &query_metadata,
                         )
                         .await?;
                     }
@@ -494,7 +473,6 @@ impl JoinJobProcessor {
 
         // Flush remaining output
         if !output_buffer.is_empty() {
-            flush_count += 1;
             let queue: Option<
                 std::sync::Arc<crate::velostream::observability::async_queue::ObservabilityQueue>,
             > = None;
@@ -508,8 +486,6 @@ impl JoinJobProcessor {
                 &job_name_for_metrics,
                 &mut stats,
                 true,
-                flush_count,
-                &query_metadata,
             )
             .await?;
         }
@@ -987,7 +963,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_flush_output_buffer_injects_trace_context() {
+    async fn test_flush_output_buffer_with_observability() {
         let obs_manager = create_test_observability_manager().await;
         let observability: Option<SharedObservabilityManager> = Some(obs_manager.clone());
         let metrics_helper = ProcessorMetricsHelper::new();
@@ -1015,8 +991,6 @@ mod tests {
             &Some("test-flush-job".to_string()),
             &mut stats,
             false,
-            1,
-            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed");
@@ -1027,7 +1001,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_flush_output_buffer_no_observability_skips_trace() {
+    async fn test_flush_output_buffer_no_observability() {
         let metrics_helper = ProcessorMetricsHelper::new();
         let mut stats = JoinJobStats::default();
 
@@ -1047,8 +1021,6 @@ mod tests {
             &Some("test-no-obs-job".to_string()),
             &mut stats,
             false,
-            1,
-            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed without observability");
@@ -1080,11 +1052,9 @@ mod tests {
             &None, // no query
             &observability,
             &None, // no queue
-            &None, // no job name — should fall back to "join"
+            &None, // no job name -- should fall back to "join"
             &mut stats,
             false,
-            1,
-            &QuerySpanMetadata::empty(),
         )
         .await
         .expect("flush_output_buffer should succeed with None job_name");
