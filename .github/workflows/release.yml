@@ -1,0 +1,525 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags (v1.0.0, v0.1.0-beta.1, etc.)
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write  # Required for creating releases
+    strategy:
+      fail-fast: false  # Continue building other platforms if one fails
+      matrix:
+        include:
+          # Linux x86_64 (glibc 2.17+ compatible)
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            archive_name: velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+
+          # macOS Apple Silicon (ARM64)
+          - target: aarch64-apple-darwin
+            os: macos-14
+            use_cross: false
+            archive_name: velostream-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
+
+          # Windows x86_64 (MSVC)
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            archive_name: velostream-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate version matches tag
+        run: |
+          # Extract version from Cargo.toml (line 3)
+          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/version = "\(.*\)"/\1/')
+
+          # Extract version from git tag (remove 'v' prefix)
+          TAG_VERSION="${{ github.ref_name }}"
+          TAG_VERSION="${TAG_VERSION#v}"  # Remove leading 'v'
+
+          echo "📦 Cargo.toml version: $CARGO_VERSION"
+          echo "🏷️  Git tag version:    $TAG_VERSION"
+
+          # Compare versions
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo ""
+            echo "❌ ERROR: Version mismatch detected!"
+            echo ""
+            echo "  Cargo.toml version: $CARGO_VERSION"
+            echo "  Git tag version:    $TAG_VERSION"
+            echo ""
+            echo "These MUST match to avoid user confusion."
+            echo ""
+            echo "Fix this by updating Cargo.toml:"
+            echo "  1. Edit Cargo.toml line 3: version = \"$TAG_VERSION\""
+            echo "  2. git add Cargo.toml"
+            echo "  3. git commit -m 'chore: bump version to $TAG_VERSION'"
+            echo "  4. git tag -d ${{ github.ref_name }}"
+            echo "  5. git push origin :refs/tags/${{ github.ref_name }}"
+            echo "  6. git push"
+            echo "  7. git tag ${{ github.ref_name }} -m 'Release ${{ github.ref_name }}'"
+            echo "  8. git push origin ${{ github.ref_name }}"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ Version validation passed: $CARGO_VERSION"
+        shell: bash
+
+      - name: Setup protobuf compiler
+        uses: ./.github/actions/setup-protobuf
+
+      - name: Setup Rust toolchain
+        if: ${{ !matrix.use_cross }}
+        uses: ./.github/actions/setup-rust
+        with:
+          target: ${{ matrix.target }}
+          cache-suffix: release-${{ matrix.target }}
+
+      - name: Install cross-rs
+        if: matrix.use_cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross --locked
+        shell: bash
+
+      - name: Build with cross-rs (Linux ARM64/x86_64 gnu)
+        if: matrix.use_cross
+        run: |
+          # Verify cross is installed
+          cross --version
+
+          # Full clean to avoid any caching issues
+          cargo clean
+
+          # Build with cross-rs in Docker container
+          cross build --release --target ${{ matrix.target }} --locked --no-default-features --verbose
+        shell: bash
+
+      - name: Install OpenSSL via vcpkg (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install openssl:x64-windows-static-md
+          echo "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md" >> $env:GITHUB_ENV
+          echo "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Build natively (macOS/Windows)
+        if: ${{ !matrix.use_cross }}
+        run: |
+          cargo build --release --target ${{ matrix.target }} --locked --no-default-features
+        shell: bash
+
+      - name: Create release directory structure
+        run: |
+          mkdir -p release-staging/velostream-${{ github.ref_name }}-${{ matrix.target }}
+        shell: bash
+
+      - name: Copy binaries (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          STAGING_DIR="release-staging/velostream-${{ github.ref_name }}-${{ matrix.target }}"
+
+          # Create bin directory for easy access
+          mkdir -p "$STAGING_DIR/bin"
+
+          # Copy all binaries to bin/
+          cp target/${{ matrix.target }}/release/velo-sql "$STAGING_DIR/bin/"
+          cp target/${{ matrix.target }}/release/velo-cli "$STAGING_DIR/bin/"
+          cp target/${{ matrix.target }}/release/velo-test "$STAGING_DIR/bin/"
+          cp target/${{ matrix.target }}/release/velo-sql-batch "$STAGING_DIR/bin/"
+          cp target/${{ matrix.target }}/release/velo-1brc "$STAGING_DIR/bin/"
+          cp target/${{ matrix.target }}/release/velo-schema-generator "$STAGING_DIR/bin/" || true
+          cp target/${{ matrix.target }}/release/velo-config-validator "$STAGING_DIR/bin/" || true
+          cp target/${{ matrix.target }}/release/complete_pipeline_demo "$STAGING_DIR/bin/"
+          cp target/${{ matrix.target }}/release/file_processing_demo "$STAGING_DIR/bin/"
+
+          # Create symlinks at root for direct access
+          cd "$STAGING_DIR"
+          for binary in bin/*; do
+            ln -sf "$binary" "$(basename $binary)"
+          done
+          cd - > /dev/null
+
+          # Create target/release/ structure for demo script compatibility
+          mkdir -p "$STAGING_DIR/target/release"
+          cd "$STAGING_DIR/target/release"
+          for binary in ../../bin/*; do
+            ln -sf "$binary" "$(basename $binary)"
+          done
+          cd - > /dev/null
+
+          # Copy demo files
+          cp -r demo "$STAGING_DIR/"
+
+          # Copy documentation
+          cp README.md "$STAGING_DIR/"
+          cp LICENSE "$STAGING_DIR/" || echo "LICENSE file not found"
+          cp docs/user-guides/INSTALL.md "$STAGING_DIR/" || echo "INSTALL.md not found"
+
+          # Create example config directory
+          mkdir -p "$STAGING_DIR/configs"
+
+          # Create quick start script
+          cat > "$STAGING_DIR/setup-env.sh" << 'EOF'
+          #!/bin/bash
+          # Add binaries to PATH for this session
+          export PATH="$(pwd)/bin:$PATH"
+          echo "✓ Velostream binaries added to PATH"
+          echo ""
+          echo "Available commands:"
+          ls -1 bin/ | sed 's/^/  - /'
+          echo ""
+          echo "Run demos:"
+          echo "  cd demo/1brc && ./run-1brc.sh"
+          echo "  cd demo/trading && ./start-demo.sh --quick"
+          echo "  cd demo/datasource-demo && ../bin/file_processing_demo"
+          EOF
+          chmod +x "$STAGING_DIR/setup-env.sh"
+
+          # List structure
+          echo "Archive structure:"
+          ls -lh "$STAGING_DIR" | grep -E "velo-|demo|bin"
+          echo ""
+          echo "Binaries in bin/:"
+          ls -lh "$STAGING_DIR/bin/"
+        shell: bash
+
+      - name: Copy binaries (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $STAGING_DIR = "release-staging\velostream-${{ github.ref_name }}-${{ matrix.target }}"
+
+          # Create bin directory for easy access
+          New-Item -ItemType Directory -Force -Path "$STAGING_DIR\bin"
+
+          # Copy all binaries to bin/
+          Copy-Item "target\${{ matrix.target }}\release\velo-sql.exe" "$STAGING_DIR\bin\"
+          Copy-Item "target\${{ matrix.target }}\release\velo-cli.exe" "$STAGING_DIR\bin\"
+          Copy-Item "target\${{ matrix.target }}\release\velo-test.exe" "$STAGING_DIR\bin\"
+          Copy-Item "target\${{ matrix.target }}\release\velo-sql-batch.exe" "$STAGING_DIR\bin\"
+          Copy-Item "target\${{ matrix.target }}\release\velo-1brc.exe" "$STAGING_DIR\bin\"
+          Copy-Item "target\${{ matrix.target }}\release\velo-schema-generator.exe" "$STAGING_DIR\bin\" -ErrorAction SilentlyContinue
+          Copy-Item "target\${{ matrix.target }}\release\velo-config-validator.exe" "$STAGING_DIR\bin\" -ErrorAction SilentlyContinue
+          Copy-Item "target\${{ matrix.target }}\release\complete_pipeline_demo.exe" "$STAGING_DIR\bin\"
+          Copy-Item "target\${{ matrix.target }}\release\file_processing_demo.exe" "$STAGING_DIR\bin\"
+
+          # Copy binaries to root for direct access
+          Get-ChildItem "$STAGING_DIR\bin\*.exe" | ForEach-Object {
+            Copy-Item $_.FullName "$STAGING_DIR\"
+          }
+
+          # Create target/release/ structure for demo script compatibility
+          New-Item -ItemType Directory -Force -Path "$STAGING_DIR\target\release"
+          Get-ChildItem "$STAGING_DIR\bin\*.exe" | ForEach-Object {
+            Copy-Item $_.FullName "$STAGING_DIR\target\release\"
+          }
+
+          # Copy demo files
+          Copy-Item -Recurse "demo" "$STAGING_DIR\"
+
+          # Copy documentation
+          Copy-Item "README.md" "$STAGING_DIR\"
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$STAGING_DIR\" }
+          if (Test-Path "docs\user-guides\INSTALL.md") { Copy-Item "docs\user-guides\INSTALL.md" "$STAGING_DIR\" }
+
+          # Create example config directory
+          New-Item -ItemType Directory -Force -Path "$STAGING_DIR\configs"
+
+          # Create quick start script (build line by line to avoid YAML conflicts)
+          "@echo off" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Encoding ASCII
+          "REM Add binaries to PATH for this session" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "set PATH=%~dp0bin;%PATH%" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "echo Velostream binaries added to PATH" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "echo." | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "echo Available commands:" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "dir /b bin" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "echo." | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "echo Run demos:" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "echo   cd demo\datasource-demo && ..\bin\file_processing_demo.exe" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+          "echo   .\bin\velo-sql.exe --help" | Out-File -FilePath "$STAGING_DIR\setup-env.bat" -Append -Encoding ASCII
+
+          # List structure
+          Write-Host "Archive structure:"
+          Get-ChildItem "$STAGING_DIR" -Filter "*.exe" | Format-Table Name, Length
+          Write-Host ""
+          Write-Host "Binaries in bin/:"
+          Get-ChildItem "$STAGING_DIR\bin\*.exe" | Format-Table Name, Length
+        shell: pwsh
+
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd release-staging
+          tar czf ../velostream-${{ github.ref_name }}-${{ matrix.target }}.tar.gz velostream-${{ github.ref_name }}-${{ matrix.target }}
+          cd ..
+
+          # Generate SHA256 checksum
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            shasum -a 256 velostream-${{ github.ref_name }}-${{ matrix.target }}.tar.gz > velostream-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+          else
+            sha256sum velostream-${{ github.ref_name }}-${{ matrix.target }}.tar.gz > velostream-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+          fi
+
+          # Display archive info
+          ls -lh velostream-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          cat velostream-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+        shell: bash
+
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd release-staging
+          Compress-Archive -Path "velostream-${{ github.ref_name }}-${{ matrix.target }}" -DestinationPath "..\velostream-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          cd ..
+
+          # Generate SHA256 checksum
+          $hash = Get-FileHash "velostream-${{ github.ref_name }}-${{ matrix.target }}.zip" -Algorithm SHA256
+          "$($hash.Hash)  velostream-${{ github.ref_name }}-${{ matrix.target }}.zip" | Out-File -FilePath "velostream-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256" -Encoding ASCII
+
+          # Display archive info
+          Get-Item "velostream-${{ github.ref_name }}-${{ matrix.target }}.zip" | Format-Table Name, Length
+          Get-Content "velostream-${{ github.ref_name }}-${{ matrix.target }}.zip.sha256"
+        shell: pwsh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: velostream-${{ matrix.target }}
+          path: |
+            velostream-${{ github.ref_name }}-${{ matrix.target }}.*
+          retention-days: 7
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize release assets
+        run: |
+          mkdir -p release-assets
+
+          # Move all archives and checksums to release-assets/
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" \) -exec mv {} release-assets/ \;
+
+          # List all release assets
+          echo "Release assets:"
+          ls -lh release-assets/
+        shell: bash
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          # Velostream ${{ github.ref_name }}
+
+          High-performance streaming SQL engine with multi-platform support.
+
+          ## Installation
+
+          Download the archive for your platform and extract it:
+
+          ### Linux x86_64
+          ```bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          tar xzf velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          cd velostream-${{ github.ref_name }}-x86_64-unknown-linux-gnu
+          ./velo-sql --version
+          ```
+
+          ### macOS (Apple Silicon)
+          ```bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
+          tar xzf velostream-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
+          cd velostream-${{ github.ref_name }}-aarch64-apple-darwin
+          ./velo-sql --version
+          ```
+
+          ### Windows x86_64
+          Download the zip file and extract it using Windows Explorer or PowerShell:
+          ```powershell
+          Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/velostream-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip" -OutFile "velostream.zip"
+          Expand-Archive -Path velostream.zip -DestinationPath .
+          cd velostream-${{ github.ref_name }}-x86_64-pc-windows-msvc
+          .\velo-sql.exe --version
+          ```
+
+          ## Verify Download (Optional but Recommended)
+
+          Verify the integrity of your download using SHA256 checksums:
+
+          ### Linux/macOS
+          ```bash
+          sha256sum -c velostream-${{ github.ref_name }}-<platform>.tar.gz.sha256
+          # or on macOS:
+          shasum -a 256 -c velostream-${{ github.ref_name }}-<platform>.tar.gz.sha256
+          ```
+
+          ### Windows
+          ```powershell
+          $expected = (Get-Content velostream-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip.sha256).Split()[0]
+          $actual = (Get-FileHash velostream-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash
+          if ($expected -eq $actual) { Write-Host "✓ Checksum verified" } else { Write-Host "✗ Checksum mismatch" }
+          ```
+
+          ## Archive Structure
+
+          ```
+          velostream-${{ github.ref_name }}-<platform>/
+          ├── bin/                          # All binaries (add to PATH)
+          │   ├── velo-sql
+          │   ├── velo-cli
+          │   ├── velo-test
+          │   └── ...
+          ├── target/release/               # Symlinks for demo compatibility
+          │   └── velo-* -> ../../bin/*
+          ├── demo/                         # Demos with SQL, configs, scripts
+          │   ├── 1brc/                     # One Billion Row Challenge
+          │   ├── trading/                  # Financial trading demo
+          │   ├── datasource-demo/          # Data source examples
+          │   ├── test_harness_examples/    # Test harness tiers
+          │   └── quickstart/               # Quick start examples
+          ├── configs/                      # Example configurations
+          ├── velo-* (symlinks to bin/)     # Root-level shortcuts
+          ├── setup-env.sh                  # PATH setup script (Unix)
+          ├── setup-env.bat                 # PATH setup script (Windows)
+          ├── README.md
+          └── LICENSE
+          ```
+
+          ## Included Binaries
+
+          All binaries are in the `bin/` directory:
+
+          - **velo-sql** - Main streaming SQL server
+          - **velo-cli** - Management CLI
+          - **velo-test** - Test harness runner
+          - **velo-sql-batch** - Batch query executor
+          - **velo-1brc** - One Billion Row Challenge demo
+          - **velo-schema-generator** - Schema generation utility (optional)
+          - **velo-config-validator** - Configuration validator (optional)
+          - **complete_pipeline_demo** - Complete pipeline demo
+          - **file_processing_demo** - File processing demo
+
+          ## Quick Start
+
+          After extraction:
+
+          ### Option 1: Add to PATH (Recommended)
+          ```bash
+          # Unix/macOS
+          source setup-env.sh
+
+          # Windows
+          setup-env.bat
+
+          # Now binaries are in PATH
+          velo-sql --version
+          velo-cli --help
+          ```
+
+          ### Option 2: Run demos directly
+          ```bash
+          # 1BRC demo (works out-of-the-box with target/release/ structure)
+          cd demo/1brc
+          ./run-1brc.sh
+
+          # Trading demo
+          cd demo/trading
+          ./start-demo.sh --quick
+
+          # File processing demo
+          cd demo/datasource-demo
+          ../../bin/file_processing_demo
+          # or if PATH is set:
+          file_processing_demo
+
+          # Test harness examples
+          cd demo/test_harness_examples/tier1_basic
+          ../../../bin/velo-test run 01_passthrough.test.yaml --use-testcontainers
+          ```
+
+          ### Option 3: Use binaries from bin/ directly
+          ```bash
+          ./bin/velo-sql --version
+          ./bin/velo-cli --help
+          ./bin/velo-test --help
+          ```
+
+          ## System Requirements
+
+          - **Linux**: x86_64, glibc 2.17+ (RHEL 7+, Ubuntu 14.04+, Debian 8+)
+          - **macOS**: macOS 10.15+ (Catalina or later)
+          - **Windows**: Windows 10 or later
+
+          ## Documentation
+
+          - [User Guide](https://github.com/${{ github.repository }}/tree/master/docs)
+          - [SQL Reference](https://github.com/${{ github.repository }}/tree/master/docs/sql)
+          - [API Documentation](https://docs.rs/velostream)
+
+          ## What's Changed
+
+          See the full changelog and commit history below.
+          EOF
+
+          cat release-notes.md
+        shell: bash
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        run: |
+          echo "## Release ${{ github.ref_name }} Created Successfully! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Release Assets" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Archive | Size | SHA256 |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|---------|------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          cd release-assets
+          for archive in *.tar.gz *.zip; do
+            if [ -f "$archive" ]; then
+              size=$(ls -lh "$archive" | awk '{print $5}')
+              checksum=$(cat "${archive}.sha256" | awk '{print substr($1,1,16) "..."}')
+              platform=$(echo "$archive" | sed 's/velostream-.*-\(.*\)\.\(tar\.gz\|zip\)/\1/')
+              echo "| $platform | $archive | $size | $checksum |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Release URL" >> $GITHUB_STEP_SUMMARY
+          echo "https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        shell: bash

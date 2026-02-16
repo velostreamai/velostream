@@ -31,10 +31,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         components: rustfmt,clippy
         cache-suffix: quick
 
@@ -110,10 +113,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         components: rustfmt,clippy
         cache-suffix: comprehensive
 

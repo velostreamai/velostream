@@ -2,6 +2,16 @@ use std::io::Result;
 use std::process::Command;
 
 fn main() -> Result<()> {
+    // Use vendored protoc only for cross-compilation (Linux)
+    // Native builds (macOS/Windows) use system protoc from setup-protobuf action
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: Called once at build script start before any threads exist
+        unsafe {
+            std::env::set_var("PROTOC", protobuf_src::protoc());
+        }
+    }
+
     // Always build protobuf definitions
     prost_build::compile_protos(&["src/velostream/serialization/financial.proto"], &["src/"])?;
 

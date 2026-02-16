@@ -1,8 +1,8 @@
 [package]
 name = "velostream"
-version = "0.1.0"
+version = "0.0.1-test.9"
 edition = "2024"
-rust-version = "1.91.0"
+rust-version = "1.93.0"
 license = "Apache-2.0"
 authors = ["Velostream Contributors"]
 description = "High-performance stream processing engine with SQL support"
@@ -37,6 +37,7 @@ pretty_env_logger = "0.5.0"
 log = "0.4.27"
 env_logger = "0.11.8"
 rdkafka = "0.38.0"
+openssl = { version = "0.10", features = ["vendored"] }  # Vendor OpenSSL for all platforms
 num_cpus = "1.16"
 tokio = { version = "1.49.0", features = [
     "rt-multi-thread",  # Multi-threaded async runtime with task management
@@ -108,8 +109,17 @@ testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup)
 url = "2.5.8"
 memmap2 = "0.9"  # Memory-mapped file I/O for 1BRC demo
 
+# Windows-only: Use cmake to build librdkafka (Unix uses ./configure script)
+[target.'cfg(target_os = "windows")'.dependencies]
+rdkafka = { version = "0.38.0", features = ["cmake-build"] }
+
 [build-dependencies]
 prost-build = { version = "0.14.1" }
+
+# Linux-only: Vendor protoc compiler for cross-compilation (cross-rs Docker containers)
+# macOS/Windows use system protoc from setup-protobuf GitHub Action
+[target.'cfg(target_os = "linux")'.build-dependencies]
+protobuf-src = "2.1"
 
 [dev-dependencies]
 serial_test = "2.0.0"

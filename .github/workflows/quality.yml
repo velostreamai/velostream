@@ -30,10 +30,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         cache-suffix: security
 
     - name: Install cargo-audit
@@ -63,10 +66,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         cache-suffix: docs
 
     - name: Check documentation
@@ -83,10 +89,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         cache-suffix: quality
 
     - name: Run code quality analysis
@@ -126,10 +135,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup protobuf compiler
+      uses: ./.github/actions/setup-protobuf
+
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.91.0
+        rust-version: 1.93.0
         cache-suffix: msrv
 
     - name: Check MSRV compatibility
