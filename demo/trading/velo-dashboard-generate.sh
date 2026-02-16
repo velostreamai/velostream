@@ -34,12 +34,17 @@ APPS_DIR="$SCRIPT_DIR/apps"
 DEPLOY_DIR="$SCRIPT_DIR/deploy"
 DEPLOY_MONITORING_DIR="$DEPLOY_DIR/monitoring"
 DEPLOY_APPS_DIR="$DEPLOY_DIR/apps"
-if [[ -f "$PROJECT_ROOT/target/release/velo-test" ]]; then
+# Binary detection chain: VELO_TEST env → release path → debug path → PATH
+if [[ -n "${VELO_TEST:-}" ]] && [[ -f "$VELO_TEST" ]]; then
+    : # VELO_TEST already set by caller (e.g., release CI)
+elif [[ -f "$PROJECT_ROOT/target/release/velo-test" ]]; then
     VELO_TEST="$PROJECT_ROOT/target/release/velo-test"
 elif [[ -f "$PROJECT_ROOT/target/debug/velo-test" ]]; then
     VELO_TEST="$PROJECT_ROOT/target/debug/velo-test"
+elif command -v velo-test &>/dev/null; then
+    VELO_TEST="$(command -v velo-test)"
 else
-    VELO_TEST="$PROJECT_ROOT/target/release/velo-test"
+    VELO_TEST=""
 fi
 
 METRICS_BASE_PORT=9101
@@ -51,10 +56,17 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Build if requested or binary missing
-if [[ "${1:-}" == "--build" ]] || [[ ! -f "$VELO_TEST" ]]; then
-    echo -e "${YELLOW}Building velo-test (release)...${NC}"
-    (cd "$PROJECT_ROOT" && cargo build --release --bin velo-test)
+# Build only if in dev mode and requested or binary missing
+if [[ "${1:-}" == "--build" ]] || [[ -z "$VELO_TEST" ]]; then
+    if [[ -f "$PROJECT_ROOT/Cargo.toml" ]]; then
+        echo -e "${YELLOW}Building velo-test (release)...${NC}"
+        (cd "$PROJECT_ROOT" && cargo build --release --bin velo-test)
+        VELO_TEST="$PROJECT_ROOT/target/release/velo-test"
+    elif [[ -z "$VELO_TEST" ]]; then
+        echo -e "${RED}Error: velo-test not found and not in a Cargo project${NC}"
+        echo "Add bin/ to PATH or set VELO_TEST environment variable"
+        exit 1
+    fi
 fi
 
 if [[ ! -f "$VELO_TEST" ]]; then

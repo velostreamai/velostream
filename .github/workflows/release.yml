@@ -260,6 +260,29 @@ jobs:
           Get-ChildItem "$STAGING_DIR\bin\*.exe" | Format-Table Name, Length
         shell: pwsh
 
+      - name: Generate trading demo deploy artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          STAGING_DIR="release-staging/velostream-${{ github.ref_name }}-${{ matrix.target }}"
+
+          # The native binary (macOS) or cross-compiled binary (Linux)
+          if [ -f "target/${{ matrix.target }}/release/velo-test" ]; then
+            VELO_TEST="$(pwd)/target/${{ matrix.target }}/release/velo-test"
+          else
+            VELO_TEST="$(pwd)/$STAGING_DIR/bin/velo-test"
+          fi
+
+          # Only generate if velo-test can run natively (skip cross-compiled Linux on macOS runner)
+          if "$VELO_TEST" --version 2>/dev/null; then
+            echo "Generating trading demo deploy/ artifacts..."
+            cd "$STAGING_DIR/demo/trading"
+            VELO_TEST="$VELO_TEST" ./velo-dashboard-generate.sh
+            cd -
+          else
+            echo "Skipping deploy/ generation (cross-compiled binary can't run on this host)"
+          fi
+        shell: bash
+
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
         run: |

@@ -220,13 +220,17 @@ wait_for() {
 # Prerequisite validation
 print_step "Validating Prerequisites"
 
-# Check Rust/Cargo
-if ! command -v cargo &> /dev/null; then
-    echo -e "${RED}✗ Rust/Cargo is not installed${NC}"
-    echo -e "${YELLOW}Install from: https://rustup.rs/${NC}"
-    exit 1
+# Check Rust/Cargo (only required in dev mode)
+if [ -f "../../Cargo.toml" ]; then
+    if ! command -v cargo &> /dev/null; then
+        echo -e "${RED}✗ Rust/Cargo is not installed${NC}"
+        echo -e "${YELLOW}Install from: https://rustup.rs/${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Rust/Cargo found${NC}"
+else
+    echo -e "${GREEN}✓ Running from release archive (no Cargo needed)${NC}"
 fi
-echo -e "${GREEN}✓ Rust/Cargo found${NC}"
 
 # Check Docker
 if ! command -v docker &> /dev/null; then
@@ -272,7 +276,11 @@ print_step "Step 1: Checking deploy/ artifacts"
 if [ ! -d "deploy/apps" ] || [ ! -f "deploy/monitoring/prometheus.yml" ]; then
     echo -e "${YELLOW}⚠ deploy/ directory not found or incomplete.${NC}"
     echo -e "${YELLOW}  Running ./velo-dashboard-generate.sh to generate deploy/ artifacts...${NC}"
-    ./velo-dashboard-generate.sh --build
+    if [ -f "../../Cargo.toml" ]; then
+        ./velo-dashboard-generate.sh --build
+    else
+        ./velo-dashboard-generate.sh
+    fi
 fi
 if [ ! -f "deploy/monitoring/prometheus.yml" ]; then
     echo -e "${RED}✗ Failed to generate deploy/ artifacts${NC}"
@@ -361,37 +369,48 @@ else
     print_step "Step 6: Building project binaries (Cargo rebuilds only if source changed)"
 fi
 
-# Force rebuild if requested
-if [ "$FORCE_REBUILD" = true ]; then
+# Dev mode: build from source; Release mode: binaries must already exist
+if [ -f "../../Cargo.toml" ]; then
+    # Force rebuild if requested
+    if [ "$FORCE_REBUILD" = true ]; then
+        cd ../..
+        echo "Running cargo clean..."
+        cargo clean
+        check_status "Build artifacts cleaned"
+        cd demo/trading
+    fi
+
+    # Build main Velostream binary
+    echo ""
+    echo "Building/checking main Velostream project..."
     cd ../..
-    echo "Running cargo clean..."
-    cargo clean
-    check_status "Build artifacts cleaned"
+
+    VELO_BINARY_PATH="$BUILD_DIR/velo-sql"
+    print_binary_info "$VELO_BINARY_PATH"
+
+    print_timestamp "Starting velo-sql build..."
+    if ! cargo build $BUILD_FLAG --bin velo-sql; then
+        echo -e "${RED}✗ Failed to build velo-sql${NC}"
+        echo -e "${YELLOW}Try: cargo clean && cargo build --bin velo-sql${NC}"
+        echo -e "${YELLOW}Or update Rust: rustup update stable${NC}"
+        exit 1
+    fi
+    print_timestamp "Completed velo-sql build"
+    check_status "velo-sql ready"
+
+    # Show updated binary info
+    print_binary_info "$VELO_BINARY_PATH"
+
     cd demo/trading
+else
+    # Release mode: binary must already exist via target/release/ symlinks or PATH
+    if [ ! -f "$VELO_BUILD_DIR/velo-sql" ]; then
+        echo -e "${RED}✗ velo-sql not found at $VELO_BUILD_DIR/velo-sql${NC}"
+        echo -e "${YELLOW}Ensure binaries are on PATH or in bin/${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ velo-sql found at $VELO_BUILD_DIR/velo-sql${NC}"
 fi
-
-# Build main Velostream binary
-echo ""
-echo "Building/checking main Velostream project..."
-cd ../..
-
-VELO_BINARY_PATH="$BUILD_DIR/velo-sql"
-print_binary_info "$VELO_BINARY_PATH"
-
-print_timestamp "Starting velo-sql build..."
-if ! cargo build $BUILD_FLAG --bin velo-sql; then
-    echo -e "${RED}✗ Failed to build velo-sql${NC}"
-    echo -e "${YELLOW}Try: cargo clean && cargo build --bin velo-sql${NC}"
-    echo -e "${YELLOW}Or update Rust: rustup update stable${NC}"
-    exit 1
-fi
-print_timestamp "Completed velo-sql build"
-check_status "velo-sql ready"
-
-# Show updated binary info
-print_binary_info "$VELO_BINARY_PATH"
-
-cd demo/trading
 
 # velo-test binary path (uses main project build)
 VELO_TEST_BINARY_PATH="$VELO_BUILD_DIR/velo-test"
@@ -415,19 +434,28 @@ done
 echo -e "${GREEN}✓ Consumer groups reset${NC}"
 
 # Step 8: Build velo-test binary for data generation
-print_step "Step 8: Building velo-test binary"
-cd ../..
-VELO_TEST_BINARY_PATH_BUILD="$BUILD_DIR/velo-test"
-print_binary_info "$VELO_TEST_BINARY_PATH_BUILD"
+print_step "Step 8: Checking velo-test binary"
+if [ -f "../../Cargo.toml" ]; then
+    cd ../..
+    VELO_TEST_BINARY_PATH_BUILD="$BUILD_DIR/velo-test"
+    print_binary_info "$VELO_TEST_BINARY_PATH_BUILD"
 
-print_timestamp "Starting velo-test build..."
-if ! cargo build $BUILD_FLAG --bin velo-test; then
-    echo -e "${RED}✗ Failed to build velo-test${NC}"
-    exit 1
+    print_timestamp "Starting velo-test build..."
+    if ! cargo build $BUILD_FLAG --bin velo-test; then
+        echo -e "${RED}✗ Failed to build velo-test${NC}"
+        exit 1
+    fi
+    print_timestamp "Completed velo-test build"
+    check_status "velo-test ready"
+    cd demo/trading
+else
+    if [ ! -f "$VELO_BUILD_DIR/velo-test" ]; then
+        echo -e "${RED}✗ velo-test not found at $VELO_BUILD_DIR/velo-test${NC}"
+        echo -e "${YELLOW}Ensure binaries are on PATH or in bin/${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ velo-test found at $VELO_BUILD_DIR/velo-test${NC}"
 fi
-print_timestamp "Completed velo-test build"
-check_status "velo-test ready"
-cd demo/trading
 
 # Step 9: Generate data using test harness (schema-aware data generation)
 print_step "Step 9: Starting data generator (velo-test --data-only)"

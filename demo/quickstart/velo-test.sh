@@ -10,8 +10,15 @@ cd "$SCRIPT_DIR"
 # Find velo-test binary
 VELO_TEST="../../target/release/velo-test"
 if [[ ! -x "$VELO_TEST" ]]; then
-    echo "Building velo-test (one-time)..."
-    (cd ../.. && cargo build --release --bin velo-test)
+    if command -v velo-test &>/dev/null; then
+        VELO_TEST="velo-test"
+    elif [[ -f "../../Cargo.toml" ]]; then
+        echo "Building velo-test (one-time)..."
+        (cd ../.. && cargo build --release --bin velo-test)
+    else
+        echo "Error: velo-test not found. Add bin/ to PATH or install velostream."
+        exit 1
+    fi
 fi
 
 # Create output directory

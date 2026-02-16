@@ -52,8 +52,11 @@ if [[ -z "$VELO_TEST" ]]; then
         VELO_TEST="$PROJECT_ROOT/target/release/velo-test"
     elif [[ -x "$PROJECT_ROOT/target/debug/velo-test" ]]; then
         VELO_TEST="$PROJECT_ROOT/target/debug/velo-test"
+    elif command -v velo-test &>/dev/null; then
+        VELO_TEST="$(command -v velo-test)"
     else
         echo "Error: velo-test binary not found. Build with: cargo build --release --bin velo-test"
+        echo "Or add bin/ to PATH."
         exit 1
     fi
 fi

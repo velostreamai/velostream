@@ -25,3 +25,6 @@ demo/trading/deploy/
 measurements.txt
 expected.csv
 1brc_results.csv
+demo/1brc/measurements.txt
+demo/1brc/expected.csv
+demo/1brc/1brc_results.csv
