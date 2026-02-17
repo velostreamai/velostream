@@ -95,6 +95,11 @@ jobs:
           cargo install cross --git https://github.com/cross-rs/cross --locked
         shell: bash
 
+      - name: Clone velo-test (private)
+        run: |
+          git clone https://x-access-token:${{ secrets.VELO_TEST_PAT }}@github.com/velostreamai/velo-test.git ../velo-test
+        shell: bash
+
       - name: Build with cross-rs (Linux ARM64/x86_64 gnu)
         if: matrix.use_cross
         run: |
@@ -104,8 +109,13 @@ jobs:
           # Full clean to avoid any caching issues
           cargo clean
 
-          # Build with cross-rs in Docker container
+          # Build velostream with cross-rs in Docker container
           cross build --release --target ${{ matrix.target }} --locked --no-default-features --verbose
+
+          # Build velo-test with cross-rs
+          cd ../velo-test
+          cross build --release --target ${{ matrix.target }} --locked --verbose
+          cd -
         shell: bash
 
       - name: Install OpenSSL via vcpkg (Windows)
@@ -120,7 +130,13 @@ jobs:
       - name: Build natively (macOS/Windows)
         if: ${{ !matrix.use_cross }}
         run: |
+          # Build velostream
           cargo build --release --target ${{ matrix.target }} --locked --no-default-features
+
+          # Build velo-test
+          cd ../velo-test
+          cargo build --release --target ${{ matrix.target }} --locked
+          cd -
         shell: bash
 
       - name: Create release directory structure
@@ -139,7 +155,7 @@ jobs:
           # Copy all binaries to bin/
           cp target/${{ matrix.target }}/release/velo-sql "$STAGING_DIR/bin/"
           cp target/${{ matrix.target }}/release/velo-cli "$STAGING_DIR/bin/"
-          cp target/${{ matrix.target }}/release/velo-test "$STAGING_DIR/bin/"
+          cp ../velo-test/target/${{ matrix.target }}/release/velo-test "$STAGING_DIR/bin/"
           cp target/${{ matrix.target }}/release/velo-sql-batch "$STAGING_DIR/bin/"
           cp target/${{ matrix.target }}/release/velo-1brc "$STAGING_DIR/bin/"
           cp target/${{ matrix.target }}/release/velo-schema-generator "$STAGING_DIR/bin/" || true
@@ -209,7 +225,7 @@ jobs:
           # Copy all binaries to bin/
           Copy-Item "target\${{ matrix.target }}\release\velo-sql.exe" "$STAGING_DIR\bin\"
           Copy-Item "target\${{ matrix.target }}\release\velo-cli.exe" "$STAGING_DIR\bin\"
-          Copy-Item "target\${{ matrix.target }}\release\velo-test.exe" "$STAGING_DIR\bin\"
+          Copy-Item "..\velo-test\target\${{ matrix.target }}\release\velo-test.exe" "$STAGING_DIR\bin\"
           Copy-Item "target\${{ matrix.target }}\release\velo-sql-batch.exe" "$STAGING_DIR\bin\"
           Copy-Item "target\${{ matrix.target }}\release\velo-1brc.exe" "$STAGING_DIR\bin\"
           Copy-Item "target\${{ matrix.target }}\release\velo-schema-generator.exe" "$STAGING_DIR\bin\" -ErrorAction SilentlyContinue
@@ -265,9 +281,9 @@ jobs:
         run: |
           STAGING_DIR="release-staging/velostream-${{ github.ref_name }}-${{ matrix.target }}"
 
-          # The native binary (macOS) or cross-compiled binary (Linux)
-          if [ -f "target/${{ matrix.target }}/release/velo-test" ]; then
-            VELO_TEST="$(pwd)/target/${{ matrix.target }}/release/velo-test"
+          # Use velo-test from the velo-test build output or staging dir
+          if [ -f "../velo-test/target/${{ matrix.target }}/release/velo-test" ]; then
+            VELO_TEST="$(pwd)/../velo-test/target/${{ matrix.target }}/release/velo-test"
           else
             VELO_TEST="$(pwd)/$STAGING_DIR/bin/velo-test"
           fi
