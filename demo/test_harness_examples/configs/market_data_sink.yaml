@@ -1,9 +1,0 @@
-# Market Data Sink Configuration
-# For Tier 2-4 aggregation outputs
-
-extends: common_kafka_sink.yaml
-
-topic:
-  name: "test_market_data_output"
-
-delivery_profile: balanced
