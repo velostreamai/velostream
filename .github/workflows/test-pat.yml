@@ -1,0 +1,27 @@
+name: Test PAT Access
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  test-clone:
+    name: Test velo-test clone
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check secret exists
+        run: |
+          if [ -z "${{ secrets.VELO_TEST_PAT }}" ]; then
+            echo "VELO_TEST_PAT secret is not set"
+            exit 1
+          fi
+          echo "VELO_TEST_PAT secret is configured"
+
+      - name: Clone velo-test
+        run: |
+          git clone https://x-access-token:${{ secrets.VELO_TEST_PAT }}@github.com/velostreamai/velo-test.git ../velo-test
+          echo "Clone successful"
+          ls -la ../velo-test/
+          echo ""
+          echo "Cargo.toml:"
+          head -10 ../velo-test/Cargo.toml
