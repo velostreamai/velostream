@@ -84,6 +84,139 @@ velo test query.sql --records 10000
 📊 Auto-selected: Geo Heatmap (updating live)
 ```
 
+### Explore Your Data
+
+```
+💬 "Connect to my Kafka at broker1:9092 and show me what's there"
+
+🤖 Connected. Found 12 topics:
+┌──────────────────────────────────────────────────────────────┐
+│ trades           │ 6 partitions │ 1.2M messages             │
+│ orders           │ 3 partitions │ 450K messages             │
+│ customer-events  │ 1 partition  │ 89K messages              │
+│ ...              │              │                            │
+└──────────────────────────────────────────────────────────────┘
+
+💬 "What does the trades topic look like?"
+
+🤖 Inferred schema from 10 samples:
+┌──────────────────────────────────────────────────────────────┐
+│ Field     │ Type     │ Example                               │
+├───────────┼──────────┼───────────────────────────────────────┤
+│ symbol    │ String   │ "AAPL"                                │
+│ price     │ Float    │ 152.34                                │
+│ quantity  │ Integer  │ 5000                                  │
+│ timestamp │ DateTime │ 2026-02-16T10:30:00Z                  │
+└──────────────────────────────────────────────────────────────┘
+
+💬 "Write me a real-time VWAP query"
+
+🤖 Generated (using your actual schema):
+┌──────────────────────────────────────────────────────────────┐
+│ SELECT symbol,                                                │
+│        SUM(price * quantity) / SUM(quantity) as vwap,         │
+│        SUM(quantity) as volume                                │
+│ FROM trades                                                   │
+│ GROUP BY symbol                                               │
+│ WINDOW TUMBLING(INTERVAL '5' MINUTE)                          │
+│ EMIT CHANGES                                                  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+No more guessing field names — the Studio discovers your real data and uses it as context.
+
+### Build Me an App
+
+```
+💬 "Build me a real-time trading analytics app that tracks VWAP,
+    detects volume spikes, and shows top movers"
+
+🤖 Generated "Trading Analytics" — 4 queries, 6 metrics, 2 alerts:
+┌──────────────────────────────────────────────────────────────┐
+│ 📋 Trading Analytics                                         │
+│                                                              │
+│ Queries:                                                     │
+│ 1. VWAP Calculator          trades → trade-vwap              │
+│ 2. Volume Spike Detector    trades → trade-alerts            │
+│ 3. Price Movement Tracker   trades → price-movements         │
+│ 4. Top Movers               price-movements → top-movers     │
+│                                                              │
+│ Dashboard: 6-panel Grafana layout                            │
+│  ┌────────────┬────────────┐                                 │
+│  │ VWAP/Symbol│ Volume/Sym │                                 │
+│  ├────────────┼────────────┤                                 │
+│  │ Volatility │ Top Movers │                                 │
+│  └────────────┴────────────┘                                 │
+│                                                              │
+│              [Edit Queries] [Test All] [Deploy App →]        │
+└──────────────────────────────────────────────────────────────┘
+
+💬 [clicks Test All] → ✅ 4/4 queries passed
+💬 [clicks Deploy App] → 4 jobs running, dashboard live
+```
+
+One sentence → complete streaming application with monitoring.
+
+### Start from a Template
+
+```
+💬 "Show me templates for IoT"
+
+🤖 Found 2 templates:
+┌─────────────────────────────────────────────┐
+│ 🏭 IoT Sensor Monitoring                    │
+│ Sensor health, anomaly detection, fleet     │
+│ aggregation. 5 queries, 8 metrics.          │
+│                          [Preview] [Use →]  │
+├─────────────────────────────────────────────┤
+│ 📡 IoT Fleet Tracker                        │
+│ Device location, connectivity, uptime.      │
+│ 3 queries, 4 metrics.                       │
+│                          [Preview] [Use →]  │
+└─────────────────────────────────────────────┘
+
+💬 [clicks Use on "IoT Sensor Monitoring"]
+💬 "My sensor data is on topic 'factory-sensors' with fields
+    device_id, temperature, humidity, pressure, ts"
+
+🤖 Mapped template to your schema:
+   sensor_id → device_id ✅
+   reading   → temperature ✅ (primary), humidity, pressure (added)
+   timestamp → ts ✅
+
+   Customized 5 queries for your data.
+   [Test All] [Deploy →]
+```
+
+Zero SQL required — pick a template, point it at your data, deploy.
+
+### Any Data Source
+
+```
+# Kafka streaming
+💬 "Connect to kafka://broker1:9092 and show me topics"
+
+# Local files (CSV, JSON, Parquet)
+💬 "Show me the schema of /data/trades.csv"
+
+# High-throughput batch (memory-mapped I/O for large files)
+💬 "Process /data/50gb-events.json using mmap for max performance"
+
+# S3 object storage
+💬 "Connect to s3://analytics-data/events/ — it's Parquet files"
+
+# Database CDC
+💬 "Stream changes from postgres://db:5432/orders_db"
+
+# The Studio adapts SQL generation to each source type:
+# • Kafka: streaming with partitions, consumer groups, schema registry
+# • File/FileMmap: batch or file-watching, format detection
+# • S3: object listing, Parquet metadata, compression
+# • Database: CDC semantics, table listing, schema introspection
+```
+
+One interface for all your data — streaming, batch, and hybrid.
+
 ---
 
 ## Why Velostream?
@@ -287,15 +420,19 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed technical architecture.
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|------------|
-| **Core Engine** | Rust |
-| **Studio Backend** | Rust (Axum) |
-| **Studio Frontend** | Next.js 14, React, TypeScript |
-| **SQL Editor** | Monaco Editor |
-| **Visualization** | Recharts, TanStack Table |
-| **AI** | Claude API (Anthropic) |
-| **Styling** | Tailwind CSS, shadcn/ui |
+| Component | Technology | Role |
+|-----------|------------|------|
+| **Core Engine** | Rust | Streaming SQL execution |
+| **Studio Backend** | Rust (Axum) | REST API, WebSocket streaming |
+| **Studio Frontend** | Next.js 14, React, TypeScript | App shell, routing |
+| **Chat Framework** | assistant-ui | Thread management, streaming, tool results, artifact panels |
+| **Chat UI** | shadcn.io/ai + shadcn/ui | Message bubbles, tool cards, code blocks, theming |
+| **SQL Editor** | Monaco Editor | Velostream syntax highlighting, schema-aware autocomplete |
+| **Visualization** | Recharts | Time series, bar charts, gauges (rendered as artifacts) |
+| **Data Tables** | TanStack Table | Virtual scrolling query results |
+| **Topology** | React Flow | Pipeline DAG visualization |
+| **AI** | Claude API (Anthropic) | NL→SQL, completions, failure analysis |
+| **Styling** | Tailwind CSS | Utility-first CSS |
 
 ---
 
@@ -306,6 +443,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed technical architecture.
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | High-level product architecture |
 | [NOTEBOOK_DESIGN.md](./NOTEBOOK_DESIGN.md) | Detailed Studio/notebook implementation |
 | [API.md](./API.md) | REST API specification |
+| [USER_JOURNEYS.md](./USER_JOURNEYS.md) | User workflows and exploration flows |
 | [TODO.md](./TODO.md) | Implementation tasks and progress |
 | [COMPETITIVE_ANALYSIS.md](./COMPETITIVE_ANALYSIS.md) | Market analysis and positioning |
 
@@ -317,24 +455,33 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed technical architecture.
 |--------|--------|
 | Time to first "wow" | < 30 seconds |
 | NL→SQL success rate | > 90% valid SQL |
+| NL→App generation success | > 85% deployable apps |
+| Template customization time | < 60 seconds |
 | Test feedback loop | < 5 seconds |
 | Notebook → Deploy | < 2 minutes |
 | AI analysis helpfulness | > 70% resolve failures |
+| Proactive suggestion acceptance | > 40% applied |
 
 ---
 
 ## Roadmap
 
+The chat-first architecture with assistant-ui dramatically reduces frontend effort,
+collapsing the original Phases 2-5 into a single phase.
+
 | Phase | Focus | Status |
 |-------|-------|--------|
-| **Phase 1-4** | Studio Backend + Frontend + Editor | 🔧 In Progress |
-| **Phase 5** | AI Features (NL→SQL, Completions) | 📋 Planned |
-| **Phase 6** | Test Harness Integration | 📋 Planned |
-| **Phase 7-8** | Visualization + Observability | 📋 Planned |
-| **Phase 9-10** | Notebook Lifecycle + Deployment | 📋 Planned |
-| **Phase 11** | MCP Server | 📋 Planned |
-| **Phase 12** | AI Black Box Recorder | 📋 Planned |
-| **Phase 13** | Cluster Linker | 📋 Planned |
-| **Phase 14** | Enterprise Features | 📋 Planned |
+| **Phase 1** | Studio Backend (Axum REST API + WebSocket + Exploration) | 📋 Planned |
+| **Phase 1.7** | App Generation & Templates API | 📋 Planned |
+| **Phase 2** | Chat-First Frontend (assistant-ui + shadcn.io/ai + Monaco + Recharts) | 📋 Planned |
+| **Phase 2.9** | App & Template Artifacts (AppPreview, TemplateBrowser) | 📋 Planned |
+| **Phase 3** | Test Harness Integration (FR-084 via tool results) | 📋 Planned |
+| **Phase 4** | Observability + Topology (React Flow, Grafana embed) | 📋 Planned |
+| **Phase 5** | Notebook Lifecycle + Deployment | 📋 Planned |
+| **Phase 6** | AI Proactive Intelligence (suggestions, schema monitoring) | 📋 Planned |
+
+> **Note**: MCP Server, AI Black Box Recorder, Cluster Linker, and Enterprise Features
+> are separate product initiatives — see [ARCHITECTURE.md](./ARCHITECTURE.md) for the
+> full product portfolio roadmap.
 
 See [TODO.md](./TODO.md) for detailed task breakdown.

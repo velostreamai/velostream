@@ -2,97 +2,106 @@
 
 ## Overview
 
-This document details the technical architecture for Velostream SQL Studio, an AI-powered notebook interface for streaming SQL development with integrated test harness support.
+This document details the technical architecture for Velostream SQL Studio, an AI-powered
+**chat-first** interface for streaming SQL development with integrated test harness support.
+
+The key insight: instead of building a traditional cell-based notebook with a secondary
+chat input, the Studio is a **conversation thread** where AI responses produce **artifacts**
+— editable SQL queries, live charts, test results, and deployment summaries. This is
+powered by [assistant-ui](https://github.com/Yonom/assistant-ui) (open-source chat
+framework) and [shadcn.io/ai](https://sdk.vercel.ai/docs) (chat-specific UI components).
 
 ---
 
 ## Core Concepts
 
-### Notebook Model
+### Thread Model (replaces Notebook Model)
+
+The conversation thread IS the notebook. Each user message is a prompt, and each AI
+response contains tool calls that produce artifacts.
 
 ```typescript
-interface Notebook {
+// assistant-ui provides Thread, Message, and ToolResult types.
+// We extend them with Velostream-specific artifact types.
+
+// A Velostream "notebook" is persisted as a thread with metadata
+interface VelostreamThread {
   id: string;
   name: string;
-  cells: Cell[];
-  context: NotebookContext;
-  metadata: NotebookMetadata;
+  threadId: string;           // assistant-ui thread ID
+  context: ThreadContext;     // accumulated sources, metrics, alerts
+  metadata: ThreadMetadata;
 }
 
-interface Cell {
-  id: string;
-  type: 'sql' | 'markdown' | 'insight';
-
-  // The natural language prompt that created this cell
-  nlPrompt?: string;
-
-  // SQL content (editable)
-  sql?: string;
-
-  // Parsed annotations
-  annotations: SqlAnnotations;
-
-  // Last execution results
-  results?: CellResults;
-
-  // Test configuration
-  testConfig?: CellTestConfig;
-
-  // Visualization config (auto-inferred or manual)
-  vizConfig?: VizConfig;
-}
-
-interface NotebookContext {
-  // Accumulated from all cells
+// Accumulated context from all tool results in the thread
+interface ThreadContext {
   sources: Map<string, SourceConfig>;
   sinks: Map<string, SinkConfig>;
   metrics: MetricAnnotation[];
   alerts: AlertAnnotation[];
-
-  // Schemas (auto-inferred or user-defined)
   schemas: Map<string, DataSchema>;
 
-  // Cell dependencies (for execution order)
-  dependencies: CellDependency[];
+  // Data source connections — supports Kafka, File, FileMmap, S3, ClickHouse, Database
+  // Multiple connections can coexist (e.g., Kafka + S3 for hybrid pipelines)
+  connections: Map<string, DataSourceConnection>;
+
+  // App generation state (set by generate_app / customize_template tools)
+  app?: {
+    id: string;
+    name: string;
+    queries: AppQuery[];
+    dashboard?: DashboardLayout;
+    templateId?: string;         // if created from a template
+  };
+}
+
+// Tool result artifacts rendered in the chat thread
+type ArtifactType =
+  | 'sql-editor'         // Monaco editor with editable SQL
+  | 'query-results'      // Table or chart with live data
+  | 'test-results'       // Pass/fail assertions with AI analysis
+  | 'deploy-summary'     // Jobs, metrics, alerts, dashboard link
+  | 'topology'           // React Flow pipeline DAG
+  | 'schema-viewer'      // Data schema display
+  | 'topic-list'         // Topic grid with partition/message counts
+  | 'data-preview'       // Formatted JSON messages with metadata
+  | 'app-preview'        // Multi-query app with queries, metrics, alerts, dashboard, topology
+  | 'template-browser';  // Template library grid with categories, descriptions, preview
+
+interface Artifact {
+  type: ArtifactType;
+  data: unknown;        // type-specific payload
+  editable: boolean;    // can the user modify this artifact?
 }
 ```
 
-### Cell Lifecycle
+### Interaction Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         CELL LIFECYCLE                                   │
+│                    CHAT-FIRST INTERACTION FLOW                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  1. CREATE                                                              │
-│     ├─ User types NL prompt                                             │
-│     ├─ AI generates SQL (with notebook context)                         │
-│     ├─ SQL validated                                                    │
-│     ├─ Annotations parsed (@metric, @alert)                             │
-│     └─ Visualization type inferred                                      │
+│  1. USER MESSAGE                                                        │
+│     └─ "Show me trading volume by symbol for the last hour"             │
 │                                                                         │
-│  2. EDIT                                                                │
-│     ├─ User modifies SQL in Monaco                                      │
-│     ├─ AI completions suggest as typing                                 │
-│     ├─ Re-validate on change                                            │
-│     └─ Re-infer visualization if columns change                         │
+│  2. AI RESPONSE (streamed via assistant-ui)                             │
+│     ├─ Text: "I'll create a windowed aggregation query..."              │
+│     └─ Tool call: generate_sql(prompt, context)                         │
+│        └─ Tool result → SQL Editor artifact (editable)                  │
 │                                                                         │
-│  3. RUN                                                                 │
-│     ├─ Generate synthetic data (if no live source)                      │
-│     ├─ Execute SQL via backend                                          │
-│     ├─ Stream results via WebSocket                                     │
-│     └─ Render visualization                                             │
+│  3. USER INTERACTION WITH ARTIFACT                                      │
+│     ├─ [Edit] → Opens Monaco editor inline                              │
+│     ├─ [Run]  → Tool call: execute_query(sql)                           │
+│     │   └─ Tool result → Chart/Table artifact (live streaming)          │
+│     ├─ [Test] → Tool call: test_query(sql, schema, assertions)          │
+│     │   └─ Tool result → Test Results artifact (pass/fail)              │
+│     └─ [Deploy] → Tool call: deploy_pipeline(notebook_id)               │
+│         └─ Tool result → Deploy Summary artifact                        │
 │                                                                         │
-│  4. TEST                                                                │
-│     ├─ Generate test data via velo-test harness                         │
-│     ├─ Execute SQL                                                      │
-│     ├─ Run assertions                                                   │
-│     ├─ Show pass/fail with AI analysis                                  │
-│     └─ Suggest fixes if failed                                          │
-│                                                                         │
-│  5. DELETE                                                              │
-│     ├─ Remove from notebook                                             │
-│     └─ Update context (remove sources/sinks/metrics)                    │
+│  4. FOLLOW-UP MESSAGE                                                   │
+│     └─ "Add a filter for volume > 1000"                                 │
+│     └─ AI sees previous artifacts as context, generates updated SQL     │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -101,89 +110,116 @@ interface NotebookContext {
 
 ## Frontend Architecture
 
+### Design Principle: Build on assistant-ui, Don't Reinvent
+
+assistant-ui provides the chat thread, streaming, message rendering, and tool-result
+framework. We focus on building **artifact renderers** (SQL editor, charts, test results)
+and **tool definitions** (the bridge between chat and backend API).
+
+What assistant-ui handles for us (skip building):
+- Chat message rendering with markdown
+- Streaming text display (typewriter effect)
+- Tool call / tool result rendering pipeline
+- Thread state management (messages, branches, edits)
+- Input composition with attachments
+- Message editing and regeneration
+
+What we build:
+- Artifact renderers (Monaco, Recharts, TanStack Table, React Flow)
+- Tool definitions (validate, execute, test, deploy → backend API calls)
+- Velostream-specific UI (pipeline topology, deploy wizard, schema viewer)
+- WebSocket integration for live streaming query results
+
 ### Project Structure
 
 ```
 studio/
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx                    # Main notebook view
-│   │   ├── notebooks/
-│   │   │   ├── page.tsx                # Notebook list
-│   │   │   └── [id]/page.tsx           # Single notebook
+│   │   ├── layout.tsx                   # Root layout with assistant-ui provider
+│   │   ├── page.tsx                     # Thread list (saved notebooks)
+│   │   ├── thread/
+│   │   │   └── [id]/page.tsx            # Single thread = notebook
 │   │   ├── pipelines/
-│   │   │   ├── page.tsx                # Deployed pipelines list
-│   │   │   └── [id]/page.tsx           # Pipeline detail
-│   │   └── api/                        # Next.js API routes (proxy)
+│   │   │   ├── page.tsx                 # Deployed pipelines list
+│   │   │   └── [id]/page.tsx            # Pipeline detail
+│   │   └── api/                         # Next.js API routes (proxy to Axum)
 │   │
 │   ├── components/
-│   │   ├── notebook/
-│   │   │   ├── NotebookView.tsx        # Main notebook container
-│   │   │   ├── Cell.tsx                # Single cell component
-│   │   │   ├── CellHeader.tsx          # NL prompt display
-│   │   │   ├── CellEditor.tsx          # Monaco SQL editor
-│   │   │   ├── CellResults.tsx         # Results table/chart
-│   │   │   ├── CellControls.tsx        # Run/Test/Delete buttons
-│   │   │   ├── CellTestResults.tsx     # Inline test results
-│   │   │   └── NotebookSummary.tsx     # Accumulated metrics/alerts
-│   │   │
 │   │   ├── chat/
-│   │   │   ├── ChatInput.tsx           # NL input with send button
-│   │   │   ├── ChatSuggestions.tsx     # Quick action suggestions
-│   │   │   └── StreamingResponse.tsx   # Typewriter effect for AI
+│   │   │   ├── ThreadProvider.tsx       # assistant-ui runtime config + tools
+│   │   │   ├── ThreadView.tsx           # Main chat + artifact split view
+│   │   │   ├── AssistantMessage.tsx     # Custom AI message with tool results
+│   │   │   └── Suggestions.tsx          # Quick action chips
+│   │   │
+│   │   ├── artifacts/                   # Tool result renderers
+│   │   │   ├── SqlEditorArtifact.tsx    # Monaco editor (editable, run/test buttons)
+│   │   │   ├── QueryResultsArtifact.tsx # Chart or table (auto-selected)
+│   │   │   ├── TestResultsArtifact.tsx  # Pass/fail with AI analysis
+│   │   │   ├── DeploySummaryArtifact.tsx # Jobs, metrics, dashboard link
+│   │   │   ├── TopologyArtifact.tsx     # React Flow pipeline DAG
+│   │   │   ├── SchemaViewerArtifact.tsx # Schema display with field types
+│   │   │   ├── TopicListArtifact.tsx    # Topic grid (partition/message counts)
+│   │   │   ├── DataPreviewArtifact.tsx  # JSON message viewer with metadata
+│   │   │   ├── AppPreviewArtifact.tsx   # Multi-query app preview (queries/dashboard/topology)
+│   │   │   └── TemplateBrowserArtifact.tsx # Template library with categories and search
 │   │   │
 │   │   ├── editor/
-│   │   │   ├── SqlEditor.tsx           # Monaco wrapper
-│   │   │   ├── CompletionProvider.tsx  # AI completions
-│   │   │   └── AnnotationHighlight.tsx # @metric highlighting
+│   │   │   ├── SqlEditor.tsx            # Monaco wrapper with Velostream syntax
+│   │   │   └── CompletionProvider.tsx   # AI-powered inline completions
 │   │   │
 │   │   ├── viz/
-│   │   │   ├── VizRenderer.tsx         # Auto-select chart type
-│   │   │   ├── BarChart.tsx            # Categorical data
-│   │   │   ├── LineChart.tsx           # Time series
-│   │   │   ├── GaugeChart.tsx          # Single metrics
-│   │   │   ├── DataTable.tsx           # TanStack table
-│   │   │   └── GrafanaEmbed.tsx        # Iframe embed
+│   │   │   ├── VizRenderer.tsx          # Auto-select chart type from query metadata
+│   │   │   ├── BarChart.tsx             # Categorical data
+│   │   │   ├── LineChart.tsx            # Time series
+│   │   │   ├── GaugeChart.tsx           # Single metrics
+│   │   │   ├── DataTable.tsx            # TanStack virtual table
+│   │   │   └── GrafanaEmbed.tsx         # Iframe embed for deployed dashboards
 │   │   │
 │   │   ├── test/
-│   │   │   ├── TestDialog.tsx          # Configure test run
-│   │   │   ├── SchemaEditor.tsx        # Edit data schema
-│   │   │   ├── AssertionBuilder.tsx    # Add assertions
-│   │   │   └── TestReport.tsx          # Full test report
+│   │   │   ├── TestDialog.tsx           # Configure schema, records, assertions
+│   │   │   └── TestReport.tsx           # Detailed test report view
 │   │   │
 │   │   └── deploy/
-│   │       ├── DeployDialog.tsx        # Deployment wizard
-│   │       ├── DeployPreview.tsx       # What will be deployed
-│   │       ├── DashboardPreview.tsx    # Grafana preview
-│   │       └── PipelineStatus.tsx      # Running jobs status
+│   │       ├── DeployDialog.tsx         # Deployment wizard
+│   │       └── PipelineStatus.tsx       # Running jobs status
 │   │
 │   ├── lib/
-│   │   ├── api/
-│   │   │   ├── client.ts               # API client
-│   │   │   ├── notebooks.ts            # Notebook CRUD
-│   │   │   ├── execute.ts              # Query execution
-│   │   │   ├── test.ts                 # Test harness API
-│   │   │   └── deploy.ts               # Deployment API
+│   │   ├── tools/                       # assistant-ui tool definitions
+│   │   │   ├── validate-sql.ts          # POST /api/validate
+│   │   │   ├── generate-sql.ts          # POST /api/nl-to-sql
+│   │   │   ├── execute-query.ts         # POST /api/execute
+│   │   │   ├── test-query.ts            # POST /api/test
+│   │   │   ├── deploy-pipeline.ts       # POST /api/deploy
+│   │   │   ├── generate-data.ts         # POST /api/generate-data
+│   │   │   ├── connect-source.ts         # POST /api/connect (Kafka, File, S3, DB)
+│   │   │   ├── list-sources.ts          # GET /api/sources (topics/files/tables)
+│   │   │   ├── inspect-source.ts        # GET /api/sources/{id}/schema
+│   │   │   ├── peek-source.ts           # GET /api/sources/{id}/preview
+│   │   │   ├── generate-app.ts          # POST /api/generate-app
+│   │   │   ├── test-app.ts              # POST /api/apps/{id}/test
+│   │   │   ├── deploy-app.ts            # POST /api/apps/{id}/deploy
+│   │   │   ├── list-templates.ts        # GET /api/templates
+│   │   │   ├── get-template.ts          # GET /api/templates/{id}
+│   │   │   ├── customize-template.ts    # POST /api/templates/{id}/customize
+│   │   │   └── analyze.ts              # POST /api/analyze, /api/analyze/annotations
 │   │   │
-│   │   ├── ai/
-│   │   │   ├── completions.ts          # Monaco completion provider
-│   │   │   ├── nl-to-sql.ts            # NL→SQL generation
-│   │   │   └── prompts.ts              # System prompts
+│   │   ├── api/
+│   │   │   ├── client.ts                # Base API client
+│   │   │   └── websocket.ts             # WebSocket for streaming results
 │   │   │
 │   │   ├── viz/
-│   │   │   ├── infer-chart.ts          # Chart type inference
-│   │   │   └── transform-data.ts       # Data transformation
+│   │   │   ├── infer-chart.ts           # Chart type inference from query metadata
+│   │   │   └── transform-data.ts        # Data transformation for charts
 │   │   │
-│   │   └── notebook/
-│   │       ├── context.ts              # Notebook context management
-│   │       ├── annotations.ts          # Parse @metric, @alert
-│   │       └── dependencies.ts         # Cell dependency graph
+│   │   └── context/
+│   │       ├── thread-context.ts        # Accumulate sources/metrics from thread
+│   │       └── annotations.ts           # Parse @metric, @alert from SQL
 │   │
 │   └── hooks/
-│       ├── useNotebook.ts              # Notebook state management
-│       ├── useCell.ts                  # Cell state management
-│       ├── useWebSocket.ts             # Streaming results
-│       └── useAiCompletion.ts          # AI completion hook
+│       ├── useStreamingResults.ts       # WebSocket hook for live query data
+│       ├── useArtifactActions.ts        # Edit/Run/Test/Deploy actions on artifacts
+│       └── useProactiveSuggestions.ts   # Trigger AI analysis after key events
 │
 ├── package.json
 ├── tailwind.config.js
@@ -192,236 +228,887 @@ studio/
 
 ### Key Components
 
-#### NotebookView.tsx
+#### ThreadProvider.tsx — assistant-ui Runtime Configuration
 
 ```typescript
 'use client';
 
-import { useNotebook } from '@/hooks/useNotebook';
-import { Cell } from './Cell';
-import { ChatInput } from '../chat/ChatInput';
-import { NotebookSummary } from './NotebookSummary';
-import { DeployButton } from '../deploy/DeployButton';
+import { AssistantRuntimeProvider } from '@assistant-ui/react';
+import { useVercelUseChat } from '@assistant-ui/react-ai-sdk';
+import { useChat } from 'ai/react';
+import { velostreamTools } from '@/lib/tools';
 
-export function NotebookView({ notebookId }: { notebookId: string }) {
-  const {
-    notebook,
-    cells,
-    context,
-    addCell,
-    updateCell,
-    deleteCell,
-    runCell,
-    testCell,
-  } = useNotebook(notebookId);
+export function ThreadProvider({ children, threadId }: {
+  children: React.ReactNode;
+  threadId?: string;
+}) {
+  // Connect to Velostream backend via Vercel AI SDK adapter
+  const chat = useChat({
+    api: '/api/chat',       // Next.js proxy → Axum backend
+    id: threadId,
+    maxSteps: 5,            // Allow multi-step tool chains
+  });
 
-  const handleNlSubmit = async (prompt: string) => {
-    // AI generates SQL from prompt with full notebook context
-    const response = await fetch('/api/nl-to-sql', {
-      method: 'POST',
-      body: JSON.stringify({
-        prompt,
-        context: {
-          previousCells: cells.map(c => ({ sql: c.sql, results: c.results })),
-          schemas: context.schemas,
-          sources: context.sources,
-        },
-      }),
-    });
-
-    const { sql, annotations, vizType } = await response.json();
-
-    addCell({
-      type: 'sql',
-      nlPrompt: prompt,
-      sql,
-      annotations,
-      vizConfig: { type: vizType },
-    });
-  };
+  const runtime = useVercelUseChat(chat);
 
   return (
-    <div className="flex flex-col h-screen">
-      {/* Header */}
-      <header className="border-b p-4 flex justify-between items-center">
-        <h1 className="text-xl font-semibold">{notebook.name}</h1>
-        <DeployButton notebook={notebook} context={context} />
-      </header>
+    <AssistantRuntimeProvider runtime={runtime}>
+      {children}
+    </AssistantRuntimeProvider>
+  );
+}
+```
 
-      {/* Cells */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {cells.map((cell) => (
-          <Cell
-            key={cell.id}
-            cell={cell}
-            onUpdate={(updates) => updateCell(cell.id, updates)}
-            onDelete={() => deleteCell(cell.id)}
-            onRun={() => runCell(cell.id)}
-            onTest={() => testCell(cell.id)}
+#### ThreadView.tsx — Split Chat + Artifact Layout
+
+```typescript
+'use client';
+
+import { Thread, ThreadMessages, Composer } from '@assistant-ui/react';
+import { AssistantMessage } from './AssistantMessage';
+import { Suggestions } from './Suggestions';
+
+export function ThreadView() {
+  return (
+    <div className="flex h-screen">
+      {/* Chat Panel (left) */}
+      <div className="w-1/2 flex flex-col border-r">
+        <Thread>
+          <ThreadMessages
+            components={{
+              AssistantMessage: AssistantMessage,
+            }}
           />
-        ))}
+          <Suggestions />
+          <Composer placeholder="Describe your streaming query..." />
+        </Thread>
       </div>
 
-      {/* Notebook Summary */}
-      <NotebookSummary context={context} />
-
-      {/* Chat Input */}
-      <div className="border-t p-4">
-        <ChatInput onSubmit={handleNlSubmit} />
+      {/* Artifact Panel (right) — shows the active/selected artifact */}
+      <div className="w-1/2 flex flex-col">
+        <ArtifactPanel />
       </div>
     </div>
   );
 }
 ```
 
-#### Cell.tsx
+#### SqlEditorArtifact.tsx — Monaco as a Tool Result
 
 ```typescript
 'use client';
 
 import { useState } from 'react';
-import { CellHeader } from './CellHeader';
-import { CellEditor } from './CellEditor';
-import { CellResults } from './CellResults';
-import { CellControls } from './CellControls';
-import { CellTestResults } from './CellTestResults';
-import type { Cell as CellType } from '@/types';
+import { SqlEditor } from '../editor/SqlEditor';
+import { Button } from '@/components/ui/button';
 
-interface CellProps {
-  cell: CellType;
-  onUpdate: (updates: Partial<CellType>) => void;
-  onDelete: () => void;
-  onRun: () => Promise<void>;
-  onTest: () => Promise<void>;
+interface SqlEditorArtifactProps {
+  sql: string;
+  annotations: SqlAnnotations;
+  explanation: string;
+  onRun: (sql: string) => Promise<void>;
+  onTest: (sql: string) => Promise<void>;
 }
 
-export function Cell({ cell, onUpdate, onDelete, onRun, onTest }: CellProps) {
+// Rendered inside the chat thread as a tool result
+export function SqlEditorArtifact({
+  sql: initialSql,
+  annotations,
+  explanation,
+  onRun,
+  onTest,
+}: SqlEditorArtifactProps) {
+  const [sql, setSql] = useState(initialSql);
   const [isEditing, setIsEditing] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
-  const [isTesting, setIsTesting] = useState(false);
-
-  const handleRun = async () => {
-    setIsRunning(true);
-    try {
-      await onRun();
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const handleTest = async () => {
-    setIsTesting(true);
-    try {
-      await onTest();
-    } finally {
-      setIsTesting(false);
-    }
-  };
 
   return (
     <div className="border rounded-lg bg-card">
-      {/* NL Prompt Header */}
-      {cell.nlPrompt && (
-        <CellHeader prompt={cell.nlPrompt} />
-      )}
+      {/* Explanation from AI */}
+      <div className="p-3 text-sm text-muted-foreground border-b">
+        {explanation}
+      </div>
 
-      {/* SQL Editor */}
-      <CellEditor
-        sql={cell.sql || ''}
-        isEditing={isEditing}
-        annotations={cell.annotations}
-        onSqlChange={(sql) => onUpdate({ sql })}
-        onToggleEdit={() => setIsEditing(!isEditing)}
+      {/* Monaco SQL Editor */}
+      <SqlEditor
+        sql={sql}
+        readOnly={!isEditing}
+        annotations={annotations}
+        onChange={setSql}
       />
 
-      {/* Controls */}
-      <CellControls
-        isRunning={isRunning}
-        isTesting={isTesting}
-        onEdit={() => setIsEditing(true)}
-        onRun={handleRun}
-        onTest={handleTest}
-        onDelete={onDelete}
-      />
-
-      {/* Results (Chart or Table) */}
-      {cell.results && (
-        <CellResults
-          results={cell.results}
-          vizConfig={cell.vizConfig}
-        />
-      )}
-
-      {/* Test Results (inline) */}
-      {cell.testResults && (
-        <CellTestResults results={cell.testResults} />
-      )}
+      {/* Action buttons */}
+      <div className="flex gap-2 p-2 border-t">
+        <Button variant="outline" size="sm"
+          onClick={() => setIsEditing(!isEditing)}>
+          {isEditing ? 'Done' : 'Edit'}
+        </Button>
+        <Button size="sm" onClick={() => onRun(sql)}>
+          Run
+        </Button>
+        <Button variant="secondary" size="sm"
+          onClick={() => onTest(sql)}>
+          Test
+        </Button>
+      </div>
     </div>
   );
 }
 ```
 
-#### Monaco AI Completions
+#### Tool Definitions (assistant-ui ↔ Backend API Bridge)
 
 ```typescript
-// lib/ai/completions.ts
+// lib/tools/generate-sql.ts
+// Registered as an assistant-ui tool — the AI calls this to generate SQL
+
+import { tool } from 'ai';
+import { z } from 'zod';
+
+export const generateSqlTool = tool({
+  description: 'Generate Velostream streaming SQL from a natural language description',
+  parameters: z.object({
+    prompt: z.string().describe('Natural language description of the query'),
+    context: z.object({
+      schemas: z.record(z.any()).optional(),
+      previousSql: z.array(z.string()).optional(),
+    }).optional(),
+  }),
+  execute: async ({ prompt, context }) => {
+    const response = await fetch('/api/nl-to-sql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, context }),
+    });
+    return response.json();
+    // Returns: { sql, explanation, suggestedVizType, annotations, validation }
+    // Rendered by SqlEditorArtifact
+  },
+});
+
+// lib/tools/execute-query.ts
+export const executeQueryTool = tool({
+  description: 'Execute a Velostream SQL query and return results',
+  parameters: z.object({
+    sql: z.string().describe('The SQL query to execute'),
+    options: z.object({
+      timeout_ms: z.number().optional(),
+      max_rows: z.number().optional(),
+    }).optional(),
+  }),
+  execute: async ({ sql, options }) => {
+    const response = await fetch('/api/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql, options }),
+    });
+    return response.json();
+    // Returns: { columns, rows, metadata }
+    // Rendered by QueryResultsArtifact
+  },
+});
+
+// lib/tools/test-query.ts
+export const testQueryTool = tool({
+  description: 'Test a SQL query with synthetic data and assertions',
+  parameters: z.object({
+    sql: z.string(),
+    schema: z.any().optional(),
+    records: z.number().optional(),
+    assertions: z.array(z.any()).optional(),
+  }),
+  execute: async (params) => {
+    const response = await fetch('/api/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return response.json();
+    // Returns: { passed, assertions, output, performance, ai_analysis }
+    // Rendered by TestResultsArtifact
+  },
+});
+```
+
+#### Data Source Exploration Tool Definitions
+
+```typescript
+// lib/tools/connect-source.ts
+// Connects to any supported data source — Kafka, File, FileMmap, S3, ClickHouse, Database
+
+export const connectSourceTool = tool({
+  description: 'Connect to a data source (Kafka, File, FileMmap, S3, ClickHouse, or Database)',
+  parameters: z.object({
+    uri: z.string().describe('Source URI (e.g., kafka://broker:9092, file:///data/trades.csv, s3://bucket/prefix)'),
+    type: z.enum(['kafka', 'file', 'file_mmap', 's3', 'clickhouse', 'database']).optional()
+      .describe('Source type (auto-detected from URI scheme if omitted)'),
+    format: z.enum(['json', 'csv', 'jsonl', 'parquet', 'avro', 'orc', 'protobuf']).optional()
+      .describe('Data format (for file-based sources)'),
+    options: z.record(z.string()).optional()
+      .describe('Source-specific options (region, delimiter, header, schema_registry_url, etc.)'),
+  }),
+  execute: async ({ uri, type, format, options }) => {
+    const response = await fetch('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uri, type, options: { ...options, format } }),
+    });
+    return response.json();
+    // Returns: { connected, source_id, uri, type, details }
+    // Updates ThreadContext.connections
+  },
+});
+
+// lib/tools/list-sources.ts
+// Lists available data items (topics for Kafka, files for File/S3, tables for DB)
+
+export const listSourcesTool = tool({
+  description: 'List available data (Kafka topics, files, database tables) on connected source',
+  parameters: z.object({
+    source_id: z.string().optional().describe('Source connection ID (uses default if omitted)'),
+    filter: z.string().optional().describe('Filter by name substring'),
+  }),
+  execute: async ({ source_id, filter }) => {
+    const params = new URLSearchParams();
+    if (source_id) params.set('source_id', source_id);
+    if (filter) params.set('filter', filter);
+    const response = await fetch(`/api/sources?${params}`);
+    return response.json();
+    // Returns: { items: [{ name, type, details }], total }
+    // Rendered by TopicListArtifact (generic — works for topics, files, tables)
+  },
+});
+
+// lib/tools/inspect-source.ts
+// Infers schema from any source by sampling data
+
+export const inspectSourceTool = tool({
+  description: 'Inspect a data source to discover its schema and sample data',
+  parameters: z.object({
+    source_id: z.string().describe('Source connection ID'),
+    name: z.string().optional().describe('Specific item name (topic, file, table)'),
+    maxRecords: z.number().optional().describe('Records to sample (default: 10)'),
+  }),
+  execute: async ({ source_id, name, maxRecords }) => {
+    const params = new URLSearchParams();
+    if (maxRecords) params.set('max_records', String(maxRecords));
+    const path = name ? `/api/sources/${source_id}/schema?name=${encodeURIComponent(name)}` : `/api/sources/${source_id}/schema`;
+    const response = await fetch(`${path}${params.toString() ? '&' + params.toString() : ''}`);
+    return response.json();
+    // Returns: { source, fields, sample_value, records_sampled }
+    // Rendered by SchemaViewerArtifact
+  },
+});
+
+// lib/tools/peek-source.ts
+// Previews data from any source (messages for Kafka, rows for files/DB)
+
+export const peekSourceTool = tool({
+  description: 'Preview data from a source (messages, rows, or records)',
+  parameters: z.object({
+    source_id: z.string().describe('Source connection ID'),
+    name: z.string().optional().describe('Specific item name (topic, file, table)'),
+    limit: z.number().optional().describe('Number of records (default: 10)'),
+    fromEnd: z.boolean().optional().describe('Read from latest/end (default: true, Kafka only)'),
+  }),
+  execute: async ({ source_id, name, limit, fromEnd }) => {
+    const params = new URLSearchParams();
+    if (name) params.set('name', name);
+    if (limit) params.set('limit', String(limit));
+    if (fromEnd !== undefined) params.set('from_end', String(fromEnd));
+    const response = await fetch(`/api/sources/${source_id}/preview?${params}`);
+    return response.json();
+    // Returns: { source, records: [...], format }
+    // Rendered by DataPreviewArtifact
+  },
+});
+```
+
+> **Note**: The Kafka-specific tools (`list_topics`, `inspect_topic`, `peek_messages`)
+> are retained as convenience aliases that delegate to the generic source tools when
+> a Kafka connection is the default. This ensures backward compatibility with Journey 1.
+
+#### TopicListArtifact.tsx — Topic Discovery Grid
+
+```typescript
+'use client';
+
+interface TopicListArtifactProps {
+  topics: Array<{
+    name: string;
+    partitions: Array<{ partition: number; message_count: number }>;
+    total_messages: number;
+    is_test_topic: boolean;
+  }>;
+  onInspect: (topicName: string) => void;
+  onPeek: (topicName: string) => void;
+}
+
+export function TopicListArtifact({ topics, onInspect, onPeek }: TopicListArtifactProps) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
+      {topics.map((topic) => (
+        <div key={topic.name} className="border rounded-lg p-3 hover:bg-accent/50">
+          <div className="flex justify-between items-start">
+            <div>
+              <h4 className="font-mono font-medium">{topic.name}</h4>
+              <p className="text-sm text-muted-foreground mt-1">
+                {topic.partitions.length} partitions ·{' '}
+                {topic.total_messages.toLocaleString()} messages
+              </p>
+            </div>
+            {topic.is_test_topic && (
+              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">
+                test
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2 mt-2">
+            <Button variant="outline" size="xs" onClick={() => onInspect(topic.name)}>
+              Schema
+            </Button>
+            <Button variant="outline" size="xs" onClick={() => onPeek(topic.name)}>
+              Peek
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+#### DataPreviewArtifact.tsx — Message Viewer
+
+```typescript
+'use client';
+
+interface DataPreviewArtifactProps {
+  topic: string;
+  messages: Array<{
+    partition: number;
+    offset: number;
+    key: string | null;
+    value: string;       // JSON string
+    timestamp_ms: number | null;
+    headers: Array<[string, string]>;
+  }>;
+}
+
+export function DataPreviewArtifact({ topic, messages }: DataPreviewArtifactProps) {
+  return (
+    <div className="border rounded-lg">
+      <div className="p-3 border-b bg-muted/50">
+        <h4 className="font-mono text-sm">{topic}</h4>
+        <p className="text-xs text-muted-foreground">
+          {messages.length} messages
+        </p>
+      </div>
+      <div className="divide-y max-h-96 overflow-y-auto">
+        {messages.map((msg, i) => (
+          <div key={i} className="p-3">
+            <div className="flex gap-3 text-xs text-muted-foreground mb-1">
+              <span>P{msg.partition}</span>
+              <span>offset {msg.offset}</span>
+              {msg.key && <span>key: {msg.key}</span>}
+              {msg.timestamp_ms && (
+                <span>{new Date(msg.timestamp_ms).toISOString()}</span>
+              )}
+            </div>
+            <pre className="text-sm font-mono bg-muted/30 rounded p-2 overflow-x-auto">
+              {JSON.stringify(JSON.parse(msg.value), null, 2)}
+            </pre>
+            {msg.headers.length > 0 && (
+              <div className="text-xs text-muted-foreground mt-1">
+                headers: {msg.headers.map(([k, v]) => `${k}=${v}`).join(', ')}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+#### App Generation Tool Definitions
+
+```typescript
+// lib/tools/generate-app.ts
+import { tool } from 'ai';
+import { z } from 'zod';
+
+// Generates a multi-query application from a natural language description
+// The AI analyzes the prompt, inspects connected data sources, and produces
+// a coordinated set of SQL queries with metrics, alerts, dashboard, and topology
+export const generateAppTool = tool({
+  description: 'Generate a complete multi-query streaming application from a natural language description',
+  parameters: z.object({
+    prompt: z.string().describe('Natural language description of the desired application'),
+    include_dashboard: z.boolean().default(true),
+    include_alerts: z.boolean().default(true),
+    max_queries: z.number().default(10),
+  }),
+  execute: async ({ prompt, include_dashboard, include_alerts, max_queries }) => {
+    const response = await fetch('/api/generate-app', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        options: { include_dashboard, include_alerts, include_topology: true, max_queries },
+      }),
+    });
+    const { app } = await response.json();
+    return {
+      artifact: { type: 'app-preview' as const, data: app, editable: true },
+      text: `Generated "${app.name}" with ${app.queries.length} queries, ${app.queries.flatMap(q => q.metrics).length} metrics, and ${app.queries.flatMap(q => q.alerts).length} alerts.`,
+    };
+  },
+});
+
+// Tests all queries in an app with coordinated synthetic data
+export const testAppTool = tool({
+  description: 'Test all queries in an application with coordinated synthetic data',
+  parameters: z.object({
+    app_id: z.string().describe('The app ID to test'),
+    records_per_source: z.number().default(1000),
+    seed: z.number().optional(),
+  }),
+  execute: async ({ app_id, records_per_source, seed }) => {
+    const response = await fetch(`/api/apps/${app_id}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records_per_source, seed, timeout_ms: 60000 }),
+    });
+    const result = await response.json();
+    return {
+      artifact: { type: 'test-results' as const, data: result, editable: false },
+      text: result.passed
+        ? `All ${result.total_queries} queries passed.`
+        : `${result.passed_queries}/${result.total_queries} queries passed. See details below.`,
+    };
+  },
+});
+
+// Deploys all queries in an app as coordinated Velostream jobs
+export const deployAppTool = tool({
+  description: 'Deploy all queries in an application as coordinated streaming jobs with metrics, alerts, and dashboard',
+  parameters: z.object({
+    app_id: z.string().describe('The app ID to deploy'),
+    name: z.string().describe('Deployment name'),
+    deploy_dashboard: z.boolean().default(true),
+    deploy_alerts: z.boolean().default(true),
+  }),
+  execute: async ({ app_id, name, deploy_dashboard, deploy_alerts }) => {
+    const response = await fetch(`/api/apps/${app_id}/deploy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, deploy_dashboard, deploy_alerts }),
+    });
+    const { deployment } = await response.json();
+    return {
+      artifact: { type: 'deploy-summary' as const, data: deployment, editable: false },
+      text: `Deployed "${name}" — ${deployment.jobs.length} jobs running. Dashboard: ${deployment.dashboard_url}`,
+    };
+  },
+});
+```
+
+#### Template Tool Definitions
+
+```typescript
+// lib/tools/templates.ts
+import { tool } from 'ai';
+import { z } from 'zod';
+
+// Browse available application templates
+export const listTemplatesTool = tool({
+  description: 'List available application templates, optionally filtered by category',
+  parameters: z.object({
+    category: z.string().optional().describe('Filter by category: financial, iot, ecommerce, observability, security, general'),
+    search: z.string().optional().describe('Search templates by name or description'),
+  }),
+  execute: async ({ category, search }) => {
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (search) params.set('search', search);
+    const response = await fetch(`/api/templates?${params}`);
+    const { templates, categories } = await response.json();
+    return {
+      artifact: { type: 'template-browser' as const, data: { templates, categories }, editable: false },
+      text: `Found ${templates.length} templates${category ? ` in "${category}"` : ''}.`,
+    };
+  },
+});
+
+// Get full template detail and preview
+export const getTemplateTool = tool({
+  description: 'Get full detail for a specific template including queries, metrics, and schema requirements',
+  parameters: z.object({
+    template_id: z.string().describe('Template ID to retrieve'),
+  }),
+  execute: async ({ template_id }) => {
+    const response = await fetch(`/api/templates/${template_id}`);
+    const { template } = await response.json();
+    return {
+      artifact: { type: 'app-preview' as const, data: template, editable: false },
+      text: `Template "${template.name}": ${template.queries.length} queries, requires topics: ${Object.keys(template.schema_requirements).join(', ')}.`,
+    };
+  },
+});
+
+// Customize a template for the user's actual data
+export const customizeTemplateTool = tool({
+  description: 'Customize a template by mapping its schema to your actual topic fields and calibrating thresholds',
+  parameters: z.object({
+    template_id: z.string().describe('Template to customize'),
+    schema_mapping: z.record(z.object({
+      topic: z.string(),
+      field_mapping: z.record(z.string()),
+    })),
+    params: z.record(z.string()).optional().describe('Template parameters (name, prefix, window sizes, thresholds)'),
+    auto_discover: z.boolean().default(true).describe('Auto-inspect connected topics to verify schema'),
+  }),
+  execute: async ({ template_id, schema_mapping, params, auto_discover }) => {
+    const response = await fetch(`/api/templates/${template_id}/customize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schema_mapping, params, auto_discover }),
+    });
+    const { app, schema_validation } = await response.json();
+    const warnings = Object.values(schema_validation || {})
+      .filter((v: any) => v.suggestions?.length > 0);
+    return {
+      artifact: { type: 'app-preview' as const, data: app, editable: true },
+      text: `Customized "${app.name}" from template. ${warnings.length > 0 ? `${warnings.length} suggestion(s) — see details.` : 'All fields mapped successfully.'}`,
+    };
+  },
+});
+```
+
+#### AI Analysis Tool Definitions
+
+```typescript
+// lib/tools/analyze.ts
+import { tool } from 'ai';
+import { z } from 'zod';
+
+// Proactive AI analysis — called automatically after key events or on-demand
+export const analyzeTool = tool({
+  description: 'Analyze the current thread context and return proactive suggestions for improvements',
+  parameters: z.object({
+    trigger: z.enum(['post_connect', 'post_generate', 'post_test', 'post_deploy', 'on_demand'])
+      .describe('What event triggered this analysis'),
+  }),
+  execute: async ({ trigger }, { threadContext }) => {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ thread_context: threadContext, trigger }),
+    });
+    const { suggestions, context_summary } = await response.json();
+    if (suggestions.length === 0) return { text: 'Everything looks good — no suggestions at this time.' };
+    const highPriority = suggestions.filter((s: any) => s.priority === 'high');
+    return {
+      text: `${suggestions.length} suggestion(s)${highPriority.length > 0 ? ` (${highPriority.length} high priority)` : ''}:\n` +
+        suggestions.map((s: any) => `• **${s.title}**: ${s.description}`).join('\n'),
+      suggestions,
+    };
+  },
+});
+
+// Suggest @metric and @alert annotations for bare SQL
+export const analyzeAnnotationsTool = tool({
+  description: 'Analyze SQL queries and suggest appropriate @metric and @alert annotations',
+  parameters: z.object({
+    queries: z.array(z.object({
+      sql: z.string(),
+    })),
+  }),
+  execute: async ({ queries }) => {
+    const response = await fetch('/api/analyze/annotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queries }),
+    });
+    const { annotated_queries } = await response.json();
+    const totalMetrics = annotated_queries.reduce((sum: number, q: any) => sum + q.added_metrics.length, 0);
+    const totalAlerts = annotated_queries.reduce((sum: number, q: any) => sum + q.added_alerts.length, 0);
+    return {
+      artifact: { type: 'sql-editor' as const, data: { sql: annotated_queries[0].annotated_sql }, editable: true },
+      text: `Added ${totalMetrics} metric(s) and ${totalAlerts} alert(s). Review the annotations and click Deploy when ready.`,
+    };
+  },
+});
+```
+
+#### AppPreviewArtifact.tsx — Multi-Query Application Preview
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { SqlEditor } from '../editor/SqlEditor';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+interface AppQuery {
+  id: string;
+  name: string;
+  sql: string;
+  source_topic: string;
+  sink_topic: string;
+  metrics: Array<{ name: string; type: string; labels?: string[] }>;
+  alerts: Array<{ name: string; condition: string; severity: string }>;
+}
+
+interface AppPreviewArtifactProps {
+  app: {
+    id: string;
+    name: string;
+    description: string;
+    queries: AppQuery[];
+    dashboard?: {
+      title: string;
+      panels: Array<{ title: string; type: string; position: { row: number; col: number } }>;
+    };
+    topology?: {
+      nodes: Array<{ id: string; type: string; label: string }>;
+      edges: Array<{ from: string; to: string }>;
+    };
+  };
+  onTestAll: (appId: string) => Promise<void>;
+  onDeployApp: (appId: string) => Promise<void>;
+  onEditQuery: (queryId: string, newSql: string) => void;
+}
+
+export function AppPreviewArtifact({ app, onTestAll, onDeployApp, onEditQuery }: AppPreviewArtifactProps) {
+  const [activeTab, setActiveTab] = useState('queries');
+
+  const totalMetrics = app.queries.reduce((sum, q) => sum + q.metrics.length, 0);
+  const totalAlerts = app.queries.reduce((sum, q) => sum + q.alerts.length, 0);
+
+  return (
+    <div className="border rounded-lg bg-card">
+      {/* Header */}
+      <div className="p-4 border-b">
+        <h3 className="text-lg font-semibold">{app.name}</h3>
+        <p className="text-sm text-muted-foreground mt-1">{app.description}</p>
+        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+          <span>{app.queries.length} queries</span>
+          <span>{totalMetrics} metrics</span>
+          <span>{totalAlerts} alerts</span>
+        </div>
+      </div>
+
+      {/* Tabs: Queries | Dashboard | Topology */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="w-full border-b rounded-none">
+          <TabsTrigger value="queries">Queries</TabsTrigger>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="topology">Topology</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="queries" className="divide-y">
+          {app.queries.map((query) => (
+            <div key={query.id} className="p-3">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-medium text-sm">{query.name}</h4>
+                <span className="text-xs text-muted-foreground">
+                  {query.source_topic} → {query.sink_topic}
+                </span>
+              </div>
+              <SqlEditor
+                sql={query.sql}
+                readOnly={false}
+                onChange={(newSql) => onEditQuery(query.id, newSql)}
+                height="120px"
+              />
+              {query.metrics.length > 0 && (
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {query.metrics.map((m) => (
+                    <span key={m.name} className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
+                      @{m.name} ({m.type})
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="dashboard">
+          {app.dashboard && (
+            <div className="p-4 grid grid-cols-2 gap-2">
+              {app.dashboard.panels.map((panel, i) => (
+                <div key={i} className="border rounded p-2 text-center text-sm">
+                  <div className="text-xs text-muted-foreground">{panel.type}</div>
+                  <div className="font-medium">{panel.title}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="topology">
+          {/* React Flow topology visualization — see TopologyArtifact.tsx */}
+          <div className="p-4 text-sm text-muted-foreground">
+            Pipeline topology with {app.topology?.nodes.length} nodes
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {/* Actions */}
+      <div className="p-3 border-t flex justify-end gap-2">
+        <Button variant="outline" onClick={() => onTestAll(app.id)}>Test All</Button>
+        <Button onClick={() => onDeployApp(app.id)}>Deploy App</Button>
+      </div>
+    </div>
+  );
+}
+```
+
+#### TemplateBrowserArtifact.tsx — Template Library
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+
+interface Template {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  query_count: number;
+  metrics_count: number;
+  alerts_count: number;
+  required_topics: string[];
+  tags: string[];
+  popularity: number;
+}
+
+interface TemplateBrowserArtifactProps {
+  templates: Template[];
+  categories: Array<{ name: string; count: number }>;
+  onSelectTemplate: (templateId: string) => void;
+  onPreviewTemplate: (templateId: string) => void;
+}
+
+export function TemplateBrowserArtifact({
+  templates,
+  categories,
+  onSelectTemplate,
+  onPreviewTemplate,
+}: TemplateBrowserArtifactProps) {
+  const [filter, setFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  const filtered = templates
+    .filter((t) => !filter || t.category === filter)
+    .filter((t) => !search || t.name.toLowerCase().includes(search.toLowerCase())
+      || t.description.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="border rounded-lg bg-card">
+      {/* Category chips */}
+      <div className="p-3 border-b flex gap-2 flex-wrap items-center">
+        <button
+          className={`text-xs px-2 py-1 rounded ${!filter ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+          onClick={() => setFilter(null)}
+        >
+          All ({templates.length})
+        </button>
+        {categories.map((cat) => (
+          <button
+            key={cat.name}
+            className={`text-xs px-2 py-1 rounded capitalize ${filter === cat.name ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}
+            onClick={() => setFilter(cat.name)}
+          >
+            {cat.name} ({cat.count})
+          </button>
+        ))}
+        <Input
+          placeholder="Search templates..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="ml-auto w-48 h-7 text-xs"
+        />
+      </div>
+
+      {/* Template grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
+        {filtered.map((template) => (
+          <div key={template.id} className="border rounded-lg p-3 hover:bg-accent/50 cursor-pointer"
+               onClick={() => onPreviewTemplate(template.id)}>
+            <div className="flex justify-between items-start">
+              <h4 className="font-medium text-sm">{template.name}</h4>
+              <span className="text-xs bg-muted px-1.5 py-0.5 rounded capitalize">{template.category}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+            <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+              <span>{template.query_count} queries</span>
+              <span>{template.metrics_count} metrics</span>
+              <span>{template.alerts_count} alerts</span>
+            </div>
+            <div className="flex gap-1 mt-2 flex-wrap">
+              {template.tags.slice(0, 4).map((tag) => (
+                <span key={tag} className="text-xs bg-muted px-1 py-0.5 rounded">{tag}</span>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <Button variant="outline" size="xs" onClick={(e) => { e.stopPropagation(); onPreviewTemplate(template.id); }}>
+                Preview
+              </Button>
+              <Button size="xs" onClick={(e) => { e.stopPropagation(); onSelectTemplate(template.id); }}>
+                Use Template
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+#### Monaco AI Completions (in-editor, separate from chat)
+
+```typescript
+// lib/ai/completions.ts — Monaco inline completions (not assistant-ui)
 import * as monaco from 'monaco-editor';
-
-const COMPLETION_SYSTEM_PROMPT = `You are Velostream SQL completion engine.
-Return ONLY the completion text, no explanation.
-
-Velostream streaming SQL syntax:
-- WINDOW TUMBLING(INTERVAL 'n' unit)
-- WINDOW SLIDING(INTERVAL 'n' unit, INTERVAL 'm' unit)
-- WINDOW SESSION(INTERVAL 'n' unit)
-- ROWS WINDOW BUFFER N ROWS PARTITION BY col ORDER BY col
-- EMIT CHANGES | EMIT FINAL
-- @metric, @metric_type, @metric_labels annotations
-
-Available tables and columns:
-{schema}
-
-Recent cell context:
-{previousCells}`;
 
 export function registerCompletionProvider(
   schema: SchemaInfo,
-  previousCells: Cell[]
+  threadContext: ThreadContext
 ) {
   return monaco.languages.registerInlineCompletionsProvider('sql', {
     provideInlineCompletions: async (model, position, context) => {
-      const textUntilPosition = model.getValueInRange({
-        startLineNumber: 1,
-        startColumn: 1,
-        endLineNumber: position.lineNumber,
-        endColumn: position.column,
+      const prefix = model.getValueInRange({
+        startLineNumber: 1, startColumn: 1,
+        endLineNumber: position.lineNumber, endColumn: position.column,
       });
-
-      const textAfterPosition = model.getValueInRange({
-        startLineNumber: position.lineNumber,
-        startColumn: position.column,
+      const suffix = model.getValueInRange({
+        startLineNumber: position.lineNumber, startColumn: position.column,
         endLineNumber: model.getLineCount(),
         endColumn: model.getLineMaxColumn(model.getLineCount()),
       });
 
-      // Debounce - don't call API too frequently
-      const completion = await fetchCompletion({
-        prefix: textUntilPosition,
-        suffix: textAfterPosition,
-        schema,
-        previousCells,
+      const response = await fetch('/api/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefix, suffix, context: { schema, threadContext } }),
       });
-
-      if (!completion) return { items: [] };
+      const { completions } = await response.json();
+      if (!completions?.length) return { items: [] };
 
       return {
         items: [{
-          insertText: completion.text,
+          insertText: completions[0].text,
           range: new monaco.Range(
-            position.lineNumber,
-            position.column,
-            position.lineNumber,
-            position.column
+            position.lineNumber, position.column,
+            position.lineNumber, position.column,
           ),
         }],
       };
@@ -511,6 +1198,11 @@ src/
 │   │   ├── execute.rs            # POST /api/execute
 │   │   ├── stream.rs             # WebSocket /api/stream/{id}
 │   │   ├── schema.rs             # GET /api/schema
+│   │   ├── connect.rs            # POST /api/connect (Kafka connection)
+│   │   ├── topics.rs             # GET /api/topics, /api/topics/{name}
+│   │   ├── topic_schema.rs       # GET /api/topics/{name}/schema
+│   │   ├── messages.rs           # GET /api/topics/{name}/messages
+│   │   ├── consumers.rs          # GET /api/consumers
 │   │   ├── completions.rs        # POST /api/completions
 │   │   ├── nl_to_sql.rs          # POST /api/nl-to-sql
 │   │   ├── notebooks.rs          # CRUD /api/notebooks
@@ -1150,22 +1842,27 @@ velostream/
 │   └── bin/
 │       └── velo_studio.rs            # NEW: Studio server binary
 
-studio/                                # NEW: Frontend project
+studio/                                # NEW: Frontend (chat-first)
 ├── src/
-│   ├── app/
+│   ├── app/                          # Next.js App Router
+│   │   ├── layout.tsx                # Root with assistant-ui provider
+│   │   ├── page.tsx                  # Thread list (saved notebooks)
+│   │   └── thread/[id]/page.tsx      # Single thread = notebook
 │   ├── components/
-│   │   ├── notebook/
-│   │   ├── chat/
-│   │   ├── editor/
-│   │   ├── viz/
-│   │   ├── test/
-│   │   └── deploy/
+│   │   ├── chat/                     # assistant-ui thread + messages
+│   │   ├── artifacts/                # Tool result renderers
+│   │   ├── editor/                   # Monaco SQL editor
+│   │   ├── viz/                      # Recharts, TanStack Table
+│   │   ├── test/                     # Test dialog, report
+│   │   └── deploy/                   # Deploy wizard, pipeline status
 │   ├── lib/
-│   │   ├── api/
-│   │   ├── ai/
-│   │   ├── viz/
-│   │   └── notebook/
+│   │   ├── tools/                    # assistant-ui tool definitions
+│   │   ├── api/                      # Base API client + WebSocket
+│   │   ├── viz/                      # Chart inference + transform
+│   │   └── context/                  # Thread context accumulation
 │   └── hooks/
+│       ├── useStreamingResults.ts    # WebSocket for live query data
+│       └── useArtifactActions.ts     # Edit/Run/Test/Deploy actions
 ├── package.json
 └── tailwind.config.js
 ```
@@ -1205,16 +1902,25 @@ futures = "0.3"
   "dependencies": {
     "next": "^14.0",
     "react": "^18.0",
+    "@assistant-ui/react": "latest",
+    "@assistant-ui/react-ai-sdk": "latest",
+    "ai": "^3.0",
+    "@ai-sdk/anthropic": "latest",
     "@monaco-editor/react": "^4.6",
     "recharts": "^2.10",
     "@tanstack/react-table": "^8.10",
+    "@xyflow/react": "^12.0",
     "tailwindcss": "^3.4",
     "@radix-ui/react-*": "latest",
     "lucide-react": "^0.300",
-    "zustand": "^4.4",
-    "swr": "^2.2"
+    "zod": "^3.22"
   }
 }
+```
+
+**Removed** (provided by assistant-ui):
+- `zustand` — thread state managed by assistant-ui runtime
+- `swr` — tool calls handle data fetching
 ```
 
 ---

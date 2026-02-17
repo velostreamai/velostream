@@ -184,8 +184,15 @@ velostream/
 │   ├── cluster-linker/        # Kafka cluster linking
 │   └── semantic-lineage/      # AI Semantic Lineage
 │
-└── studio-frontend/           # Open Source (Apache 2.0)
-    └── (Next.js application)
+└── studio/                    # Open Source (Apache 2.0)
+    ├── app/                   # Next.js App Router pages
+    ├── components/            # React components
+    │   ├── chat/              # assistant-ui thread + shadcn.io/ai
+    │   ├── artifacts/         # SQL editor, charts, tables, topology
+    │   ├── deploy/            # Deploy wizard, pipeline status
+    │   └── test/              # Test dialog, results, assertions
+    ├── lib/                   # API client, AI prompts, viz inference
+    └── hooks/                 # useThread, useWebSocket, useArtifact
 ```
 
 ### Plugin Architecture
@@ -430,19 +437,40 @@ replayed = client.replay(decision.id, with_context=decision.context)
 
 See [NOTEBOOK_DESIGN.md](./NOTEBOOK_DESIGN.md) for detailed Studio implementation.
 
+### Design Philosophy: Chat-First with Artifacts
+
+The Studio uses a **chat-first** architecture where the conversation IS the notebook.
+Instead of a traditional cell-based notebook with a secondary chat input, the primary
+interaction is a chat thread where AI responses produce **artifacts** — editable SQL
+queries, live charts, test results, and deployment summaries.
+
+This is powered by **assistant-ui** (open-source chat framework) and **shadcn.io/ai**
+(chat-specific UI components), dramatically reducing custom UI code while delivering
+a polished, production-quality experience.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         VELOSTREAM STUDIO                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Frontend (Next.js)                                                          │
-│  ├── Notebook Interface     - Cell-based SQL development                    │
-│  ├── NL→SQL Chat           - Natural language to streaming SQL              │
-│  ├── Live Visualizations   - Auto-selected charts, real-time updates        │
-│  ├── Test Results          - Inline pass/fail with AI analysis              │
-│  └── Deploy Wizard         - Notebook → Production pipeline                 │
+│  Frontend (Next.js + assistant-ui + shadcn.io/ai)                           │
+│  ├── Chat Thread (assistant-ui)                                             │
+│  │   ├── User messages     - NL prompts, follow-ups, commands               │
+│  │   ├── AI messages       - Explanations, suggestions, analysis            │
+│  │   └── Tool results      - Rendered as rich artifacts (below)             │
+│  ├── Artifact Panel                                                         │
+│  │   ├── SQL Editor        - Monaco with Velostream syntax (editable)       │
+│  │   ├── Live Charts       - Recharts with streaming WebSocket data         │
+│  │   ├── Data Table        - TanStack Table with virtual scrolling          │
+│  │   ├── Test Results      - Pass/fail with AI failure analysis             │
+│  │   ├── Topology View     - React Flow pipeline visualization             │
+│  │   └── Deploy Summary    - Jobs, metrics, alerts, dashboard link          │
+│  └── UI Components (shadcn.io/ai + shadcn/ui)                              │
+│      ├── Message bubbles   - Chat messages with markdown rendering          │
+│      ├── Tool result cards - Expandable artifact containers                 │
+│      └── Code blocks       - Syntax-highlighted SQL with copy/run buttons   │
 │                                                                              │
-│  Backend (Rust/Axum)                                                         │
+│  Backend (Rust/Axum) — unchanged                                            │
 │  ├── /api/validate         - SQL validation                                 │
 │  ├── /api/execute          - Query execution                                │
 │  ├── /api/nl-to-sql        - AI-powered SQL generation                      │
@@ -454,6 +482,28 @@ See [NOTEBOOK_DESIGN.md](./NOTEBOOK_DESIGN.md) for detailed Studio implementatio
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Why Chat-First?
+
+| Aspect | Cell-First (Jupyter-style) | Chat-First (Studio) |
+|--------|---------------------------|---------------------|
+| **Primary UX** | Grid of editable cells | Conversation thread |
+| **AI interaction** | Secondary (bottom input) | Primary (every message) |
+| **Context** | Manual cell ordering | Automatic thread context |
+| **Artifacts** | Cell = code + output | Tool results = rich UI |
+| **Sharing** | Export notebook | Share thread link |
+| **Onboarding** | Learn cell mechanics | Just type English |
+
+### Template Library Stack
+
+| Library | Role | Why This One |
+|---------|------|-------------|
+| **assistant-ui** | Chat framework | Handles streaming, threading, tool results, artifact panels. Open source, React-native. |
+| **shadcn.io/ai** | Chat UI components | Message bubbles, tool cards, code blocks. Composable, themeable, built on shadcn/ui. |
+| **Monaco Editor** | SQL editing | Industry standard. Velostream syntax highlighting, schema-aware autocomplete. |
+| **Recharts** | Visualization | Lightweight, React-native charts for time series, bar, gauge. |
+| **React Flow** | Topology/lineage | Pipeline DAG visualization, node-based editor. |
+| **TanStack Table** | Data tables | Virtual scrolling, sorting, filtering for query results. |
 
 ---
 
@@ -630,5 +680,6 @@ spec:
 - [README.md](./README.md) - Project overview and quick start
 - [NOTEBOOK_DESIGN.md](./NOTEBOOK_DESIGN.md) - Detailed Studio/notebook implementation
 - [API.md](./API.md) - REST API specification
+- [USER_JOURNEYS.md](./USER_JOURNEYS.md) - User workflows and exploration flows
 - [TODO.md](./TODO.md) - Implementation tasks and progress
 - [COMPETITIVE_ANALYSIS.md](./COMPETITIVE_ANALYSIS.md) - Market analysis and positioning
