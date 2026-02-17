@@ -102,10 +102,6 @@ sonic-rs = "0.5"
 # Future refactoring: Convert state management to use Arc<DashMap> and streaming references
 # instead of owned HashMap moves.
 
-# FR-084: Testcontainers for test harness (used by velo-test binary)
-testcontainers = "0.25"
-testcontainers-modules = { version = "0.13", features = ["kafka"] }
-testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup)
 url = "2.5.8"
 memmap2 = "0.9"  # Memory-mapped file I/O for 1BRC demo
 
@@ -222,11 +218,6 @@ path = "demo/datasource-demo/complete_pipeline_demo.rs"
 [[bin]]
 name = "velo-sql-batch"
 path = "src/bin/velo-sql-batch.rs"
-
-# FR-084: Test Harness CLI Binary
-[[bin]]
-name = "velo-test"
-path = "src/bin/velo-test.rs"
 
 # 1BRC: One Billion Row Challenge Demo
 [[bin]]

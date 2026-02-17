@@ -8,6 +8,5 @@ pub mod serialization;
 pub mod server;
 pub mod sql;
 pub mod table;
-pub mod test_harness;
 
 // Re-export server types for examples and tests

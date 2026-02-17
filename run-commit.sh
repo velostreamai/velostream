@@ -113,35 +113,39 @@ else
 fi
 echo ""
 
-# Stage 3: Test Harness Validation
-echo -e "${YELLOW}🧪 Stage 3: Test Harness Validation${NC}"
+# Stage 3: Sibling Project Validation (optional)
+echo -e "${YELLOW}🧪 Stage 3: Sibling Project Validation${NC}"
 echo ""
 
-echo -e "${BLUE}🔟 Building velo-test (release)...${NC}"
-if cargo build --release --bin velo-test --quiet; then
-    echo -e "${GREEN}✅ velo-test built successfully${NC}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check velo-test sibling project (if present)
+VELO_TEST_DIR="${SCRIPT_DIR}/../velo-test"
+if [[ -f "${VELO_TEST_DIR}/Cargo.toml" ]]; then
+    echo -e "${BLUE}🔟 Checking velo-test sibling project...${NC}"
+    if (cd "$VELO_TEST_DIR" && cargo check --all-targets --quiet); then
+        echo -e "${GREEN}✅ velo-test compiles successfully${NC}"
+    else
+        echo -e "${RED}❌ velo-test compilation failed. Changes may have broken the test harness.${NC}"
+        exit 1
+    fi
 else
-    echo -e "${RED}❌ velo-test build failed.${NC}"
-    exit 1
+    echo -e "${YELLOW}⚠️ velo-test sibling project not found at ${VELO_TEST_DIR}, skipping${NC}"
 fi
 echo ""
 
-echo -e "${BLUE}1️⃣1️⃣ Running test harness examples...${NC}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEST_HARNESS_DIR="${SCRIPT_DIR}/demo/test_harness_examples"
-
-if [[ -x "${TEST_HARNESS_DIR}/run-tests.sh" ]]; then
-    cd "$TEST_HARNESS_DIR"
-    if ./run-tests.sh --skip-blocked; then
-        echo -e "${GREEN}✅ Test harness examples passed${NC}"
+# Check velo-studio sibling project (if present)
+VELO_STUDIO_DIR="${SCRIPT_DIR}/../velo-studio"
+if [[ -f "${VELO_STUDIO_DIR}/Cargo.toml" ]]; then
+    echo -e "${BLUE}1️⃣1️⃣ Checking velo-studio sibling project...${NC}"
+    if (cd "$VELO_STUDIO_DIR" && cargo check --all-targets --quiet); then
+        echo -e "${GREEN}✅ velo-studio compiles successfully${NC}"
     else
-        echo -e "${RED}❌ Test harness examples failed.${NC}"
-        cd "$SCRIPT_DIR"
+        echo -e "${RED}❌ velo-studio compilation failed. Changes may have broken velo-studio.${NC}"
         exit 1
     fi
-    cd "$SCRIPT_DIR"
 else
-    echo -e "${YELLOW}⚠️ Test harness script not found, skipping${NC}"
+    echo -e "${YELLOW}⚠️ velo-studio sibling project not found at ${VELO_STUDIO_DIR}, skipping${NC}"
 fi
 echo ""
 
@@ -160,7 +164,7 @@ echo "   • Examples: ✅"
 echo "   • Binaries: ✅"
 echo "   • Comprehensive tests: ✅"
 echo "   • Documentation tests: ✅"
-echo "   • Test harness examples: ✅"
+echo "   • Sibling projects: ✅"
 echo ""
 
 # Git commit section

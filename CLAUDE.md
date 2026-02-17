@@ -52,137 +52,25 @@ and compatibility, particularly for financial analytics use cases.
 - **Schema Support**: Avro schema registry integration
 - **Performance Presets**: Optimized configurations for different use cases
 
-### Test Harness (`src/velostream/test_harness/`)
+### Test Harness (separate repo: `velo-test`)
 
-A comprehensive testing framework for validating streaming SQL queries with real Kafka infrastructure.
+The SQL application test harness has been extracted to its own repository: `https://github.com/velostreamai/velo-test`
 
-#### Architecture
-
+For local development, clone it as a sibling directory:
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│    Executor     │────▶│    Capture      │────▶│   Assertions    │
-│ (runs queries)  │     │ (reads output)  │     │  (validates)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+../velo-test/    # git clone https://github.com/velostreamai/velo-test.git
+../velostream/   # this repo
 ```
 
-- **Executor** (`executor.rs`): Runs SQL queries from `.test.yaml` specs, manages job lifecycle
-- **Capture** (`capture.rs`): Reads output from Kafka topics in JSON/Avro/Protobuf formats
-- **Assertions** (`assertions.rs`): Validates captured output against expected values
+The `velo-test` project uses `.cargo/config.toml` to patch the velostream dependency to the local path, so changes to velostream are immediately reflected when building velo-test.
 
-#### Supported Assertion Types
+See `demo/test_harness_examples/` for comprehensive test spec examples across 8 tiers of complexity.
 
-| Type | Description | Example |
-|------|-------------|---------|
-| `record_count` | Verify number of output records | `equals: 100`, `greater_than: 90` |
-| `schema_contains` | Check required fields exist | `fields: [id, name, total]` |
-| `field_values` | Validate field values with operators | `field: amount, operator: greater_than, value: 0` |
-| `dlq_count` | Count records in Dead Letter Queue | `greater_than: 0, less_than: 50` |
-| `error_rate` | Maximum error percentage | `max_percent: 5.0` |
-| `throughput` | Records per second threshold | `greater_than: 1000` |
-| `latency` | Processing time thresholds | `max_ms: 100` |
-| `percentile` | Statistical percentile checks | `p50: 10, p95: 50, p99: 100` |
+### Velo Studio (separate repo: `velo-studio`)
 
-#### Capture Formats
+The SQL Studio web application is in its own repository: `https://github.com/velostreamai/velo-studio`
 
-```yaml
-# JSON (default) - no schema required
-capture_format: json
-
-# Avro - requires schema
-capture_format: avro
-capture_schema: |
-  {"type":"record","name":"Record","fields":[{"name":"id","type":"long"}]}
-
-# Protobuf - requires schema
-capture_format: protobuf
-capture_schema: |
-  syntax = "proto3";
-  message Record {
-    string id = 1;
-    int64 value = 2;
-  }
-```
-
-#### DLQ (Dead Letter Queue) (`dlq.rs`)
-
-Captures failed records with error context:
-- `DlqCapture`: Manages DLQ record storage
-- `DlqRecord`: Contains original record, error type, timestamp
-- `DlqStatistics`: Aggregated error metrics
-
-#### Fault Injection (`fault_injection.rs`)
-
-Injects faults for resilience testing:
-- **Malformed records**: Missing fields, wrong types, invalid JSON
-- **Duplicates**: Repeated messages at configurable rates
-- **Out-of-order**: Delayed delivery to test ordering
-- **Field corruption**: Random field value corruption
-
-#### Running Test Harness Examples
-
-```bash
-# Build the test runner
-cargo build --release --bin velo-test
-
-# Run all tier tests
-./target/release/velo-test run demo/test_harness_examples/tier1_basic/
-
-# Run specific test
-./target/release/velo-test run demo/test_harness_examples/tier1_basic/01_passthrough.test.yaml
-```
-
-#### Container Reuse for Faster Test Iterations
-
-When running tests with testcontainers, use `--reuse-containers` to keep the Kafka container running between test runs. This significantly speeds up subsequent test executions by skipping container startup (~5-10 seconds saved per run).
-
-```bash
-# First run - starts a new container with reuse label
-./target/release/velo-test run app.sql --spec test.yaml --use-testcontainers --reuse-containers
-
-# Subsequent runs - reuses existing container (instant startup)
-./target/release/velo-test run app.sql --spec test.yaml --use-testcontainers --reuse-containers
-
-# Clean up reusable containers manually when done
-docker ps --filter "label=velostream.test.reusable" --format "{{.ID}}" | xargs docker rm -f
-```
-
-**How it works**:
-- Containers are labeled with `velostream.test.reusable` for identification
-- On startup with `--reuse-containers`, the harness looks for existing labeled containers
-- If found, it connects to the existing container and cleans up stale topics
-- If not found, it starts a new labeled container
-- At test completion, the container is preserved for future runs
-
-**Without `--reuse-containers`**: Orphaned containers from previous runs are automatically cleaned up before starting fresh.
-
-#### Test Spec Structure
-
-```yaml
-application: my_test_app
-description: Test description
-default_timeout_ms: 60000
-default_records: 100
-
-queries:
-  - name: my_query
-    description: What this query tests
-    inputs:
-      - source: input_topic
-        schema: record_schema
-        records: 100
-    assertions:
-      - type: record_count
-        equals: 100
-      - type: schema_contains
-        fields: [id, name, total]
-      - type: field_values
-        field: total
-        operator: greater_than
-        value: 0
-    timeout_ms: 30000
-```
-
-See `demo/test_harness_examples/` for comprehensive examples across 8 tiers of complexity.
+Same sibling directory layout applies for local development.
 
 ## Development Commands
 
