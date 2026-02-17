@@ -96,10 +96,16 @@ jobs:
         shell: bash
 
       - name: Clone velo-test (private, optional)
-        if: ${{ secrets.VELO_TEST_PAT != '' }}
         run: |
-          git clone https://x-access-token:${{ secrets.VELO_TEST_PAT }}@github.com/velostreamai/velo-test.git ../velo-test
-          echo "VELO_TEST_AVAILABLE=true" >> $GITHUB_ENV
+          if [ -n "$VELO_TEST_PAT" ]; then
+            git clone "https://x-access-token:${VELO_TEST_PAT}@github.com/velostreamai/velo-test.git" ../velo-test
+            echo "VELO_TEST_AVAILABLE=true" >> "$GITHUB_ENV"
+            echo "Successfully cloned velo-test"
+          else
+            echo "VELO_TEST_PAT not set, skipping velo-test clone"
+          fi
+        env:
+          VELO_TEST_PAT: ${{ secrets.VELO_TEST_PAT }}
         shell: bash
         continue-on-error: true
 
