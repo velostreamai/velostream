@@ -34,6 +34,15 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 | STRING_AGG | `STRING_AGG(column, ',')` | Any | Concatenate values with separator (aliases: GROUP_CONCAT, LISTAGG, COLLECT) |
 | FIRST | `FIRST(column)` | Any | First non-NULL value (alias: FIRST_VALUE) |
 | LAST | `LAST(column)` | Any | Last non-NULL value (alias: LAST_VALUE) |
+| CORR | `CORR(col1, col2)` | Numeric only | Pearson correlation coefficient |
+| PERCENTILE_CONT | `PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY col)` | Numeric only | Continuous (interpolated) percentile |
+| PERCENTILE_DISC | `PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY col)` | Numeric only | Discrete percentile (actual value) |
+| COVAR_POP | `COVAR_POP(y, x)` | Numeric only | Population covariance |
+| COVAR_SAMP | `COVAR_SAMP(y, x)` | Numeric only | Sample covariance |
+| REGR_SLOPE | `REGR_SLOPE(y, x)` | Numeric only | Linear regression slope |
+| REGR_INTERCEPT | `REGR_INTERCEPT(y, x)` | Numeric only | Linear regression intercept |
+| REGR_R2 | `REGR_R2(y, x)` | Numeric only | Linear regression R-squared |
+| DELTA | `DELTA(column)` | Numeric only | Range (MAX - MIN) of values |
 
 > **Type Safety**: Functions marked "Numeric only" accept INTEGER, FLOAT, and SCALED_INTEGER (decimal).
 > Passing a STRING or other non-numeric type to these functions returns an error.
@@ -52,6 +61,9 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 | FIRST_VALUE | `FIRST_VALUE(col) OVER (...)` | First value in window |
 | LAST_VALUE | `LAST_VALUE(col) OVER (...)` | Last value in window |
 | NTILE | `NTILE(n) OVER (...)` | Divide into n buckets |
+| NTH_VALUE | `NTH_VALUE(col, n) OVER (...)` | Nth value in window |
+| PERCENT_RANK | `PERCENT_RANK() OVER (...)` | Percentile rank (0-1) |
+| CUME_DIST | `CUME_DIST() OVER (...)` | Cumulative distribution |
 
 ### String Functions
 
@@ -66,6 +78,14 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 | LENGTH | `LENGTH(string)` | String length |
 | LEFT | `LEFT(string, n)` | First n characters |
 | RIGHT | `RIGHT(string, n)` | Last n characters |
+| LTRIM | `LTRIM(string)` | Remove leading spaces |
+| RTRIM | `RTRIM(string)` | Remove trailing spaces |
+| LPAD | `LPAD(str, len, pad)` | Left-pad to fixed width |
+| RPAD | `RPAD(str, len, pad)` | Right-pad to fixed width |
+| POSITION | `POSITION(substr, str)` | Find substring position |
+| SPLIT_PART | `SPLIT_PART(str, delim, n)` | Split and get nth part |
+| REGEXP | `REGEXP(str, pattern)` or `str ~ pattern` | Regex match (boolean) |
+| REGEXP_REPLACE | `REGEXP_REPLACE(str, pattern, repl, flags)` | Regex replacement |
 
 ### Math Functions
 
@@ -90,6 +110,15 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 | DATEDIFF | `DATEDIFF(unit, start, end)` | Difference between dates |
 | FROM_UNIXTIME | `FROM_UNIXTIME(epoch)` | Unix timestamp to datetime |
 | UNIX_TIMESTAMP | `UNIX_TIMESTAMP(ts)` | Datetime to Unix timestamp |
+| CURRENT_TIMESTAMP | `CURRENT_TIMESTAMP` | Alias for NOW() |
+| CURRENT_DATE | `CURRENT_DATE` | Current date |
+| DATE | `DATE(timestamp)` | Extract date from timestamp |
+| DATE_FORMAT | `DATE_FORMAT(ts, '%Y-%m-%d')` | Format timestamp as string |
+| DATE_TRUNC | `DATE_TRUNC('day', ts)` | Truncate to precision |
+| YEAR | `YEAR(date)` | Extract year (shorthand) |
+| MONTH | `MONTH(date)` | Extract month (shorthand) |
+| DAY | `DAY(date)` | Extract day (shorthand) |
+| HOUR | `HOUR(timestamp)` | Extract hour (shorthand) |
 
 ### Type Conversion & Null Handling
 
@@ -113,24 +142,78 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 |----------|--------|-------------|
 | JSON_EXTRACT | `JSON_EXTRACT(json, '$.path')` | Extract JSON value |
 | JSON_VALUE | `JSON_VALUE(json, '$.path')` | Extract JSON scalar |
+| JSON_QUERY | `JSON_QUERY(json, '$.path')` | Extract JSON object/array |
+| JSON_EXISTS | `JSON_EXISTS(json, '$.path')` | Check if JSON path exists (boolean) |
 
 ### Kafka Header Functions
 
 | Function | Syntax | Description |
 |----------|--------|-------------|
-| HEADER | `HEADER('key')` | Get header value |
+| HEADER | `HEADER('key')` | Get header value (read) |
 | HAS_HEADER | `HAS_HEADER('key')` | Check if header exists |
 | HEADER_KEYS | `HEADER_KEYS()` | List all header keys |
+| SET_HEADER | `SET_HEADER('key', value)` | Set/update header in output |
+| REMOVE_HEADER | `REMOVE_HEADER('key')` | Remove header from output |
 
 ### System Columns
 
 | Column | Description |
 |--------|-------------|
-| `_timestamp` | Kafka message timestamp |
+| `_timestamp` | Kafka message timestamp (processing time) |
+| `_event_time` | Event time in millis since epoch |
+| `_key` | Kafka message key |
 | `_offset` | Kafka message offset |
 | `_partition` | Kafka partition number |
 | `_window_start` | Window start timestamp |
 | `_window_end` | Window end timestamp |
+
+> **Note**: System columns are **case-insensitive** (`_timestamp`, `_TIMESTAMP`, `_Timestamp` are equivalent).
+> `SELECT *` **excludes** system columns — add them explicitly: `SELECT *, _timestamp, _partition FROM orders;`
+
+### Collection Functions
+
+| Function | Syntax | Description |
+|----------|--------|-------------|
+| ARRAY | `ARRAY(a, b, c)` | Construct array |
+| ARRAY_LENGTH | `ARRAY_LENGTH(arr)` | Get array length |
+| ARRAY_CONTAINS | `ARRAY_CONTAINS(arr, val)` | Check array membership |
+| STRUCT | `STRUCT(k1, v1, k2, v2)` | Construct struct |
+| MAP | `MAP(k1, v1, k2, v2)` | Construct map |
+| MAP_KEYS | `MAP_KEYS(map)` | Get map keys |
+| MAP_VALUES | `MAP_VALUES(map)` | Get map values |
+
+### Window Boundary Functions
+
+| Function | Syntax | Description |
+|----------|--------|-------------|
+| TUMBLE_START | `TUMBLE_START(ts, INTERVAL '1' MINUTE)` | Tumbling window start |
+| TUMBLE_END | `TUMBLE_END(ts, INTERVAL '1' MINUTE)` | Tumbling window end |
+
+### Operators
+
+| Operator | Syntax | Description |
+|----------|--------|-------------|
+| `\|\|` | `str1 \|\| str2` | String concatenation (alternative to CONCAT) |
+| `~` | `str ~ 'pattern'` | Regex match (alternative to REGEXP) |
+| LIKE | `col LIKE 'pattern%'` | Pattern match (`%` = any chars, `_` = one char) |
+| IS NULL | `col IS NULL` | Null check |
+| IS NOT NULL | `col IS NOT NULL` | Non-null check |
+| NOT | `NOT condition` | Negate condition |
+
+### Function Aliases
+
+| Alias | Canonical | Notes |
+|-------|-----------|-------|
+| `STDDEV` | `STDDEV_SAMP` | |
+| `VARIANCE` | `VAR_SAMP` | |
+| `CEILING` | `CEIL` | |
+| `POW` | `POWER` | |
+| `LEN` | `LENGTH` | |
+| `GROUP_CONCAT` | `STRING_AGG` | |
+| `LISTAGG` | `STRING_AGG` | |
+| `COLLECT` | `STRING_AGG` | |
+| `CURRENT_TIMESTAMP` | `NOW()` | |
+| All functions are **case-insensitive** |||
 
 ### Kafka Message Key Annotation (FR-089)
 
@@ -941,6 +1024,398 @@ WITH (
 - `join.upper_bound`: Maximum time difference (e.g., `30m`, `24h`)
 - `join.retention`: How long to keep records in state (e.g., `1h`, `48h`)
 
+### WITHIN INTERVAL JOIN Syntax
+
+```sql
+-- Alternative time-bounded join syntax (equivalent to BETWEEN)
+CREATE STREAM order_payments AS
+SELECT o.order_id,
+       o.customer_id,
+       o.amount,
+       p.payment_id,
+       p.payment_method
+FROM orders o
+INNER JOIN payments p ON o.order_id = p.order_id
+  WITHIN INTERVAL '5' MINUTE
+EMIT CHANGES
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'payments.type' = 'kafka_source',
+    'payments.topic' = 'payments_input',
+    'payments.format' = 'json',
+    'order_payments.type' = 'kafka_sink',
+    'order_payments.topic' = 'order_payments_output',
+    'order_payments.format' = 'json'
+);
+```
+
+**When to use**: Simpler alternative to BETWEEN syntax for time-bounded stream-stream joins
+
+### LEFT JOIN (CSAS)
+
+```sql
+CREATE STREAM enriched_orders AS
+SELECT o.order_id,
+       o.amount,
+       COALESCE(c.customer_name, 'Unknown') as customer_name
+FROM orders o
+LEFT JOIN customers c ON o.customer_id = c.customer_id
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'customers.type' = 'kafka_source',
+    'customers.topic' = 'customers_input',
+    'customers.format' = 'json',
+    'enriched_orders.type' = 'kafka_sink',
+    'enriched_orders.topic' = 'enriched_orders_output',
+    'enriched_orders.format' = 'json'
+);
+```
+
+**When to use**: Keep all left-side records even without a match. Also supports `RIGHT JOIN` and `FULL OUTER JOIN`.
+
+### Multi-Table JOIN (3+ tables) (CSAS)
+
+```sql
+CREATE STREAM full_order_details AS
+SELECT o.order_id,
+       c.customer_name,
+       p.product_name,
+       o.quantity,
+       o.amount
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id
+INNER JOIN products p ON o.product_id = p.product_id
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'customers.type' = 'kafka_source',
+    'customers.topic' = 'customers_input',
+    'customers.format' = 'json',
+    'products.type' = 'kafka_source',
+    'products.topic' = 'products_input',
+    'products.format' = 'json',
+    'full_order_details.type' = 'kafka_sink',
+    'full_order_details.topic' = 'full_order_details_output',
+    'full_order_details.format' = 'json'
+);
+```
+
+**When to use**: Enrich data from multiple sources in a single query
+
+---
+
+## EMIT FINAL vs EMIT CHANGES
+
+| Mode | Behavior | Latency | Use Case |
+|------|----------|---------|----------|
+| `EMIT CHANGES` | Emit on every input record (incremental) | Sub-millisecond | Real-time dashboards, alerts |
+| `EMIT FINAL` | Emit only when window closes | Window size | Batch-style reporting, exact counts |
+
+### EMIT FINAL Example (CTAS)
+
+```sql
+-- Only emit results when the 5-minute window closes
+CREATE TABLE hourly_stats AS
+SELECT symbol,
+       COUNT(*) as trade_count,
+       AVG(price) as avg_price
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT FINAL
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'hourly_stats.type' = 'kafka_sink',
+    'hourly_stats.topic' = 'hourly_stats_output',
+    'hourly_stats.format' = 'json'
+);
+```
+
+**When to use**: Need exact final aggregation, not incremental partial results
+
+---
+
+## ORDER BY, LIMIT, UNION ALL
+
+### ORDER BY and LIMIT
+
+```sql
+-- Ad-hoc query: top 10 traders by volume
+SELECT trader_id,
+       SUM(quantity) as total_volume
+FROM trades
+GROUP BY trader_id
+WINDOW TUMBLING(INTERVAL '1' HOUR)
+ORDER BY total_volume DESC
+LIMIT 10
+EMIT CHANGES;
+```
+
+### UNION ALL - Combine Multiple Streams
+
+```sql
+CREATE STREAM all_alerts AS
+SELECT 'high_value' as alert_type, order_id, amount
+FROM orders WHERE amount > 10000
+UNION ALL
+SELECT 'fraud_flag' as alert_type, order_id, amount
+FROM orders WHERE fraud_score > 0.9
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'all_alerts.type' = 'kafka_sink',
+    'all_alerts.topic' = 'all_alerts_output',
+    'all_alerts.format' = 'json'
+);
+```
+
+### INSERT INTO ... SELECT
+
+```sql
+-- Alternative to CSAS: insert into an existing sink
+INSERT INTO alerts_sink
+SELECT order_id, customer_id, amount
+FROM orders
+WHERE amount > 10000;
+```
+
+---
+
+## Subqueries and CTEs
+
+> **Prerequisite**: Tables referenced in subqueries must be created via CTAS first:
+> ```sql
+> CREATE TABLE fraud_rules AS SELECT * FROM kafka://fraud-rules-topic EMIT CHANGES;
+> ```
+
+### Scalar Subquery in SELECT
+
+```sql
+CREATE STREAM price_vs_avg AS
+SELECT symbol,
+       price,
+       price - (SELECT AVG(price) FROM market_averages WHERE symbol = t.symbol) as price_diff
+FROM trades t
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_vs_avg.type' = 'kafka_sink',
+    'price_vs_avg.topic' = 'price_vs_avg_output',
+    'price_vs_avg.format' = 'json'
+);
+```
+
+### EXISTS / NOT EXISTS in WHERE
+
+```sql
+CREATE STREAM flagged_orders AS
+SELECT o.order_id, o.customer_id, o.amount
+FROM orders o
+WHERE EXISTS (
+    SELECT 1 FROM blacklist b WHERE b.customer_id = o.customer_id
+)
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'flagged_orders.type' = 'kafka_sink',
+    'flagged_orders.topic' = 'flagged_orders_output',
+    'flagged_orders.format' = 'json'
+);
+```
+
+### IN / NOT IN with Subquery
+
+```sql
+CREATE STREAM promoted_orders AS
+SELECT order_id, product_id, amount
+FROM orders
+WHERE product_id IN (SELECT product_id FROM promoted_products)
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'promoted_orders.type' = 'kafka_sink',
+    'promoted_orders.topic' = 'promoted_orders_output',
+    'promoted_orders.format' = 'json'
+);
+```
+
+### ANY / ALL Operators
+
+```sql
+-- ANY: true if comparison holds for any row in subquery
+SELECT * FROM orders WHERE amount > ANY (SELECT threshold FROM alert_rules);
+
+-- ALL: true if comparison holds for all rows in subquery
+SELECT * FROM orders WHERE credit_score >= ALL (SELECT min_score FROM loan_requirements);
+```
+
+### CTE (Common Table Expression / WITH clause)
+
+```sql
+WITH price_stats AS (
+    SELECT symbol,
+           AVG(price) as avg_price,
+           STDDEV_POP(price) as stddev_price
+    FROM trades
+    GROUP BY symbol
+    WINDOW TUMBLING(INTERVAL '5' MINUTE)
+)
+SELECT symbol, avg_price, stddev_price,
+       avg_price + 2 * stddev_price as upper_band,
+       avg_price - 2 * stddev_price as lower_band
+FROM price_stats
+EMIT CHANGES;
+```
+
+---
+
+## Event-Time & Watermarks
+
+### _EVENT_TIME Aliasing
+
+Derive event time from any expression by aliasing it as `_EVENT_TIME`:
+
+```sql
+-- Use a field as event time
+CREATE STREAM trades_with_event_time AS
+SELECT symbol, price, trade_timestamp AS _EVENT_TIME
+FROM raw_trades
+EMIT CHANGES
+WITH (
+    'raw_trades.type' = 'kafka_source',
+    'raw_trades.topic' = 'raw_trades_input',
+    'raw_trades.format' = 'json',
+    'trades_with_event_time.type' = 'kafka_sink',
+    'trades_with_event_time.topic' = 'trades_et_output',
+    'trades_with_event_time.format' = 'json'
+);
+
+-- Derive event time from JSON payload
+SELECT CAST(JSON_EXTRACT(payload, '$.event_ts') AS BIGINT) AS _EVENT_TIME, *
+FROM raw_events;
+
+-- Use MAX in aggregation
+SELECT symbol, SUM(volume), MAX(trade_timestamp) AS _EVENT_TIME
+FROM trades GROUP BY symbol;
+```
+
+### Event-Time Configuration via WITH Clause
+
+```sql
+CREATE STREAM trades AS
+SELECT * FROM raw_trades
+WITH (
+    'raw_trades.type' = 'kafka_source',
+    'raw_trades.topic' = 'trades_input',
+    'raw_trades.format' = 'json',
+    'event.time.field' = 'event_timestamp',
+    'event.time.format' = 'iso8601',
+    'watermark.strategy' = 'bounded_out_of_orderness',
+    'watermark.max_out_of_orderness' = '30s'
+);
+```
+
+**Event-time format options**: `iso8601`, `epoch_millis`, `epoch_seconds`, custom chrono format (`%Y-%m-%d %H:%M:%S%.3f`)
+
+**Watermark strategies**: `bounded_out_of_orderness` (default), `ascending`, `punctuated`
+
+### Late Data Handling
+
+```sql
+-- Route late records to a dead letter topic
+CREATE STREAM trades AS
+SELECT * FROM raw_trades
+WITH (
+    'raw_trades.type' = 'kafka_source',
+    'raw_trades.topic' = 'trades_input',
+    'late.data.strategy' = 'dead_letter'
+);
+```
+
+**Late data strategies**: `drop` (discard), `dead_letter` (route to DLQ), `include_in_next_window`, `update_previous`
+
+---
+
+## Advanced Window Features
+
+### Simple Duration Syntax (Shorthand)
+
+```sql
+-- Instead of INTERVAL '5' MINUTE, use shorthand:
+WINDOW TUMBLING(5m)
+WINDOW SLIDING(10m, 2m)
+WINDOW SESSION(30s)
+
+-- Duration units: ns, us/μs, ms, s, m, h, d
+WINDOW TUMBLING(500ms)
+WINDOW TUMBLING(1h)
+```
+
+### RANGE BETWEEN with INTERVAL (Time-Based Frames)
+
+```sql
+CREATE STREAM moving_avg_1h AS
+SELECT symbol,
+       price,
+       AVG(price) OVER (
+           PARTITION BY symbol
+           ORDER BY event_time
+           RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+       ) as avg_price_1h
+FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'moving_avg_1h.type' = 'kafka_sink',
+    'moving_avg_1h.topic' = 'moving_avg_1h_output',
+    'moving_avg_1h.format' = 'json'
+);
+```
+
+**Window frame types**:
+- `ROWS BETWEEN N PRECEDING AND CURRENT ROW` — count-based
+- `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` — running total
+- `RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW` — time-based
+
+### EXPIRE AFTER (Gap Eviction for ROWS WINDOW)
+
+```sql
+-- Clear buffer after 5 minutes of inactivity (default: 60 seconds)
+CREATE STREAM price_changes AS
+SELECT symbol,
+       price,
+       LAG(price, 1) OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+           EXPIRE AFTER INTERVAL '5' MINUTE INACTIVITY
+       ) as prev_price
+FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_changes.type' = 'kafka_sink',
+    'price_changes.topic' = 'price_changes_output',
+    'price_changes.format' = 'json'
+);
+
+-- Disable gap eviction entirely
+EXPIRE AFTER NEVER
+```
+
 ---
 
 ## Kafka Message Keys - PRIMARY KEY Annotation (FR-089)
@@ -1262,6 +1737,83 @@ WITH (
 );
 ```
 
+### LTRIM, RTRIM, LPAD, RPAD
+
+```sql
+CREATE STREAM padded_data AS
+SELECT LTRIM(raw_input) as left_cleaned,
+       RTRIM(raw_input) as right_cleaned,
+       LPAD(product_id, 8, '0') as padded_id,
+       RPAD(status, 10, '.') as status_field
+FROM raw_data
+WITH (
+    'raw_data.type' = 'kafka_source',
+    'raw_data.topic' = 'raw_data_input',
+    'raw_data.format' = 'json',
+    'padded_data.type' = 'kafka_sink',
+    'padded_data.topic' = 'padded_data_output',
+    'padded_data.format' = 'json'
+);
+```
+
+### POSITION, SPLIT_PART, REGEXP, || Operator
+
+```sql
+CREATE STREAM parsed_urls AS
+SELECT url,
+       POSITION('://', url) as protocol_end,
+       SPLIT_PART(url, '/', 3) as domain,
+       CASE WHEN url ~ '^https://' THEN 'secure' ELSE 'insecure' END as security,
+       first_name || ' ' || last_name as full_name
+FROM web_events
+WITH (
+    'web_events.type' = 'kafka_source',
+    'web_events.topic' = 'web_events_input',
+    'web_events.format' = 'json',
+    'parsed_urls.type' = 'kafka_sink',
+    'parsed_urls.topic' = 'parsed_urls_output',
+    'parsed_urls.format' = 'json'
+);
+```
+
+### LIKE Pattern Matching
+
+```sql
+CREATE STREAM email_orders AS
+SELECT order_id, customer_email, amount
+FROM orders
+WHERE customer_email LIKE '%@gmail.com'
+  AND customer_name LIKE 'J%'
+  AND status NOT LIKE '%cancelled%'
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'email_orders.type' = 'kafka_sink',
+    'email_orders.topic' = 'email_orders_output',
+    'email_orders.format' = 'json'
+);
+```
+
+**LIKE wildcards**: `%` = any characters, `_` = exactly one character
+
+### REGEXP_REPLACE
+
+```sql
+CREATE STREAM cleaned_names AS
+SELECT REGEXP_REPLACE(raw_name, '[^A-Za-z\\s]', '', 'g') as clean_name,
+       REGEXP_REPLACE(phone, '[^0-9]', '', 'g') as digits_only
+FROM contacts
+WITH (
+    'contacts.type' = 'kafka_source',
+    'contacts.topic' = 'contacts_input',
+    'contacts.format' = 'json',
+    'cleaned_names.type' = 'kafka_sink',
+    'cleaned_names.topic' = 'cleaned_names_output',
+    'cleaned_names.format' = 'json'
+);
+```
+
 ---
 
 ## Math Functions (CSAS)
@@ -1390,6 +1942,50 @@ WITH (
 );
 ```
 
+### DATE_FORMAT, DATE_TRUNC, CURRENT_DATE
+
+```sql
+CREATE STREAM formatted_events AS
+SELECT event_id,
+       DATE_FORMAT(event_time, '%Y-%m-%d %H:%M') as formatted_time,
+       DATE_TRUNC('hour', event_time) as truncated_to_hour,
+       YEAR(event_time) as event_year,
+       MONTH(event_time) as event_month,
+       DAY(event_time) as event_day,
+       HOUR(event_time) as event_hour,
+       CURRENT_DATE as today,
+       CURRENT_TIMESTAMP as now
+FROM events
+WITH (
+    'events.type' = 'kafka_source',
+    'events.topic' = 'events_input',
+    'events.format' = 'json',
+    'formatted_events.type' = 'kafka_sink',
+    'formatted_events.topic' = 'formatted_events_output',
+    'formatted_events.format' = 'json'
+);
+```
+
+**DATE_FORMAT specifiers**: `%Y` (4-digit year), `%m` (month 01-12), `%d` (day 01-31), `%H` (hour 00-23), `%i` (minute 00-59), `%s` (second 00-59)
+
+**DATE_TRUNC units**: `second`, `minute`, `hour`, `day`, `week`, `month`, `quarter`, `year`
+
+### INTERVAL Arithmetic
+
+```sql
+SELECT order_id,
+       order_date,
+       order_date + INTERVAL '30' DAY as due_date,
+       NOW() - INTERVAL '1' HOUR as one_hour_ago,
+       DATEDIFF('weeks', start_date, end_date) as weeks_between,
+       DATEDIFF('months', hire_date, NOW()) as months_employed
+FROM orders;
+```
+
+**DATEDIFF units**: `seconds`, `minutes`, `hours`, `days`, `weeks`, `months`, `quarters`, `years`, `ms`
+
+**EXTRACT parts**: `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `SECOND`, `DOW`/`DAYOFWEEK`, `DOY`/`DAYOFYEAR`, `WEEK`, `QUARTER`, `EPOCH`, `MILLISECOND`, `MICROSECOND`, `NANOSECOND`
+
 ---
 
 ## Additional Window Functions (CSAS)
@@ -1488,6 +2084,36 @@ WITH (
     'score_quartiles.type' = 'kafka_sink',
     'score_quartiles.topic' = 'score_quartiles_output',
     'score_quartiles.format' = 'json'
+);
+```
+
+### NTH_VALUE, PERCENT_RANK, CUME_DIST
+
+```sql
+CREATE STREAM trade_rankings AS
+SELECT symbol,
+       price,
+       NTH_VALUE(price, 3) OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+       ) as third_price,
+       PERCENT_RANK() OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           ORDER BY price
+       ) as percentile,
+       CUME_DIST() OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           ORDER BY price
+       ) as cumulative_dist
+FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'trade_rankings.type' = 'kafka_sink',
+    'trade_rankings.topic' = 'trade_rankings_output',
+    'trade_rankings.format' = 'json'
 );
 ```
 
@@ -1678,6 +2304,55 @@ SELECT COUNT(*), COUNT(name), COUNT(DISTINCT status) FROM orders
 SELECT SUM(price), AVG(quantity) FROM trades  -- Works even if price is FLOAT and quantity is INTEGER
 ```
 
+### PERCENTILE_CONT and PERCENTILE_DISC
+
+```sql
+CREATE TABLE latency_percentiles AS
+SELECT service_name,
+       PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms) as p50,
+       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95,
+       PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms) as p99,
+       PERCENTILE_DISC(0.50) WITHIN GROUP (ORDER BY duration_ms) as p50_exact
+FROM requests
+GROUP BY service_name
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+EMIT CHANGES
+WITH (
+    'requests.type' = 'kafka_source',
+    'requests.topic' = 'requests_input',
+    'requests.format' = 'json',
+    'latency_percentiles.type' = 'kafka_sink',
+    'latency_percentiles.topic' = 'latency_percentiles_output',
+    'latency_percentiles.format' = 'json'
+);
+```
+
+> **PERCENTILE_CONT** interpolates between values (continuous). **PERCENTILE_DISC** returns an actual value from the dataset (discrete).
+
+### COVAR and REGR (Regression)
+
+```sql
+CREATE TABLE price_regression AS
+SELECT symbol,
+       COVAR_POP(price, volume) as price_vol_covariance,
+       COVAR_SAMP(price, volume) as price_vol_covariance_sample,
+       REGR_SLOPE(price, volume) as slope,
+       REGR_INTERCEPT(price, volume) as intercept,
+       REGR_R2(price, volume) as r_squared
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_regression.type' = 'kafka_sink',
+    'price_regression.topic' = 'price_regression_output',
+    'price_regression.format' = 'json'
+);
+```
+
 ---
 
 ## JSON Functions (CSAS)
@@ -1700,6 +2375,29 @@ WITH (
     'extracted_json.format' = 'json'
 );
 ```
+
+### JSON_QUERY and JSON_EXISTS
+
+```sql
+CREATE STREAM json_filtered AS
+SELECT event_id,
+       JSON_QUERY(payload, '$.items') as items_array,
+       JSON_VALUE(payload, '$.items[0].name') as first_item,
+       JSON_VALUE(payload, '$.items[-1].price') as last_item_price
+FROM events
+WHERE JSON_EXISTS(payload, '$.items')
+  AND JSON_EXISTS(payload, '$.user_id')
+WITH (
+    'events.type' = 'kafka_source',
+    'events.topic' = 'events_input',
+    'events.format' = 'json',
+    'json_filtered.type' = 'kafka_sink',
+    'json_filtered.topic' = 'json_filtered_output',
+    'json_filtered.format' = 'json'
+);
+```
+
+**JSON path patterns**: `$.property`, `$.obj.nested`, `$.array[0]`, `$.array[-1]` (last), `$.items[*].price` (wildcard)
 
 ---
 
@@ -1728,6 +2426,34 @@ WITH (
 );
 ```
 
+### SET_HEADER and REMOVE_HEADER (Write Headers)
+
+```sql
+CREATE STREAM enriched_events AS
+SELECT event_id, payload,
+       SET_HEADER('processor-id', 'velostream-1'),
+       SET_HEADER('customer-id', customer_id),
+       SET_HEADER('priority', CASE WHEN amount > 10000 THEN 'critical' ELSE 'normal' END),
+       REMOVE_HEADER('internal-metadata')
+FROM events
+WITH (
+    'events.type' = 'kafka_source',
+    'events.topic' = 'events_input',
+    'events.format' = 'json',
+    'enriched_events.type' = 'kafka_sink',
+    'enriched_events.topic' = 'enriched_events_output',
+    'enriched_events.format' = 'json'
+);
+```
+
+**SET_HEADER supports**: literal strings, field references, system columns (`_partition`), CASE expressions, CAST. All types auto-convert to STRING.
+
+**Header propagation rules (FR-090)**:
+- SELECT/WHERE/projection: All headers preserved
+- ROWS OVER window functions: Headers pass through
+- GROUP BY / WINDOW aggregation: Last-event-wins (last input record's headers)
+- JOIN: Left-side headers only
+
 ---
 
 ## Window Boundaries - System Columns (CTAS)
@@ -1752,6 +2478,29 @@ WITH (
     'windowed_trades.type' = 'kafka_sink',
     'windowed_trades.topic' = 'windowed_trades_output',
     'windowed_trades.format' = 'json'
+);
+```
+
+### TUMBLE_START and TUMBLE_END Functions
+
+```sql
+-- Alternative to _window_start/_window_end using functions
+CREATE TABLE hourly_stats AS
+SELECT TUMBLE_START(event_time, INTERVAL '1' HOUR) as window_start,
+       TUMBLE_END(event_time, INTERVAL '1' HOUR) as window_end,
+       symbol,
+       COUNT(*) as trade_count,
+       AVG(price) as avg_price
+FROM trades
+GROUP BY symbol, TUMBLE(event_time, INTERVAL '1' HOUR)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'hourly_stats.type' = 'kafka_sink',
+    'hourly_stats.topic' = 'hourly_stats_output',
+    'hourly_stats.format' = 'json'
 );
 ```
 
@@ -1890,6 +2639,54 @@ WINDOW TUMBLING(INTERVAL '1' MINUTE)
 ROWS WINDOW BUFFER 100 ROWS
 ```
 
+### ❌ Wrong: EMIT FINAL vs EMIT CHANGES confusion
+
+```sql
+-- ❌ WRONG - EMIT FINAL with real-time dashboard (high latency)
+CREATE TABLE live_dashboard AS
+SELECT symbol, AVG(price) FROM trades
+GROUP BY symbol WINDOW TUMBLING(INTERVAL '1' HOUR)
+EMIT FINAL  -- Won't emit until the HOUR closes!
+
+-- ✅ CORRECT - EMIT CHANGES for real-time updates
+EMIT CHANGES  -- Emits on every input record
+
+-- ✅ CORRECT - EMIT FINAL for batch/reporting (exact counts)
+EMIT FINAL  -- Emits only when window closes
+```
+
+### ❌ Wrong: SELECT * expecting system columns
+
+```sql
+-- ❌ WRONG - System columns are NOT included in SELECT *
+SELECT * FROM orders;  -- _timestamp, _partition, _key are excluded
+
+-- ✅ CORRECT - Add system columns explicitly
+SELECT *, _timestamp, _partition, _key FROM orders;
+```
+
+### ❌ Wrong: Subquery without CTAS table
+
+```sql
+-- ❌ WRONG - Cannot subquery a raw Kafka topic directly
+SELECT * FROM orders WHERE customer_id IN (SELECT customer_id FROM blacklist);
+-- Error: 'blacklist' must be a CTAS-created table
+
+-- ✅ CORRECT - Create table first, then subquery
+CREATE TABLE blacklist AS SELECT * FROM kafka://blacklist-topic EMIT CHANGES;
+SELECT * FROM orders WHERE customer_id IN (SELECT customer_id FROM blacklist);
+```
+
+### ❌ Wrong: Alias reuse in WHERE
+
+```sql
+-- ❌ WRONG - WHERE is evaluated before SELECT aliases
+SELECT price * quantity as total FROM orders WHERE total > 100;
+
+-- ✅ CORRECT - Repeat the expression in WHERE
+SELECT price * quantity as total FROM orders WHERE price * quantity > 100;
+```
+
 ---
 
 ## How to Extend These Examples
@@ -1960,12 +2757,74 @@ PARTITION BY symbol, trader_id
 '<source_name>.delimiter' = ';'  -- optional, default ','
 ```
 
+### URI Syntax for Sources (Alternative)
+
+```sql
+-- kafka:// URI syntax
+CREATE TABLE orders AS SELECT * FROM kafka://orders-topic EMIT CHANGES;
+
+-- file:// URI syntax
+CREATE TABLE customers AS SELECT * FROM file:///data/customers.json
+WITH ('file.format' = 'json');
+```
+
 ### Sink Configuration (Named - matches CSAS/CTAS name)
 
 ```sql
 '<stream_or_table_name>.type' = 'kafka_sink',
 '<stream_or_table_name>.topic' = '<output_topic>',
 '<stream_or_table_name>.format' = 'json'
+
+-- Schema Registry (Avro)
+'<sink_name>.format' = 'avro',
+'<sink_name>.schema.registry.url' = 'http://schema-registry:8081'
+```
+
+### CTAS Table Properties
+
+```sql
+-- Normal model (default) — full state
+'table_model' = 'normal'
+
+-- Compact model — 90% memory reduction for large tables
+'table_model' = 'compact'
+
+-- Data retention
+'retention' = '7 days'
+```
+
+### Event-Time & Watermark Properties
+
+```sql
+'event.time.field' = 'event_timestamp',
+'event.time.format' = 'iso8601',           -- or 'epoch_millis', 'epoch_seconds'
+'watermark.strategy' = 'bounded_out_of_orderness',
+'watermark.max_out_of_orderness' = '30s',
+'late.data.strategy' = 'dead_letter'        -- or 'drop', 'include_in_next_window'
+```
+
+### Error Handling Properties
+
+```sql
+'error.handling' = 'skip',                  -- skip bad records
+'error.topic' = 'processing_errors'         -- DLQ topic
+```
+
+### Job Processor Properties
+
+```sql
+'mode' = 'transactional',                   -- or 'simple', 'adaptive'
+'max_batch_size' = '1000',
+'batch_timeout' = '100ms',
+'failure_strategy' = 'LogAndContinue',      -- or 'FailBatch', 'RetryWithBackoff'
+'enable_dlq' = 'true'
+```
+
+### Config File (External YAML)
+
+```sql
+-- Load all WITH properties from an external file
+WITH (config_file = 'configs/my-source.yaml');
 ```
 
 ### Full Example Pattern
@@ -2098,3 +2957,105 @@ WITH (
 1. **Schema YAML wins**: If `schemas/<source>.schema.yaml` exists, it takes precedence
 2. **Type required**: All fields need `@data.<field>.type: <type>`
 3. **Strict validation**: Errors if hint field doesn't match source fields
+
+---
+
+## Job Annotations
+
+SQL annotations control job execution mode, batching, and partitioning. Place them as comments before the query.
+
+### Job Mode and Batching
+
+```sql
+-- @job_mode: transactional
+-- @batch_size: 500
+-- @partitioning_strategy: hash
+-- @num_partitions: 4
+CREATE STREAM processed_orders AS
+SELECT order_id, customer_id, amount
+FROM orders
+WHERE amount > 0
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'processed_orders.type' = 'kafka_sink',
+    'processed_orders.topic' = 'processed_orders_output',
+    'processed_orders.format' = 'json'
+);
+```
+
+### Job Annotation Reference
+
+| Annotation | Values | Default | Description |
+|------------|--------|---------|-------------|
+| `@job_mode` | `simple`, `transactional`, `adaptive` | `simple` | Processing mode |
+| `@batch_size` | `10`-`1000` | `100` | Records per batch |
+| `@num_partitions` | `1`-`16+` | CPU count | Parallel partitions (adaptive mode) |
+| `@partitioning_strategy` | `sticky`, `hash`, `smart`, `roundrobin`, `fanin` | `smart` | How records are distributed |
+| `@application` | string | none | Application name (multi-server coordination) |
+| `@phase` | `development`, `staging`, `production` | none | Deployment phase |
+| `@name` | string | auto-generated | Explicit job name |
+
+### Multi-Server Coordination
+
+```sql
+-- @application: trading_platform
+-- @name: market-data-processor
+-- @job_mode: transactional
+-- @batch_size: 200
+CREATE STREAM market_data_processed AS
+SELECT symbol, price, volume
+FROM market_data
+EMIT CHANGES
+WITH (...);
+```
+
+The `@application` annotation generates Kafka consumer groups as `velo-{app_name}-{job_name}`. Deploy the same SQL file across N servers and Kafka auto-rebalances partitions.
+
+### Observability Annotations
+
+```sql
+-- SQL Application: Trading Analytics
+-- Version: 1.0.0
+-- Description: Real-time trading analytics pipeline
+--
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+```
+
+| Annotation | Values | Description |
+|------------|--------|-------------|
+| `@observability.metrics.enabled` | `true`/`false` | Prometheus metrics export |
+| `@observability.tracing.enabled` | `true`/`false` | Distributed tracing |
+| `@observability.profiling.enabled` | `off`, `prod` (2-3%), `dev` (8-10%) | CPU profiling |
+| `@observability.error_reporting.enabled` | `true`/`false` | Error capture + DLQ |
+
+**Priority**: SQL Annotation > Server Config > System Default
+
+---
+
+## SELECT Alias Reuse
+
+Velostream allows referencing previously-defined column aliases within the same SELECT clause (left-to-right evaluation):
+
+```sql
+-- ✅ CORRECT: Alias 'total' is reused in 'tax' and 'grand_total'
+SELECT quantity * price as total,
+       total * 0.1 as tax,
+       total + tax as grand_total
+FROM orders;
+
+-- ✅ Works in GROUP BY and HAVING too
+SELECT symbol,
+       COUNT(*) as cnt,
+       AVG(price) as avg_price,
+       avg_price * cnt as notional
+FROM trades
+GROUP BY symbol
+HAVING cnt > 10;
+
+-- ❌ Does NOT work in WHERE (evaluated before SELECT)
+```
