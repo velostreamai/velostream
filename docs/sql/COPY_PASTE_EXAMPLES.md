@@ -2187,6 +2187,29 @@ WITH (
 );
 ```
 
+### DELTA - Range (MAX - MIN)
+
+```sql
+CREATE TABLE price_ranges AS
+SELECT symbol,
+       DELTA(price) as price_range,
+       MIN(price) as low,
+       MAX(price) as high,
+       COUNT(*) as trade_count
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_ranges.type' = 'kafka_sink',
+    'price_ranges.topic' = 'price_ranges_output',
+    'price_ranges.format' = 'json'
+);
+```
+
 ### CORR - Correlation
 
 ```sql
@@ -2382,8 +2405,8 @@ WITH (
 CREATE STREAM json_filtered AS
 SELECT event_id,
        JSON_QUERY(payload, '$.items') as items_array,
-       JSON_VALUE(payload, '$.items[0].name') as first_item,
-       JSON_VALUE(payload, '$.items[-1].price') as last_item_price
+       JSON_VALUE(payload, '$.items.0.name') as first_item,
+       JSON_VALUE(payload, '$.metadata.source') as source
 FROM events
 WHERE JSON_EXISTS(payload, '$.items')
   AND JSON_EXISTS(payload, '$.user_id')
@@ -2397,7 +2420,12 @@ WITH (
 );
 ```
 
-**JSON path patterns**: `$.property`, `$.obj.nested`, `$.array[0]`, `$.array[-1]` (last), `$.items[*].price` (wildcard)
+**JSON path patterns**: `$.property`, `$.obj.nested`, `$.array.0` (array index by position)
+
+**JSON function comparison**:
+- `JSON_VALUE` / `JSON_EXTRACT` — returns scalar values (strings, numbers, booleans); objects/arrays returned as JSON strings
+- `JSON_QUERY` — returns only nested objects/arrays as JSON strings; returns NULL for scalars
+- `JSON_EXISTS` — returns boolean indicating if a path exists in the document
 
 ---
 

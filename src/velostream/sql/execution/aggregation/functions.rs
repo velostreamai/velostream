@@ -49,6 +49,7 @@ impl AggregateFunctions {
                     "COUNT_DISTINCT" => {
                         Self::compute_count_distinct_aggregate(field_name, accumulator)
                     }
+                    "DELTA" => Self::compute_delta_aggregate(field_name, accumulator),
                     "APPROX_COUNT_DISTINCT" => {
                         Self::compute_approx_count_distinct_aggregate(field_name, accumulator)
                     }
@@ -312,6 +313,20 @@ impl AggregateFunctions {
             Ok(FieldValue::Integer(count))
         } else {
             Ok(FieldValue::Integer(0))
+        }
+    }
+
+    /// Compute DELTA aggregate value (max - min)
+    fn compute_delta_aggregate(
+        field_name: &str,
+        accumulator: &GroupAccumulator,
+    ) -> Result<FieldValue, SqlError> {
+        let max_val = accumulator.maxs.get(field_name).cloned();
+        let min_val = accumulator.mins.get(field_name).cloned();
+
+        match (max_val, min_val) {
+            (Some(max), Some(min)) => max.subtract(&min),
+            _ => Ok(FieldValue::Null),
         }
     }
 

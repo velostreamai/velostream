@@ -15,3 +15,5 @@ pub mod window_functions_test;
 // COUNT_DISTINCT and APPROX_COUNT_DISTINCT tests
 pub mod count_distinct_comprehensive_test;
 pub mod count_distinct_functions_test;
+// New engine functions: SPLIT_PART, REGEXP_REPLACE, DELTA, JSON_EXISTS, JSON_QUERY
+pub mod new_engine_functions_test;

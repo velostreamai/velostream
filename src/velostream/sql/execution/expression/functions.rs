@@ -778,6 +778,95 @@ impl BuiltinFunctions {
         Ok(FieldValue::Boolean(matches))
     }
 
+    /// REGEXP_REPLACE(string, pattern, replacement[, flags])
+    /// Flags: 'g' = global (replace all), 'i' = case-insensitive
+    /// Default: replace first match only
+    fn regexp_replace_function(
+        args: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() < 3 || args.len() > 4 {
+            return Err(SqlError::ExecutionError {
+                message: "REGEXP_REPLACE requires 3-4 arguments: REGEXP_REPLACE(string, pattern, replacement[, flags])".to_string(),
+                query: None,
+            });
+        }
+
+        let string_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let pattern_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+        let replacement_val = ExpressionEvaluator::evaluate_expression_value(&args[2], record)?;
+
+        let flags_val = if args.len() == 4 {
+            ExpressionEvaluator::evaluate_expression_value(&args[3], record)?
+        } else {
+            FieldValue::String(String::new())
+        };
+
+        let string = match &string_val {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Null => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "REGEXP_REPLACE requires a string as first argument".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        let pattern = match &pattern_val {
+            FieldValue::String(p) => p.clone(),
+            FieldValue::Null => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "REGEXP_REPLACE requires a string pattern".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        let replacement = match &replacement_val {
+            FieldValue::String(r) => r.clone(),
+            FieldValue::Null => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "REGEXP_REPLACE requires a string replacement".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        let flags = match &flags_val {
+            FieldValue::String(f) => f.clone(),
+            FieldValue::Null => String::new(),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "REGEXP_REPLACE flags must be a string".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        let global = flags.contains('g');
+        let case_insensitive = flags.contains('i');
+
+        // Build pattern with case-insensitive flag if needed
+        let actual_pattern = if case_insensitive {
+            format!("(?i){}", pattern)
+        } else {
+            pattern
+        };
+
+        let regex = get_cached_regex(&actual_pattern)?;
+
+        let result = if global {
+            regex.replace_all(&string, replacement.as_str()).to_string()
+        } else {
+            regex.replace(&string, replacement.as_str()).to_string()
+        };
+
+        Ok(FieldValue::String(result))
+    }
+
     fn ltrim_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -857,6 +946,56 @@ impl BuiltinFunctions {
         // Return first part for simplicity (full array support would need array type)
         let parts: Vec<&str> = string.split(&delimiter).collect();
         Ok(FieldValue::String(parts.first().unwrap_or(&"").to_string()))
+    }
+
+    /// SPLIT_PART(string, delimiter, index) - returns the nth part (1-indexed, PostgreSQL semantics)
+    fn split_part_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 3 {
+            return Err(SqlError::ExecutionError {
+                message:
+                    "SPLIT_PART requires exactly three arguments: SPLIT_PART(string, delimiter, index)"
+                        .to_string(),
+                query: None,
+            });
+        }
+
+        let string_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let delimiter_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+        let index_val = ExpressionEvaluator::evaluate_expression_value(&args[2], record)?;
+
+        let (string, delimiter) = match (&string_val, &delimiter_val) {
+            (FieldValue::String(s), FieldValue::String(d)) => (s.clone(), d.clone()),
+            (FieldValue::Null, _) | (_, FieldValue::Null) => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "SPLIT_PART requires string arguments for string and delimiter"
+                        .to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        let index = match index_val {
+            FieldValue::Integer(i) => i,
+            FieldValue::Null => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "SPLIT_PART index must be an integer".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        // PostgreSQL semantics: 1-indexed, out-of-bounds returns empty string
+        if index < 1 {
+            return Ok(FieldValue::String(String::new()));
+        }
+
+        let parts: Vec<&str> = string.split(&delimiter).collect();
+        let idx = (index - 1) as usize;
+        Ok(FieldValue::String(
+            parts.get(idx).unwrap_or(&"").to_string(),
+        ))
     }
 
     fn join_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
@@ -956,14 +1095,172 @@ impl BuiltinFunctions {
         Self::extract_json_value(&json_string, &path)
     }
 
-    // Helper function for JSON extraction
+    /// JSON_EXISTS(json_string, path) - returns true if the path exists in the JSON
+    fn json_exists_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message:
+                    "JSON_EXISTS requires exactly two arguments: JSON_EXISTS(json_string, path)"
+                        .to_string(),
+                query: None,
+            });
+        }
+
+        let json_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let path_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        let (json_string, path) = match (json_val, path_val) {
+            (FieldValue::String(j), FieldValue::String(p)) => (j, p),
+            (FieldValue::Null, _) | (_, FieldValue::Null) => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "JSON_EXISTS requires string arguments".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&json_string) {
+            Ok(v) => v,
+            Err(_) => return Ok(FieldValue::Boolean(false)),
+        };
+
+        let segments = Self::parse_json_path(&path);
+        if segments.is_empty() {
+            // "$" always exists if it parsed
+            return Ok(FieldValue::Boolean(true));
+        }
+
+        let exists = Self::walk_json_path(&parsed, &segments).is_some();
+        Ok(FieldValue::Boolean(exists))
+    }
+
+    /// JSON_QUERY(json_string, path) - returns nested objects/arrays as JSON string
+    /// Returns Null for scalar values (use JSON_VALUE for scalars)
+    fn json_query_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message: "JSON_QUERY requires exactly two arguments: JSON_QUERY(json_string, path)"
+                    .to_string(),
+                query: None,
+            });
+        }
+
+        let json_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let path_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        let (json_string, path) = match (json_val, path_val) {
+            (FieldValue::String(j), FieldValue::String(p)) => (j, p),
+            (FieldValue::Null, _) | (_, FieldValue::Null) => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "JSON_QUERY requires string arguments".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&json_string) {
+            Ok(v) => v,
+            Err(_) => return Ok(FieldValue::Null),
+        };
+
+        let segments = Self::parse_json_path(&path);
+        if segments.is_empty() {
+            // "$" - return whole document if it's an object or array
+            return match &parsed {
+                serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                    Ok(FieldValue::String(parsed.to_string()))
+                }
+                _ => Ok(FieldValue::Null),
+            };
+        }
+
+        match Self::walk_json_path(&parsed, &segments) {
+            Some(v) => match v {
+                serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                    Ok(FieldValue::String(v.to_string()))
+                }
+                _ => Ok(FieldValue::Null), // Scalars return Null from JSON_QUERY
+            },
+            None => Ok(FieldValue::Null),
+        }
+    }
+
+    /// Walk a parsed serde_json::Value by dot-path segments, returning a reference
+    /// to the nested value or None if the path doesn't exist.
+    fn walk_json_path<'a>(
+        value: &'a serde_json::Value,
+        segments: &[&str],
+    ) -> Option<&'a serde_json::Value> {
+        let mut current = value;
+        for &seg in segments {
+            match current {
+                serde_json::Value::Object(map) => {
+                    current = map.get(seg)?;
+                }
+                serde_json::Value::Array(arr) => {
+                    let idx: usize = seg.parse().ok()?;
+                    current = arr.get(idx)?;
+                }
+                _ => return None,
+            }
+        }
+        Some(current)
+    }
+
+    /// Parse a JSON path string into segments.
+    /// Supports: "$", "$.field", "$.nested.field", "$.arr.0.name"
+    /// Also accepts bare field names without "$." prefix.
+    fn parse_json_path(path: &str) -> Vec<&str> {
+        let trimmed = path.trim();
+        if trimmed == "$" || trimmed.is_empty() {
+            return vec![];
+        }
+        let stripped = trimmed
+            .strip_prefix("$.")
+            .unwrap_or(trimmed.strip_prefix('$').unwrap_or(trimmed));
+        stripped.split('.').filter(|s| !s.is_empty()).collect()
+    }
+
+    /// Convert a serde_json::Value to a FieldValue (scalar).
+    /// Objects and arrays return Null (use json_query for those).
+    fn json_value_to_field_scalar(v: &serde_json::Value) -> FieldValue {
+        match v {
+            serde_json::Value::Null => FieldValue::Null,
+            serde_json::Value::Bool(b) => FieldValue::Boolean(*b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    FieldValue::Integer(i)
+                } else if let Some(f) = n.as_f64() {
+                    FieldValue::Float(f)
+                } else {
+                    FieldValue::String(n.to_string())
+                }
+            }
+            serde_json::Value::String(s) => FieldValue::String(s.clone()),
+            // Objects and arrays → return as JSON string for extract, Null for value
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                FieldValue::String(v.to_string())
+            }
+        }
+    }
+
+    // Helper function for JSON extraction (scalar values)
     fn extract_json_value(json_string: &str, path: &str) -> Result<FieldValue, SqlError> {
-        // Simplified JSON extraction - in real implementation would use proper JSON parsing
-        if path == "$" {
-            Ok(FieldValue::String(json_string.to_string()))
-        } else {
-            // For now, return null for any complex path
-            Ok(FieldValue::Null)
+        let parsed: serde_json::Value = match serde_json::from_str(json_string) {
+            Ok(v) => v,
+            Err(_) => return Ok(FieldValue::Null),
+        };
+
+        let segments = Self::parse_json_path(path);
+        if segments.is_empty() {
+            return Ok(FieldValue::String(json_string.to_string()));
+        }
+
+        match Self::walk_json_path(&parsed, &segments) {
+            Some(v) => Ok(Self::json_value_to_field_scalar(v)),
+            None => Ok(FieldValue::Null),
         }
     }
 
@@ -1506,6 +1803,30 @@ impl BuiltinFunctions {
             }),
         }
     }
+
+    /// DELTA(column) - difference between max and min values (aggregate function)
+    /// For streaming single-record evaluation, returns 0 (actual computation in aggregation engine)
+    fn delta_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "DELTA requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        // For streaming with single value, delta is 0
+        let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match value {
+            FieldValue::Integer(_) => Ok(FieldValue::Integer(0)),
+            FieldValue::Float(_) => Ok(FieldValue::Float(0.0)),
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Err(SqlError::ExecutionError {
+                message: "DELTA requires numeric argument".to_string(),
+                query: None,
+            }),
+        }
+    }
+
     fn map_values_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -2823,6 +3144,15 @@ register_sql_function!(
     handler: BuiltinFunctions::median_function
 );
 
+register_sql_function!(
+    name: "DELTA",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::delta_function
+);
+
 // ============================================================================
 // STATISTICAL AGGREGATE FUNCTIONS
 // ============================================================================
@@ -3159,6 +3489,24 @@ register_sql_function!(
     handler: BuiltinFunctions::regexp_function
 );
 
+register_sql_function!(
+    name: "REGEXP_REPLACE",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::regexp_replace_function
+);
+
+register_sql_function!(
+    name: "SPLIT_PART",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::split_part_function
+);
+
 // ============================================================================
 // DATE/TIME FUNCTIONS
 // ============================================================================
@@ -3304,6 +3652,24 @@ register_sql_function!(
     aggregate: false,
     window: false,
     handler: BuiltinFunctions::json_value_function
+);
+
+register_sql_function!(
+    name: "JSON_EXISTS",
+    aliases: [],
+    category: FunctionCategory::Json,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::json_exists_function
+);
+
+register_sql_function!(
+    name: "JSON_QUERY",
+    aliases: [],
+    category: FunctionCategory::Json,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::json_query_function
 );
 
 // ============================================================================
